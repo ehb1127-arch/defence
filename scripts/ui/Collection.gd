@@ -105,11 +105,12 @@ func _ready() -> void:
 	_info.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	v.add_child(_info)
 	_up = ActionButton.make("upgrade", Color(0.45, 0.95, 0.6), "레벨 업", _level_up, Vector2(500, 90))
+	_up.tone = UIKit.GREEN
 	_up.badge_icon = "coin"
 	v.add_child(_up)
 	Profile.changed.connect(_refresh)
 	_select(GameData.UNIT_ORDER[0])
-
+	UIKit.dress_screen(self)
 
 func _select(id: String) -> void:
 	_sel = id

@@ -55,6 +55,8 @@ func _ready() -> void:
 		var key: String = spec[0]
 		var b := ActionButton.make(spec[1], spec[2], spec[3], func(): _show(key), Vector2(200, 76))
 		b.badge = spec[3]
+		b.tone = UIKit.NAVY
+		b.radius = 18
 		tabs.add_child(b)
 		_tab_btns[key] = b
 	_grid = GridContainer.new()
@@ -79,8 +81,10 @@ func _ready() -> void:
 	Profile.changed.connect(_rebuild)
 	Store.products_updated.connect(_rebuild)
 	Store.purchase_finished.connect(_on_purchase)
-	_show("items")
-
+	var tab: String = Session.get_meta("shop_tab", "")
+	Session.set_meta("shop_tab", "")
+	_show(tab if tab != "" else "items")
+	UIKit.dress_screen(self)
 
 func _process(delta: float) -> void:
 	if _toast_t > 0.0:
@@ -129,12 +133,9 @@ func _card_base(icon: String, col: Color, title: String, desc: String) -> Array:
 	p.custom_minimum_size = Vector2(288, 470)
 	var sb: StyleBox = Art.stylebox("card")
 	if sb == null:
-		var f := StyleBoxFlat.new()
-		f.bg_color = Color(0.12, 0.12, 0.18)
-		f.border_color = col.darkened(0.3)
-		f.set_border_width_all(2)
-		f.set_corner_radius_all(14)
+		var f := UIKit.panel_box(Color(0.1, 0.12, 0.24, 0.94), col.darkened(0.15), 22)
 		f.set_content_margin_all(14)
+		f.shadow_size = 10
 		sb = f
 	p.add_theme_stylebox_override("panel", sb)
 	var v := VBoxContainer.new()
@@ -188,6 +189,7 @@ func _item_card(it: Dictionary) -> Control:
 	buy.badge_icon = "coin"
 	buy.badge = str(it["price"])
 	buy.disabled = Profile.coins < it["price"]
+	buy.tone = UIKit.GREEN
 	v.add_child(buy)
 	return base[0]
 
@@ -214,6 +216,7 @@ func _perk_card(pk: Dictionary) -> Control:
 	buy.badge_icon = "" if maxed else "coin"
 	buy.badge = "MAX" if maxed else str(price)
 	buy.disabled = maxed or Profile.coins < price
+	buy.tone = UIKit.GREEN
 	v.add_child(buy)
 	return base[0]
 
@@ -235,6 +238,7 @@ func _iap_card(p: Dictionary) -> Control:
 	var buy := ActionButton.make("", Color.WHITE, "구매", func(): Store.buy(id), Vector2(250, 70))
 	buy.badge = "보유 중" if owned else Store.price(id)
 	buy.disabled = owned or not Store.available()
+	buy.tone = Color(1.0, 0.7, 0.1)
 	if p.has("tag") and not owned:
 		buy.count = 0
 		var tag := Label.new()
@@ -266,6 +270,7 @@ func _ad_card(icon: String, title: String, desc: String, cb: Callable) -> Contro
 	b.badge_icon = "ad"
 	b.badge = "광고 보기"
 	b.disabled = left <= 0
+	b.tone = UIKit.BLUE
 	v.add_child(b)
 	return base[0]
 

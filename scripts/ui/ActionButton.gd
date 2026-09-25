@@ -14,6 +14,9 @@ var count := 0               # 우상단 빨간 뱃지 (0 이면 숨김)
 var progress := -1.0         # 0~1 게이지 링 (-1 이면 숨김)
 var glow := false            # 사용 가능 강조
 var selected := false
+var tone := Color(0, 0, 0, 0)  # 설정하면 이 색의 입체 버튼으로 직접 그림 (강조 버튼)
+var radius := 14.0
+var font_px := 0               # 가운데 글자 크기 강제 (0 = 버튼 크기에 맞춤)
 var _t := 0.0
 var _hold := -1.0            # 누르고 있는 시간 (터치 길게 누르기 → 설명 말풍선)
 const LONG_PRESS := 0.45
@@ -30,6 +33,32 @@ static func make(p_icon: String, p_color: Color, p_tip: String, cb: Callable, sz
 	b.focus_mode = Control.FOCUS_NONE
 	b.pressed.connect(cb)
 	return b
+
+
+func _ready() -> void:
+	button_down.connect(_on_down)
+	button_up.connect(_on_up)
+	resized.connect(func(): pivot_offset = size * 0.5)
+	pivot_offset = size * 0.5
+	if tone.a > 0.0:
+		set_tone(tone)
+
+
+func set_tone(c: Color) -> void:
+	tone = c
+	for st in ["normal", "hover", "pressed", "disabled", "focus"]:
+		add_theme_stylebox_override(st, StyleBoxEmpty.new())
+	queue_redraw()
+
+
+func _on_down() -> void:
+	var tw := create_tween()
+	tw.tween_property(self, "scale", Vector2(0.94, 0.94), 0.06)
+
+
+func _on_up() -> void:
+	var tw := create_tween()
+	tw.tween_property(self, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _process(delta: float) -> void:
@@ -111,11 +140,32 @@ func _draw() -> void:
 	var sz := size
 	var font := get_theme_font("font")
 	var a := 0.4 if disabled else 1.0
+	var pressed_now := is_pressed() and not disabled and (button_mask & MOUSE_BUTTON_MASK_LEFT) != 0 and is_hovered()
+	if tone.a > 0.0:
+		var c := tone if not disabled else Color(0.32, 0.33, 0.38)
+		if is_hovered() and not disabled:
+			c = c.lightened(0.08)
+		UIKit.draw_gloss(self, Rect2(Vector2.ZERO, sz), c, radius, 6.0, pressed_now)
 	if glow and not disabled:
 		var pulse := 0.5 + 0.5 * sin(_t * 6.0)
-		draw_rect(Rect2(Vector2(2, 2), sz - Vector2(4, 4)), Color(1, 0.9, 0.4, 0.35 + 0.45 * pulse), false, 3.0)
+		var g := StyleBoxFlat.new()
+		g.draw_center = false
+		g.border_color = Color(1, 0.9, 0.35, 0.45 + 0.5 * pulse)
+		g.set_border_width_all(3)
+		g.set_corner_radius_all(int(radius) + 2)
+		g.shadow_color = Color(1, 0.8, 0.2, 0.25 * pulse)
+		g.shadow_size = 10
+		g.draw(get_canvas_item(), Rect2(Vector2(-2, -2), sz + Vector2(4, 4)))
 	if selected:
-		draw_rect(Rect2(Vector2(1, 1), sz - Vector2(2, 2)), Color(1, 1, 1, 0.9), false, 2.0)
+		var sb := StyleBoxFlat.new()
+		sb.draw_center = false
+		sb.border_color = Color(1, 0.88, 0.35)
+		sb.set_border_width_all(3)
+		sb.set_corner_radius_all(int(radius))
+		sb.draw(get_canvas_item(), Rect2(Vector2(-1, -1), sz + Vector2(2, 2)))
+	if tone.a > 0.0:
+		# 입체 버튼: 윗면 가운데에 내용 (눌리면 같이 내려감)
+		draw_set_transform(Vector2(0, (4.0 if pressed_now else 0.0) - 3.0))
 	if icon_name == "":
 		# 아이콘 없는 버튼: 뱃지를 크게 가운데
 		_draw_center_badge(font, sz)
@@ -141,28 +191,22 @@ func _draw() -> void:
 		var y := sz.y - fs * 0.55
 		if badge_icon != "":
 			Glyphs.draw_icon(self, badge_icon, Vector2(x0 + fs * 0.45, y - fs * 0.35), fs * 0.45, Color.WHITE)
-		draw_string_outline(font, Vector2(x0 + iw, y), badge, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 3, Color(0, 0, 0, 0.8 * a))
-		draw_string(font, Vector2(x0 + iw, y), badge, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, a))
+		UIKit.draw_text_outlined(self, font, Vector2(x0 + iw, y), badge, fs, Color(1, 1, 1, a), 4)
 	elif show_captions and caption != "":
 		var cs := fs - 2
 		var tw := font.get_string_size(caption, HORIZONTAL_ALIGNMENT_LEFT, -1, cs).x
 		draw_string(font, Vector2((sz.x - tw) * 0.5, sz.y - cs * 0.5), caption, HORIZONTAL_ALIGNMENT_LEFT, -1, cs, Color(0.85, 0.88, 0.95, a))
 	if count > 0:
-		var p := Vector2(sz.x - 12, 12)
-		draw_circle(p, 10, Color(0.9, 0.2, 0.25))
-		var s := str(count) if count < 100 else "!"
-		var w := font.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
-		draw_string(font, p + Vector2(-w / 2, 4.5), s, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
+		UIKit.draw_badge_dot(self, font, Vector2(sz.x - 6, 6), count)
 
 
 func _draw_center_badge(font: Font, sz: Vector2) -> void:
 	var a := 0.4 if disabled else 1.0
-	var fs := int(clampf(sz.y * 0.36, 14, 30))
+	var fs := font_px if font_px > 0 else int(clampf(sz.y * 0.36, 14, 30))
 	var tw := font.get_string_size(badge, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	var iw := fs * 1.2 if badge_icon != "" else 0.0
 	var x0 := (sz.x - tw - iw) * 0.5
 	var y := sz.y * 0.5 + fs * 0.36
 	if badge_icon != "":
 		Glyphs.draw_icon(self, badge_icon, Vector2(x0 + fs * 0.5, sz.y * 0.5), fs * 0.5, Color.WHITE)
-	draw_string_outline(font, Vector2(x0 + iw, y), badge, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 4, Color(0, 0, 0, 0.8 * a))
-	draw_string(font, Vector2(x0 + iw, y), badge, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, a))
+	UIKit.draw_text_outlined(self, font, Vector2(x0 + iw, y), badge, fs, Color(1, 1, 1, a), maxi(4, fs / 6))

@@ -111,6 +111,8 @@ func _ready() -> void:
 	_info_mods.add_theme_constant_override("separation", 16)
 	v.add_child(_info_mods)
 	_start = ActionButton.make("play", Color(0.5, 1.0, 0.6), "출격!", _launch, Vector2(260, 220))
+	_start.tone = UIKit.GREEN
+	_start.radius = 26
 	_start.badge = "출격"
 	h.add_child(_start)
 	Profile.changed.connect(_refresh)
@@ -121,7 +123,7 @@ func _ready() -> void:
 			cur = id
 	_select_chapter(int(cur.split("-")[0]))
 	_select_stage(cur)
-
+	UIKit.dress_screen(self)
 
 func _select_chapter(n: int) -> void:
 	if n > 1 and not Profile.stage_unlocked(Story.stage_id(n, 1)):

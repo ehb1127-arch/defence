@@ -143,7 +143,10 @@ func _refresh_synergy() -> void:
 func _action_buttons(sz: Vector2) -> Array:
 	var list: Array = []
 	var add := func(key: String, icon: String, col: Color, tip: String, cb: Callable):
-		var ab := ActionButton.make(icon, col, tip, cb, sz)
+		var ab := ActionButton.make(icon, col.lightened(0.45), tip, cb, sz)
+		# 모바일 게임식 색 버튼: 버튼마다 고유 색 (소환/합성은 더 진하게 강조)
+		ab.tone = col.darkened(0.25 if key in ["summon", "merge"] else 0.42)
+		ab.radius = 16
 		_btn[key] = ab
 		list.append(ab)
 	add.call("summon", "summon", Color(0.45, 0.9, 0.5), "소환 (Q)\n골드로 무작위 유닛 소환", func(): board.summon())

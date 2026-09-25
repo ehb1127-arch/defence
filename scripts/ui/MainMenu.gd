@@ -33,6 +33,7 @@ var _room_label: Label
 var _btn_start: Button
 var _btn_leave: Button
 var _t := 0.0
+var _dim: ColorRect
 
 
 func _ready() -> void:
@@ -45,7 +46,15 @@ func _ready() -> void:
 	_build_top()
 	_build_mode_cards()
 	_build_bottom()
+	_build_idle()
 
+	# 팝업 뒤 어둡게 (누르면 닫힘)
+	_dim = ColorRect.new()
+	_dim.color = Color(0, 0, 0, 0.6)
+	_dim.size = Vector2(1600, 900)
+	_dim.visible = false
+	_dim.gui_input.connect(func(e): if e is InputEventMouseButton and e.pressed: on_back())
+	add_child(_dim)
 	# ---- 온라인 로비 (카드 누르면 열리는 창) ----
 	_online = _panel(Vector2(500, 100), Vector2(600, 720), "온라인")
 	_online.visible = false
@@ -145,7 +154,6 @@ func _ready() -> void:
 	_build_settings()
 	_build_achievements()
 	_build_two_player()
-	_build_idle()
 	_auto_account()
 	# 온라인 매치에서 돌아왔으면 로비를 바로 보여준다
 	if Net.connected:
@@ -153,6 +161,12 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if _dim != null:
+		var any := false
+		for p in [_rank_panel, _achieve, _settings, _help, _two_p, _online]:
+			if p != null and p.visible:
+				any = true
+		_dim.visible = any
 	_t -= delta
 	if _t <= 0.0:
 		_t = 0.25
@@ -237,13 +251,15 @@ func _join_selected() -> void:
 
 
 func _panel(pos: Vector2, sz: Vector2, header: String) -> PanelContainer:
+	## 팝업 창: 파란 테두리 패널 + 위쪽 리본 제목 (art/ui/popup_panel.png 로 교체 가능)
 	var p := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.11, 0.12, 0.17)
-	sb.border_color = Color(0.3, 0.35, 0.5)
-	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(12)
-	sb.set_content_margin_all(18)
+	var sb: StyleBox = Art.stylebox("popup_panel")
+	if sb == null:
+		var f := UIKit.panel_box()
+		f.content_margin_top = 40
+		f.content_margin_left = 24
+		f.content_margin_right = 24
+		sb = f
 	p.add_theme_stylebox_override("panel", sb)
 	p.position = pos
 	p.size = sz
@@ -251,10 +267,26 @@ func _panel(pos: Vector2, sz: Vector2, header: String) -> PanelContainer:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 10)
 	p.add_child(v)
-	var h := _label(header)
-	h.add_theme_font_size_override("font_size", 24)
-	h.add_theme_color_override("font_color", Color(0.9, 0.9, 1.0))
-	v.add_child(h)
+	var ribbon := PanelContainer.new()
+	var rsb := UIKit.bevel(Color(0.3, 0.45, 0.95), 14, 5)
+	rsb.content_margin_left = 34
+	rsb.content_margin_right = 34
+	rsb.content_margin_top = 4
+	ribbon.add_theme_stylebox_override("panel", rsb)
+	ribbon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var h := UIKit.label(header, 26)
+	h.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ribbon.add_child(h)
+	# 제목 리본은 VBox 첫 줄(높이 0)에 붙여 패널 위 가장자리에 걸친다 (기존 코드의 get_child(0) 호환)
+	var hold := Control.new()
+	hold.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(hold)
+	hold.add_child(ribbon)
+	var place := func():
+		ribbon.size = ribbon.get_combined_minimum_size()
+		ribbon.position = Vector2((hold.size.x - ribbon.size.x) * 0.5, -40 - ribbon.size.y * 0.5)
+	hold.resized.connect(place)
+	place.call_deferred()
 	return p
 
 
@@ -317,19 +349,42 @@ func _build_background() -> void:
 		tr.size = Vector2(1600, 900)
 		add_child(tr)
 		return
-	var bg := ColorRect.new()
-	bg.color = Color(0.06, 0.07, 0.1)
-	bg.size = Vector2(1600, 900)
-	add_child(bg)
-	var deco := _MenuDeco.new()
+	var deco := ScreenBG.new()
 	deco.size = Vector2(1600, 900)
 	deco.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(deco)
 
 
-class _MenuDeco:
+class _LevelBadge:
 	extends Control
-	## 이미지 배경이 없을 때: 천천히 도는 사각 트랙과 적 점들
+	## 계정 레벨: 금테 육각형 + 경험치 링
+	var level := 1
+	var ratio := 0.0
+
+	func _draw() -> void:
+		var c := size * 0.5
+		var r := minf(size.x, size.y) * 0.5 - 3
+		draw_arc(c, r, -PI / 2, -PI / 2 + TAU, 48, Color(0, 0, 0, 0.5), 6.0)
+		draw_arc(c, r, -PI / 2, -PI / 2 + TAU * ratio, 48, Color(0.4, 0.9, 1.0), 6.0)
+		var hex := PackedVector2Array()
+		for i in 6:
+			hex.append(c + Vector2.from_angle(PI / 6 + i * TAU / 6) * (r - 7))
+		draw_colored_polygon(hex, Color(0.95, 0.7, 0.15))
+		var inner := PackedVector2Array()
+		for i in 6:
+			inner.append(c + Vector2.from_angle(PI / 6 + i * TAU / 6) * (r - 12))
+		draw_colored_polygon(inner, Color(0.25, 0.35, 0.8))
+		var f := get_theme_font("font")
+		var s := str(level)
+		var fs := 26 if level < 100 else 20
+		var w := f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		UIKit.draw_text_outlined(self, f, c + Vector2(-w * 0.5, fs * 0.36), s, fs)
+
+
+class _Hero:
+	extends Control
+	## 로비 가운데 대표 유닛 (가장 높은 등급)
+	var unit_id := "sword"
 	var t := 0.0
 
 	func _process(delta: float) -> void:
@@ -337,97 +392,129 @@ class _MenuDeco:
 		queue_redraw()
 
 	func _draw() -> void:
-		for k in 3:
-			var s := 300.0 + k * 180.0
-			var r := Rect2(Vector2(800, 470) - Vector2(s, s) / 2, Vector2(s, s))
-			draw_rect(r, Color(0.3, 0.35, 0.5, 0.08 + 0.03 * k), false, 18.0 - k * 4)
-			var per := s * 4.0
-			for n in 10:
-				var d := fmod(t * (40.0 + k * 15.0) + n * per / 10.0, per)
-				var side := int(d / s)
-				var q := d - side * s
-				var p: Vector2 = [r.position + Vector2(q, 0), r.position + Vector2(s, q), r.position + Vector2(s - q, s), r.position + Vector2(0, s - q)][side]
-				draw_circle(p, 5.0, Color(0.85, 0.3, 0.3, 0.35))
+		var c := Vector2(size.x * 0.5, size.y * 0.5 + sin(t * 2.0) * 8.0)
+		var col: Color = GameData.RARITY_COLORS[GameData.UNITS[unit_id]["rarity"]]
+		for k in 5:
+			draw_circle(c, 150 - k * 18, Color(col, 0.05 + 0.02 * k))
+		var tex := Art.tex("units/" + unit_id)
+		if tex != null:
+			draw_texture_rect(tex, Rect2(c - Vector2(120, 120), Vector2(240, 240)), false)
+		else:
+			Glyphs.draw_unit_token(self, unit_id, c, 95, 0.0, 1.0)
+		# 반짝임
+		for i in 3:
+			var a := t * 1.3 + i * TAU / 3
+			var p := c + Vector2(cos(a) * 130, sin(a) * 50 - 20)
+			draw_circle(p, 4, Color(1, 1, 0.8, 0.6 + 0.4 * sin(t * 5 + i)))
+
+
+func _hero_unit() -> String:
+	var best := "sword"
+	var best_score := -1
+	for id in Profile.discovered:
+		if not GameData.UNITS.has(id):
+			continue
+		var sc := int(GameData.UNITS[id]["rarity"]) * 100 + Profile.unit_level(id)
+		if sc > best_score:
+			best_score = sc
+			best = id
+	return best
+
+
+func _side_button(icon: String, col: Color, caption: String, tip: String, cb: Callable, tone := Color(0.22, 0.3, 0.55)) -> VBoxContainer:
+	## 로비 양옆 둥근 아이콘 + 아래 이름표
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", -6)
+	var b := ActionButton.make(icon, col, tip, cb, Vector2(88, 84))
+	b.tone = tone
+	b.radius = 20
+	v.add_child(b)
+	var l := UIKit.label(caption, 17)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(l)
+	return v
 
 
 func _build_top() -> void:
-	var logo_tex := Art.tex("ui/logo")
-	if logo_tex != null:
-		var tr := TextureRect.new()
-		tr.texture = logo_tex
-		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
-		tr.position = Vector2(40, 24)
-		tr.size = Vector2(520, 130)
-		add_child(tr)
-	else:
-		var title := Label.new()
-		title.text = "사각 디펜스"
-		title.add_theme_font_size_override("font_size", 64)
-		title.add_theme_color_override("font_color", Color(1, 0.85, 0.35))
-		title.add_theme_color_override("font_outline_color", Color(0.25, 0.12, 0))
-		title.add_theme_constant_override("outline_size", 12)
-		title.position = Vector2(44, 28)
-		add_child(title)
-	# 계정 레벨 + 경험치
-	var lvbox := HBoxContainer.new()
-	lvbox.position = Vector2(48, 112)
-	lvbox.add_theme_constant_override("separation", 10)
-	add_child(lvbox)
-	var lv := Label.new()
-	lv.text = "Lv.%d" % Profile.level
-	lv.add_theme_font_size_override("font_size", 22)
-	lv.add_theme_color_override("font_color", Color(0.5, 0.85, 1.0))
-	lvbox.add_child(lv)
-	var xb := ProgressBar.new()
-	xb.max_value = GameData.xp_to_next(Profile.level)
-	xb.value = Profile.xp
-	xb.show_percentage = false
-	xb.custom_minimum_size = Vector2(220, 14)
-	xb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	lvbox.add_child(xb)
-	var xl := Label.new()
-	xl.text = "%d / %d" % [Profile.xp, GameData.xp_to_next(Profile.level)]
-	xl.add_theme_font_size_override("font_size", 14)
-	xl.add_theme_color_override("font_color", Color(0.6, 0.65, 0.75))
-	lvbox.add_child(xl)
+	# ---- 왼쪽 위: 프로필 (레벨 배지 + 닉네임 + 경험치) ----
+	var prof := PanelContainer.new()
+	var psb := UIKit.pill(Color(0.03, 0.04, 0.1, 0.6))
+	psb.content_margin_left = 4
+	psb.content_margin_right = 18
+	prof.add_theme_stylebox_override("panel", psb)
+	prof.position = Vector2(16, 12)
+	add_child(prof)
+	var ph := HBoxContainer.new()
+	ph.add_theme_constant_override("separation", 10)
+	prof.add_child(ph)
+	var badge := _LevelBadge.new()
+	badge.custom_minimum_size = Vector2(70, 70)
+	badge.level = Profile.level
+	badge.ratio = float(Profile.xp) / maxf(1.0, GameData.xp_to_next(Profile.level))
+	badge.tooltip_text = "계정 레벨 %d  (경험치 %d / %d)" % [Profile.level, Profile.xp, GameData.xp_to_next(Profile.level)]
+	ph.add_child(badge)
+	var pv := VBoxContainer.new()
+	pv.alignment = BoxContainer.ALIGNMENT_CENTER
+	pv.add_theme_constant_override("separation", 2)
+	ph.add_child(pv)
+	_name_edit = LineEdit.new()
+	_name_edit.text = Session.player_name
+	_name_edit.max_length = 10
+	_name_edit.placeholder_text = "닉네임"
+	_name_edit.custom_minimum_size = Vector2(190, 36)
+	_name_edit.add_theme_font_size_override("font_size", 22)
+	_name_edit.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+	_name_edit.add_theme_color_override("font_outline_color", UIKit.INK)
+	_name_edit.add_theme_constant_override("outline_size", 4)
+	_name_edit.tooltip_text = "눌러서 닉네임 바꾸기"
+	pv.add_child(_name_edit)
+	var sub := UIKit.label("대전 %d점  ·  최고 R%d" % [Profile.rating, int(Profile.stats.get("best_round", 0))], 14, Color(0.7, 0.8, 1.0), 3)
+	pv.add_child(sub)
+	# ---- 오른쪽 위: 재화 + 설정 ----
 	var right := HBoxContainer.new()
-	right.add_theme_constant_override("separation", 10)
-	right.position = Vector2(770, 30)
-	right.size = Vector2(730, 70)
+	right.add_theme_constant_override("separation", 12)
+	right.position = Vector2(900, 18)
+	right.size = Vector2(684, 64)
 	right.alignment = BoxContainer.ALIGNMENT_END
 	add_child(right)
 	var chip := PanelContainer.new()
-	var csb := StyleBoxFlat.new()
-	csb.bg_color = Color(0, 0, 0, 0.45)
-	csb.set_corner_radius_all(30)
-	csb.content_margin_left = 12
-	csb.content_margin_right = 18
-	chip.add_theme_stylebox_override("panel", csb)
+	chip.add_theme_stylebox_override("panel", UIKit.pill())
 	var ch := HBoxContainer.new()
-	ch.add_child(UIIcon.make("coin", 40))
-	_coin_lbl = Label.new()
-	_coin_lbl.add_theme_font_size_override("font_size", 28)
-	_coin_lbl.add_theme_color_override("font_color", Color(0.85, 0.72, 1.0))
+	ch.add_theme_constant_override("separation", 6)
+	ch.add_child(UIIcon.make("coin", 44))
+	_coin_lbl = UIKit.label("0", 28)
+	_coin_lbl.custom_minimum_size = Vector2(110, 0)
 	ch.add_child(_coin_lbl)
+	var plus := ActionButton.make("", Color.WHITE, "충전 (상점)", func(): _go_shop("charge"), Vector2(40, 40))
+	plus.tone = UIKit.GREEN
+	plus.radius = 10
+	plus.badge = "+"
+	plus.font_px = 28
+	plus.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	ch.add_child(plus)
 	chip.add_child(ch)
 	right.add_child(chip)
-	_rewards_btn = ActionButton.make("gift", Color(1, 0.75, 0.4), "보상 (출석 · 미션 · 룰렛)", func(): get_tree().change_scene_to_file("res://scenes/Rewards.tscn"), Vector2(70, 64))
-	right.add_child(_rewards_btn)
-	right.add_child(ActionButton.make("trophy", Color(1, 0.8, 0.3), "업적", func(): _achieve.visible = true, Vector2(70, 64)))
-	right.add_child(ActionButton.make("book", Color(0.6, 0.8, 1.0), "도감 (유닛 레벨업)", func(): get_tree().change_scene_to_file("res://scenes/Collection.tscn"), Vector2(70, 64)))
-	var shop := ActionButton.make("shop", Color(1, 0.8, 0.35), "상점", func(): get_tree().change_scene_to_file("res://scenes/Shop.tscn"), Vector2(70, 64))
-	right.add_child(shop)
-	right.add_child(ActionButton.make("help", Color(0.45, 0.6, 0.9), "게임 방법", _show_help, Vector2(64, 64)))
-	right.add_child(ActionButton.make("gear", Color(0.85, 0.9, 1.0), "설정", func(): _settings.visible = true, Vector2(64, 64)))
-	right.add_child(ActionButton.make("close", Color(1, 0.5, 0.5), "종료", func(): get_tree().quit(), Vector2(64, 64)))
+	var gear := ActionButton.make("gear", Color(0.9, 0.93, 1.0), "설정", func(): _show_panel(_settings), Vector2(64, 60))
+	gear.tone = UIKit.NAVY
+	right.add_child(gear)
 	Profile.changed.connect(_refresh_coins)
 	_refresh_coins()
 
 
+func _go_shop(tab := "") -> void:
+	Session.set_meta("shop_tab", tab)
+	get_tree().change_scene_to_file("res://scenes/Shop.tscn")
+
+
+func _show_panel(p: Control) -> void:
+	p.visible = true
+	UIKit.pop_in(p)
+	Sfx.play("tick")
+
+
 func _refresh_coins() -> void:
 	if is_instance_valid(_coin_lbl):
-		_coin_lbl.text = str(Profile.coins)
+		_coin_lbl.text = _fmt_num(Profile.coins)
 	if is_instance_valid(_rewards_btn):
 		var n := Profile.reward_badge()
 		_rewards_btn.count = n
@@ -435,42 +522,152 @@ func _refresh_coins() -> void:
 		_rewards_btn.queue_redraw()
 
 
-func _build_mode_cards() -> void:
-	var grid := GridContainer.new()
-	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 22)
-	grid.add_theme_constant_override("v_separation", 22)
-	grid.position = Vector2(230, 180)
-	add_child(grid)
-	var cards := [
-		["mode_story", "book", Color(1, 0.8, 0.4), "스토리", _story_sub(), _open_story],
-		["mode_solo", "star", Color(1, 0.85, 0.35), "무한 모드", "40라운드 생존 · 최고 R%d" % int(Profile.stats.get("best_round", 0)), func(): _start_local("solo", false)],
-		["mode_coop_ai", "gift", Color(0.5, 0.95, 0.8), "협동 · AI", "AI 동료와 함께", func(): _start_local("coop", false)],
-		["mode_pvp_ai", "attack", Color(1, 0.5, 0.4), "대전 · AI", "먼저 무너지면 패배", func(): _start_local("pvp", false)],
-		["mode_local_2p", "heart", Color(0.5, 0.95, 0.8), "로컬 2인", "한 화면에서 친구와", func(): _two_p.visible = true],
-		["mode_online", "ad", Color(0.45, 0.7, 1.0), "온라인", "서버 · 빠른 매칭 · 랭킹", func(): _online.visible = true],
+static func _fmt_num(n: int) -> String:
+	var s := str(absi(n))
+	var out := ""
+	while s.length() > 3:
+		out = "," + s.substr(s.length() - 3) + out
+		s = s.substr(0, s.length() - 3)
+	return ("-" if n < 0 else "") + s + out
+
+
+# ---- 가운데: 대표 유닛 + 모드 선택 + 전투 시작 ----
+static var _mode_i := 0
+var _mode_icon: UIIcon
+var _mode_name: Label
+var _mode_sub: Label
+var _battle: ActionButton
+var _diff_row: HBoxContainer
+var _hero: Control
+
+
+func _modes() -> Array:
+	return [
+		{"id": "story", "icon": "book", "col": Color(1, 0.8, 0.4), "name": "스토리", "sub": _story_sub(), "go": "스토리 계속"},
+		{"id": "solo", "icon": "star", "col": Color(1, 0.85, 0.35), "name": "무한 모드", "sub": "40라운드 생존 · 최고 R%d" % int(Profile.stats.get("best_round", 0)), "go": "전투 시작"},
+		{"id": "coop", "icon": "heart", "col": Color(0.5, 0.95, 0.8), "name": "협동 · AI", "sub": "AI 동료와 함께 40라운드", "go": "전투 시작"},
+		{"id": "pvp", "icon": "attack", "col": Color(1, 0.5, 0.4), "name": "대전 · AI", "sub": "먼저 무너지면 패배", "go": "전투 시작"},
 	]
-	for c in cards:
-		var card := VBoxContainer.new()
-		card.add_theme_constant_override("separation", 6)
-		var icon_name: String = c[0] if Art.icon(c[0]) != null else c[1]
-		var b := ActionButton.make(icon_name, c[2], c[3] + "\n" + c[4], c[5], Vector2(360, 200))
-		if c[0] == "mode_story":
-			b.glow = true
-		card.add_child(b)
-		var t := Label.new()
-		t.text = c[3]
-		t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		t.add_theme_font_size_override("font_size", 24)
-		t.add_theme_color_override("font_color", c[2].lightened(0.2))
-		card.add_child(t)
-		var sub := Label.new()
-		sub.text = c[4]
-		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		sub.add_theme_font_size_override("font_size", 15)
-		sub.add_theme_color_override("font_color", Color(0.65, 0.7, 0.8))
-		card.add_child(sub)
-		grid.add_child(card)
+
+
+func _build_mode_cards() -> void:
+	_hero = _Hero.new()
+	_hero.unit_id = _hero_unit()
+	_hero.position = Vector2(620, 150)
+	_hero.size = Vector2(360, 330)
+	_hero.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_hero)
+	var u: Dictionary = GameData.UNITS[_hero.unit_id]
+	var plate := UIKit.label("%s  %s  Lv.%d" % [GameData.RARITY_NAMES[u["rarity"]], u["name"], Profile.unit_level(_hero.unit_id) + 1], 20, GameData.RARITY_COLORS[u["rarity"]].lightened(0.3))
+	plate.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	plate.position = Vector2(600, 470)
+	plate.size = Vector2(400, 30)
+	add_child(plate)
+	# 모드 선택 (◀ 모드 ▶)
+	var sel := PanelContainer.new()
+	var ssb := UIKit.panel_box(Color(0.08, 0.1, 0.22, 0.88), Color(0.45, 0.58, 1.0), 20)
+	ssb.set_content_margin_all(8)
+	sel.add_theme_stylebox_override("panel", ssb)
+	sel.position = Vector2(520, 515)
+	sel.size = Vector2(560, 100)
+	add_child(sel)
+	var sh := HBoxContainer.new()
+	sh.add_theme_constant_override("separation", 12)
+	sel.add_child(sh)
+	var prev := ActionButton.make("back", Color.WHITE, "이전 모드", func(): _cycle_mode(-1), Vector2(60, 80))
+	prev.tone = UIKit.BLUE
+	sh.add_child(prev)
+	_mode_icon = UIIcon.make("star", 70)
+	sh.add_child(_mode_icon)
+	var mv := VBoxContainer.new()
+	mv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mv.alignment = BoxContainer.ALIGNMENT_CENTER
+	mv.add_theme_constant_override("separation", 0)
+	sh.add_child(mv)
+	_mode_name = UIKit.label("", 32)
+	mv.add_child(_mode_name)
+	_mode_sub = UIKit.label("", 16, Color(0.75, 0.82, 1.0), 3)
+	mv.add_child(_mode_sub)
+	var nxt := ActionButton.make("play", Color.WHITE, "다음 모드", func(): _cycle_mode(1), Vector2(60, 80))
+	nxt.tone = UIKit.BLUE
+	sh.add_child(nxt)
+	# 전투 시작
+	_battle = ActionButton.make("", Color.WHITE, "선택한 모드로 시작", _start_selected, Vector2(400, 116))
+	_battle.tone = Color(1.0, 0.72, 0.1)
+	_battle.radius = 24
+	_battle.glow = true
+	_battle.font_px = 44
+	_battle.position = Vector2(600, 630)
+	add_child(_battle)
+	# AI 난이도 (협동/대전 AI 일 때)
+	_diff_row = HBoxContainer.new()
+	_diff_row.position = Vector2(1020, 660)
+	_diff_row.add_theme_constant_override("separation", 6)
+	add_child(_diff_row)
+	var dl := UIKit.label("AI", 18, Color(1, 0.7, 0.6))
+	dl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_diff_row.add_child(dl)
+	for lvl in 3:
+		var lv := lvl
+		var b := ActionButton.make("star", [Color(0.6, 0.9, 0.6), Color(1, 0.85, 0.35), Color(1, 0.4, 0.4)][lvl],
+			"AI 난이도: " + ["쉬움", "보통", "어려움"][lvl], func(): _set_diff(lv), Vector2(58, 58))
+		b.badge = ["쉬움", "보통", "고수"][lvl]
+		b.tone = UIKit.NAVY
+		_diff_row.add_child(b)
+		_diff_btns.append(b)
+	_set_diff(Session.bot_level)
+	_cycle_mode(0)
+
+
+func _cycle_mode(d: int) -> void:
+	var ms := _modes()
+	_mode_i = posmod(_mode_i + d, ms.size())
+	var m: Dictionary = ms[_mode_i]
+	_mode_icon.set_icon(m["icon"], m["col"])
+	_mode_name.text = m["name"]
+	_mode_name.add_theme_color_override("font_color", m["col"].lightened(0.25))
+	_mode_sub.text = m["sub"]
+	_battle.badge = m["go"]
+	_battle.queue_redraw()
+	_diff_row.visible = m["id"] in ["coop", "pvp"]
+	if d != 0:
+		Sfx.play("tick")
+		UIKit.pop_in(_mode_name, 0.9)
+
+
+func _start_selected() -> void:
+	var id: String = _modes()[_mode_i]["id"]
+	if id == "story":
+		_open_story()
+	else:
+		_start_local(id, false)
+
+
+# ---- 양옆 아이콘 ----
+func _build_sides() -> void:
+	var left := VBoxContainer.new()
+	left.position = Vector2(24, 120)
+	left.add_theme_constant_override("separation", 14)
+	add_child(left)
+	var rw := _side_button("gift", Color(1, 0.8, 0.45), "보상", "보상 (출석 · 미션 · 룰렛)", func(): get_tree().change_scene_to_file("res://scenes/Rewards.tscn"), Color(0.85, 0.35, 0.3))
+	_rewards_btn = rw.get_child(0)
+	left.add_child(rw)
+	left.add_child(_side_button("trophy", Color(1, 0.85, 0.35), "업적", "업적", func(): _show_panel(_achieve)))
+	left.add_child(_side_button("wheel", Color(1, 0.75, 0.5), "룰렛", "행운의 룰렛 (매일 무료)", func(): get_tree().change_scene_to_file("res://scenes/Rewards.tscn")))
+	left.add_child(_side_button("help", Color(0.7, 0.85, 1.0), "도움말", "게임 방법", _show_help))
+	var right := VBoxContainer.new()
+	right.position = Vector2(1488, 120)
+	right.add_theme_constant_override("separation", 14)
+	add_child(right)
+	right.add_child(_side_button("attack", Color(1, 0.9, 0.9), "온라인", "온라인: 빠른 매칭 · 방 · 랭킹", func(): _show_panel(_online), Color(0.3, 0.5, 0.95)))
+	right.add_child(_side_button("heart", Color(0.6, 1, 0.85), "2인", "로컬 2인 (한 화면에서 친구와)", func(): _show_panel(_two_p)))
+	_refresh_coins()
+
+
+func _open_rank() -> void:
+	if Net.connected:
+		Net.request_leaderboard()
+	_show_panel(_rank_panel)
 
 
 func _open_story() -> void:
@@ -504,16 +701,20 @@ func _build_two_player() -> void:
 
 
 func _build_idle() -> void:
-	## 방치 보상: 접속하지 않은 동안 쌓인 코인 (최대 8시간)
+	## 방치 보상: 접속하지 않은 동안 쌓인 코인 (최대 8시간) - 전투 버튼 왼쪽 상자
 	var box := HBoxContainer.new()
-	box.position = Vector2(1380, 110)
-	box.add_theme_constant_override("separation", 6)
+	box.position = Vector2(372, 640)
+	box.add_theme_constant_override("separation", 8)
 	add_child(box)
-	_idle_btn = ActionButton.make("chest", Color.WHITE, "방치 보상 받기\n접속하지 않아도 10분마다 코인이 쌓여요 (최대 8시간)", _claim_idle, Vector2(90, 70))
+	_idle_btn = ActionButton.make("chest", Color.WHITE, "방치 보상 받기\n접속하지 않아도 10분마다 코인이 쌓여요 (최대 8시간)", _claim_idle, Vector2(120, 96))
 	_idle_btn.badge_icon = "coin"
+	_idle_btn.tone = Color(0.55, 0.35, 0.2)
+	_idle_btn.radius = 18
 	box.add_child(_idle_btn)
-	_idle_ad = ActionButton.make("ad", Color(0.4, 0.7, 1.0), "광고 보고 방치 보상 2배", _claim_idle_ad, Vector2(90, 70))
+	_idle_ad = ActionButton.make("ad", Color(0.8, 0.9, 1.0), "광고 보고 방치 보상 2배", _claim_idle_ad, Vector2(76, 96))
 	_idle_ad.badge = "x2"
+	_idle_ad.tone = UIKit.BLUE
+	_idle_ad.radius = 18
 	box.add_child(_idle_ad)
 	_refresh_idle()
 
@@ -547,39 +748,42 @@ func _grant_idle_double() -> void:
 
 
 func _build_bottom() -> void:
-	var bar := HBoxContainer.new()
-	bar.add_theme_constant_override("separation", 12)
-	bar.position = Vector2(230, 812)
-	bar.size = Vector2(1140, 60)
+	## 하단 탭 바: 상점 · 도감 · [전투] · 스토리 · 온라인
+	_build_sides()
+	var bar := Panel.new()
+	var bsb := StyleBoxFlat.new()
+	bsb.bg_color = Color(0.05, 0.06, 0.14, 0.94)
+	bsb.border_color = Color(0.4, 0.52, 0.95, 0.8)
+	bsb.border_width_top = 3
+	bar.add_theme_stylebox_override("panel", bsb)
+	bar.position = Vector2(0, 790)
+	bar.size = Vector2(1600, 110)
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bar)
-	bar.add_child(UIIcon.make("mission", 34, Color(0.6, 0.9, 1.0)))
-	_name_edit = LineEdit.new()
-	_name_edit.text = Session.player_name
-	_name_edit.max_length = 10
-	_name_edit.placeholder_text = "닉네임"
-	_name_edit.custom_minimum_size = Vector2(220, 48)
-	_name_edit.add_theme_font_size_override("font_size", 20)
-	bar.add_child(_name_edit)
-	var sp := Control.new()
-	sp.custom_minimum_size = Vector2(20, 0)
-	bar.add_child(sp)
-	bar.add_child(UIIcon.make("elite", 34, Color(1, 0.55, 0.45)))
-	for lvl in 3:
-		var lv := lvl
-		var b := ActionButton.make("star", [Color(0.6, 0.9, 0.6), Color(1, 0.85, 0.35), Color(1, 0.4, 0.4)][lvl],
-			"AI 난이도: " + ["쉬움", "보통", "어려움"][lvl], func(): _set_diff(lv), Vector2(64, 52))
-		b.badge = ["1", "2", "3"][lvl]
-		bar.add_child(b)
-		_diff_btns.append(b)
-	_set_diff(Session.bot_level)
-	var sp2 := Control.new()
-	sp2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bar.add_child(sp2)
-	var st := Label.new()
-	st.text = "최고 ROUND %d   ·   승리 %d / %d판" % [int(Profile.stats["best_round"]), int(Profile.stats["wins"]), int(Profile.stats["games"])]
-	st.add_theme_color_override("font_color", Color(0.65, 0.7, 0.8))
-	st.add_theme_font_size_override("font_size", 16)
-	bar.add_child(st)
+	var tabs := [
+		["shop", Color(1, 0.8, 0.35), "상점", func(): _go_shop()],
+		["book", Color(0.6, 0.8, 1.0), "도감", func(): get_tree().change_scene_to_file("res://scenes/Collection.tscn")],
+		["attack", Color(1, 0.95, 0.9), "전투", func(): pass],
+		["star", Color(1, 0.85, 0.4), "스토리", _open_story],
+		["crown", Color(1, 0.85, 0.35), "랭킹", _open_rank],
+	]
+	var w := 1600.0 / tabs.size()
+	for i in tabs.size():
+		var tb: Array = tabs[i]
+		var home: bool = i == 2
+		var b := ActionButton.make(tb[0], tb[1], tb[2], tb[3], Vector2(w - 24, 100 if home else 88))
+		b.tone = Color(0.95, 0.65, 0.12) if home else Color(0.16, 0.2, 0.38)
+		b.radius = 18
+		b.caption = tb[2]
+		b.badge = tb[2]
+		b.position = Vector2(i * w + 12, 782 if home else 802)
+		add_child(b)
+		if i == 1:
+			var up := 0
+			for id in Profile.discovered:
+				if Profile.coins >= GameData.unit_level_cost(id, Profile.unit_level(id)) and Profile.unit_level(id) < GameData.UNIT_MAX_LEVEL:
+					up += 1
+			b.count = up
 
 
 func _refresh_record() -> void:
@@ -715,7 +919,7 @@ func _replay_tutorial() -> void:
 
 
 func _show_help() -> void:
-	_help.visible = true
+	_show_panel(_help)
 
 
 func _build_help() -> void:

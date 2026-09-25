@@ -145,6 +145,8 @@ scripts/autoload/Ads.gd       보상형 광고 (AdMob 플러그인 자동 감지
 scripts/autoload/Platform.gd  모바일: 뒤로 가기, 앱 전환 일시정지, 진동, 화면 켜짐
 scripts/autoload/Store.gd     인앱 결제 (Google Play Billing 플러그인 / 개발용 테스트 결제)
 scripts/server/IapVerifier.gd 서버: Google Play 영수증 확인 (서비스 계정 JWT)
+scripts/ui/UIKit.gd           공통 모바일 게임 스타일 (입체 버튼, 팝업, 테두리 글자, 팝 애니메이션)
+scripts/ui/ScreenBG.gd        공통 화면 배경 (그라데이션·광선·반짝이)
 scripts/ui/Glyphs.gd          이미지 없을 때 쓰는 벡터 아이콘/유닛 문양
 scripts/ui/ActionButton.gd    아이콘 + 비용 뱃지 버튼
 scripts/ui/Shop.gd            상점 화면

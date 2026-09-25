@@ -65,9 +65,11 @@ func _ready() -> void:
 	side.alignment = BoxContainer.ALIGNMENT_CENTER
 	h.add_child(side)
 	_spin_free = ActionButton.make("wheel", Color(1, 0.8, 0.3), "무료 돌리기 (하루 1회)", func(): _spin(false), Vector2(210, 110))
+	_spin_free.tone = Color(1.0, 0.7, 0.1)
 	_spin_free.badge = "무료"
 	side.add_child(_spin_free)
 	_spin_ad = ActionButton.make("wheel", Color(0.4, 0.7, 1.0), "광고 보고 돌리기", func(): _spin(true), Vector2(210, 110))
+	_spin_ad.tone = UIKit.BLUE
 	_spin_ad.badge_icon = "ad"
 	side.add_child(_spin_ad)
 	_result = Label.new()
@@ -78,14 +80,13 @@ func _ready() -> void:
 	side.add_child(_result)
 	Profile.changed.connect(_refresh)
 	_refresh()
-
+	UIKit.dress_screen(self)
 
 func _section(r: Rect2, icon: String, title: String) -> VBoxContainer:
 	var p := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.1, 0.1, 0.15)
-	sb.set_corner_radius_all(14)
+	var sb := UIKit.panel_box(Color(0.09, 0.11, 0.22, 0.92), Color(0.36, 0.48, 0.85), 20)
 	sb.set_content_margin_all(14)
+	sb.shadow_size = 10
 	p.add_theme_stylebox_override("panel", sb)
 	p.position = r.position
 	p.size = r.size
@@ -95,10 +96,7 @@ func _section(r: Rect2, icon: String, title: String) -> VBoxContainer:
 	p.add_child(v)
 	var h := HBoxContainer.new()
 	h.add_child(UIIcon.make(icon if icon != "calendar" else "star", 30, Color(1, 0.8, 0.35)))
-	var l := Label.new()
-	l.text = title
-	l.add_theme_font_size_override("font_size", 22)
-	h.add_child(l)
+	h.add_child(UIKit.label(title, 24, Color(1, 0.9, 0.6)))
 	v.add_child(h)
 	return v
 
@@ -158,6 +156,7 @@ func _refresh() -> void:
 		row.add_child(prog)
 		var mm: Dictionary = m
 		var claim := ActionButton.make("coin", Color.WHITE, "받기", func(): _claim(mm), Vector2(110, 52))
+		claim.tone = UIKit.GREEN
 		claim.icon_name = ""
 		claim.badge_icon = "coin"
 		claim.badge = "완료" if Profile.daily["claimed"].get(m["id"], false) else str(m["coins"])
@@ -172,6 +171,7 @@ func _refresh() -> void:
 	bl.add_theme_color_override("font_color", Color(1, 0.85, 0.4))
 	brow.add_child(bl)
 	_bonus_btn = ActionButton.make("", Color.WHITE, "모두 완료 보너스", _claim_bonus, Vector2(140, 52))
+	_bonus_btn.tone = Color(1.0, 0.7, 0.1)
 	_bonus_btn.badge_icon = "coin"
 	_bonus_btn.badge = "받음" if Profile.daily.get("all", false) else str(GameData.DAILY_ALL_BONUS)
 	_bonus_btn.disabled = not Profile.all_daily_done() or Profile.daily.get("all", false)

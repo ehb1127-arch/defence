@@ -163,6 +163,8 @@ func _layout_focus(ui: CanvasLayer) -> void:
 			hud.visible = false
 		ui.add_child(hud)
 	_btn_peek = ActionButton.make("attack", Color(1, 0.55, 0.45), "상대 전장 보기 (필드 적 수)", _toggle_peek, Vector2(90, 44))
+	_btn_peek.tone = Color(0.7, 0.25, 0.22)
+	_btn_peek.radius = 10
 	_top_right.add_child(_btn_peek)
 	_top_right.move_child(_btn_peek, 0)
 
@@ -357,9 +359,11 @@ func _build_top_bar(ui: CanvasLayer) -> void:
 	var bar := PanelContainer.new()
 	bar.theme = GameData.ui_theme()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.05, 0.06, 0.08)
-	sb.border_color = Color(0.25, 0.28, 0.38)
-	sb.border_width_bottom = 2
+	sb.bg_color = Color(0.06, 0.08, 0.18, 0.97)
+	sb.border_color = Color(0.4, 0.52, 0.95, 0.7)
+	sb.border_width_bottom = 3
+	sb.shadow_color = Color(0, 0, 0, 0.4)
+	sb.shadow_size = 6
 	sb.content_margin_left = 14
 	sb.content_margin_right = 10
 	sb.content_margin_top = 4
@@ -400,6 +404,10 @@ func _build_top_bar(ui: CanvasLayer) -> void:
 	_btn_sound = ActionButton.make("sound" if Profile.settings["sound"] else "mute", Color(0.85, 0.9, 1.0), "소리 켜기/끄기", _toggle_sound, Vector2(52, 44))
 	right.add_child(_btn_sound)
 	right.add_child(ActionButton.make("home", Color(0.85, 0.9, 1.0), "메인 메뉴", _to_menu, Vector2(52, 44)))
+	for c in right.get_children():
+		if c is ActionButton:
+			c.tone = UIKit.NAVY
+			c.radius = 10
 
 
 func _toggle_sound() -> void:
@@ -910,14 +918,9 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 	_over_panel.theme = GameData.ui_theme()
 	var sb: StyleBox = Art.stylebox("result_panel")
 	if sb == null:
-		var f := StyleBoxFlat.new()
-		f.bg_color = Color(0.06, 0.07, 0.1, 0.97)
-		f.border_color = Color(1, 0.85, 0.3) if won else Color(0.9, 0.3, 0.3)
-		f.set_border_width_all(3)
-		f.set_corner_radius_all(16)
+		var f := UIKit.panel_box(Color(0.08, 0.1, 0.2, 0.97), Color(1, 0.8, 0.25) if won else Color(0.9, 0.3, 0.3), 26)
 		f.set_content_margin_all(26)
-		f.shadow_color = Color(0, 0, 0, 0.6)
-		f.shadow_size = 16
+		f.content_margin_top = 56
 		sb = f
 	_over_panel.add_theme_stylebox_override("panel", sb)
 	_over_panel.position = Vector2(420, 170)
@@ -926,7 +929,30 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 	holder.size = Vector2(1600, 900)
 	holder.mouse_filter = Control.MOUSE_FILTER_STOP
 	holder.add_child(dim)
+	if won:
+		var rays := _ResultRays.new()
+		rays.size = Vector2(1600, 900)
+		rays.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		holder.add_child(rays)
 	holder.add_child(_over_panel)
+	# 승리/패배 리본 (패널 위 가장자리에 걸침)
+	var ribbon := PanelContainer.new()
+	var rsb := UIKit.bevel(Color(1.0, 0.72, 0.12) if won else Color(0.8, 0.22, 0.25), 18, 7)
+	rsb.content_margin_left = 60
+	rsb.content_margin_right = 60
+	ribbon.add_theme_stylebox_override("panel", rsb)
+	ribbon.theme = GameData.ui_theme()
+	ribbon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ribbon.add_child(UIKit.label("승리!" if won else "패배", 46))
+	holder.add_child(ribbon)
+	var place := func():
+		if not is_instance_valid(ribbon) or not is_instance_valid(_over_panel):
+			return
+		ribbon.size = ribbon.get_combined_minimum_size()
+		ribbon.position = Vector2(800 - ribbon.size.x * 0.5, _over_panel.position.y - ribbon.size.y * 0.55)
+		UIKit.pop_in(_over_panel, 0.7)
+		UIKit.pop_in(ribbon, 0.4)
+	place.call_deferred()
 	ui_layer().add_child(holder)
 	_over_panel.set_meta("holder", holder)
 	var v := VBoxContainer.new()
@@ -1130,6 +1156,12 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 	for c in h.get_children():
 		if c is ActionButton:
 			c.caption = c.tooltip_text.split("\n")[0]
+			c.radius = 20
+			match c.icon_name:
+				"revive": c.tone = Color(0.8, 0.28, 0.42) if c.badge_icon == "" else UIKit.BLUE
+				"coin": c.tone = Color(0.95, 0.65, 0.1)
+				"play", "back": c.tone = UIKit.GREEN
+				_: c.tone = UIKit.NAVY
 
 
 func _near_miss_label(me: Board) -> Label:
@@ -1238,3 +1270,19 @@ func _fmt(v: float) -> String:
 	if v >= 1000.0:
 		return "%.1fK" % (v / 1000.0)
 	return str(int(v))
+
+
+class _ResultRays:
+	extends Control
+	## 승리 화면 뒤에서 도는 빛
+	var t := 0.0
+
+	func _process(delta: float) -> void:
+		t += delta
+		queue_redraw()
+
+	func _draw() -> void:
+		var c := Vector2(800, 420)
+		for i in 16:
+			var a0 := t * 0.25 + i * TAU / 16.0
+			draw_colored_polygon(PackedVector2Array([c, c + Vector2.from_angle(a0) * 1000, c + Vector2.from_angle(a0 + 0.1) * 1000]), Color(1, 0.85, 0.35, 0.07))

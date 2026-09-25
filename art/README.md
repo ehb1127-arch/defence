@@ -128,10 +128,11 @@
 | `ui/hud_inner.png` | 조작 패널 안쪽 칸(선택 카드, 조합표) |
 | `ui/sheet_panel.png` | 도박/강화/조합 팝업 |
 | `ui/result_panel.png` | 결과 화면 |
+| `ui/popup_panel.png` | 메인 메뉴 팝업 창 (온라인·설정·업적·랭킹 등) |
 | `ui/card.png` | 상점 카드 |
 | `ui/menu_bg.png` | 메인 메뉴 배경 (1600×900, 9-slice 아님) |
 | `ui/shop_bg.png` | 상점 배경 (1600×900, 9-slice 아님) |
-| `ui/logo.png` | 게임 로고 (가로형, 약 1040×260) |
+| `ui/logo.png` | (현재 로비에서는 쓰지 않음 - 로딩/타이틀 화면용으로 예약) |
 
 ## portraits/ — 스토리 초상화 (권장 640×720, 투명 배경)
 
@@ -150,3 +151,9 @@
 - 전장 칸에는 유닛 이름을 쓰지 않습니다. 마우스를 올리거나 선택했을 때만 이름표가 뜹니다.
 - 버튼 이름은 설정의 **"버튼 이름 표시"** 를 켰을 때만 작게 표시됩니다 (기본 꺼짐, 설명은 마우스를 올리면 툴팁으로).
 - 폰트 교체: `fonts/` 에 새 폰트를 넣고 `project.godot` 의 `gui/theme/custom_font` 와 `GameData.ui_theme()` 경로를 바꾸면 됩니다.
+
+### 색 버튼 (코드로 그리는 입체 버튼)
+
+로비·상점·전투 조작 버튼 중 색이 있는 버튼(전투 시작, 구매, 소환 등)은 `ActionButton.tone` 색으로
+`UIKit.draw_gloss()` 가 그립니다. 이미지로 바꾸려면 해당 버튼의 `tone` 을 지우고
+`art/ui/button_*.png` 스킨을 쓰거나, `UIKit.draw_gloss` 안에서 텍스처를 그리도록 바꾸면 됩니다.

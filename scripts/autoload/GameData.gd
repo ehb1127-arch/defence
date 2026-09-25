@@ -315,27 +315,51 @@ func ui_theme() -> Theme:
 	if f:
 		t.default_font = f
 	t.default_font_size = 16
+	# 버튼: 두툼한 입체 (모바일 게임 스타일)
+	var base := UIKit.NAVY
 	var states := {
-		"normal": Color(0.2, 0.23, 0.32),
-		"hover": Color(0.27, 0.31, 0.44),
-		"pressed": Color(0.14, 0.16, 0.22),
-		"disabled": Color(0.13, 0.14, 0.18),
-		"focus": Color(0, 0, 0, 0),
+		"normal": UIKit.bevel(base),
+		"hover": UIKit.bevel(base.lightened(0.12)),
+		"pressed": UIKit.bevel(base.darkened(0.1), 14, 6, true),
+		"disabled": UIKit.bevel(Color(0.2, 0.21, 0.26)),
+		"focus": StyleBoxEmpty.new(),
 	}
 	for s in states:
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = states[s]
-		sb.set_corner_radius_all(6)
-		sb.set_content_margin_all(6)
-		if s == "focus":
-			sb.draw_center = false
-		else:
-			sb.border_color = Color(1, 1, 1, 0.12 if s != "hover" else 0.3)
-			sb.set_border_width_all(1)
-			sb.border_width_bottom = 3 if s != "pressed" else 1
 		# art/ui/button_<상태>.png 가 있으면 이미지 스킨 사용
 		var art_sb: StyleBox = Art.stylebox("button_" + s) if s != "focus" else null
-		t.set_stylebox(s, "Button", art_sb if art_sb != null else sb)
+		t.set_stylebox(s, "Button", art_sb if art_sb != null else states[s])
+	t.set_color("font_outline_color", "Button", UIKit.INK)
+	t.set_constant("outline_size", "Button", 4)
+	# 글자: 게임 느낌의 테두리
+	t.set_color("font_outline_color", "Label", Color(0.03, 0.04, 0.09, 0.9))
+	t.set_constant("outline_size", "Label", 3)
+	# 패널 / 게이지 / 입력칸 / 목록
+	t.set_stylebox("panel", "PanelContainer", UIKit.panel_box())
+	var pb_bg := UIKit.inset(Color(0.04, 0.05, 0.1, 0.9), 8)
+	pb_bg.set_content_margin_all(0)
+	t.set_stylebox("background", "ProgressBar", pb_bg)
+	var pb_fill := StyleBoxFlat.new()
+	pb_fill.bg_color = Color(0.35, 0.85, 1.0)
+	pb_fill.border_color = Color(1, 1, 1, 0.35)
+	pb_fill.border_width_top = 2
+	pb_fill.set_corner_radius_all(8)
+	t.set_stylebox("fill", "ProgressBar", pb_fill)
+	t.set_stylebox("normal", "LineEdit", UIKit.inset())
+	t.set_stylebox("focus", "LineEdit", UIKit.inset(Color(0.08, 0.11, 0.22, 0.95)))
+	t.set_stylebox("panel", "ItemList", UIKit.inset())
+	var sel := StyleBoxFlat.new()
+	sel.bg_color = Color(0.3, 0.45, 0.85, 0.6)
+	sel.set_corner_radius_all(8)
+	t.set_stylebox("selected", "ItemList", sel)
+	t.set_stylebox("selected_focus", "ItemList", sel)
+	t.set_constant("v_separation", "ItemList", 8)
+	t.set_stylebox("normal", "OptionButton", UIKit.bevel(base))
+	t.set_stylebox("hover", "OptionButton", UIKit.bevel(base.lightened(0.12)))
+	t.set_stylebox("pressed", "OptionButton", UIKit.bevel(base.darkened(0.1), 14, 6, true))
+	var tip := UIKit.panel_box(Color(0.06, 0.07, 0.13, 0.96), UIKit.GOLD, 12)
+	tip.set_content_margin_all(10)
+	tip.shadow_size = 8
+	t.set_stylebox("panel", "TooltipPanel", tip)
 	t.set_color("font_disabled_color", "Button", Color(0.45, 0.47, 0.52))
 	t.set_color("font_hover_color", "Button", Color(1, 1, 1))
 	var tab_sel := StyleBoxFlat.new()
