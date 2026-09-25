@@ -1,0 +1,33 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+
+config/name="사각 디펜스 (Square Defense)"
+config/description="사각형 트랙 안에서 막는 조합형 협동/대전 디펜스 게임"
+run/main_scene="res://scenes/Main.tscn"
+config/features=PackedStringArray("4.3", "GL Compatibility")
+config/icon="res://icon.svg"
+
+[autoload]
+
+GameData="*res://scripts/autoload/GameData.gd"
+Session="*res://scripts/autoload/Session.gd"
+Net="*res://scripts/autoload/Net.gd"
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=900
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.07, 0.08, 0.11, 1)
+
+[gui]
+
+theme/custom_font="res://fonts/NanumSquareRoundB.ttf"
