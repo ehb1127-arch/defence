@@ -113,9 +113,15 @@ func _process(delta: float) -> void:
 			Ads.auto_claim = true
 			_match._watch_ad_item()
 		elif _t > 3.5 and _shot_i == 3:
-			_done = true
+			_shot_i = 4
 			get_viewport().get_texture().get_image().save_png("%s/shop_ad_done.png" % _shots)
 			print("SMOKE shop coins=", Profile.coins)
+			_match._show("charge")
+			Store.buy("starter_pack")
+		elif _t > 4.5 and _shot_i == 4:
+			_done = true
+			get_viewport().get_texture().get_image().save_png("%s/shop_charge.png" % _shots)
+			print("SMOKE iap store=%s starter=%s revive=%d" % [Store.provider, Profile.purchases.get("starter_pack", false), Profile.item_count("revive")])
 			get_tree().quit()
 		return
 	if Session.mode == "menu" or not "boards" in _match:
@@ -149,7 +155,9 @@ func _process(delta: float) -> void:
 		var img := get_viewport().get_texture().get_image()
 		img.save_png("%s/shot_%d.png" % [_shots, _shot_i])
 		_shot_i += 1
-		if _match.huds.size() > 0 and _match.huds[0].interactive:
+		if _match._btn_peek != null and _shot_i == 3:
+			_match._toggle_peek()   # 모바일 레이아웃: 상대 전장 보기 캡처
+		elif _match.huds.size() > 0 and _match.huds[0].interactive:
 			var kinds := ["slot", "recipe", "upgrade", "attack" if Session.mode == "pvp" else ("coop" if Session.mode == "coop" else "mission")]
 			_match.huds[0]._toggle_sheet(kinds[_shot_i % kinds.size()])
 			if kinds[_shot_i % kinds.size()] == "slot":

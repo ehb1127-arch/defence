@@ -1,9 +1,11 @@
 extends Node
 ## 보상형 광고.
 ##
-## 지금은 "mock"(테스트용 가짜 광고: 5초 카운트다운 후 보상) 으로 동작한다.
-## 실제 광고(AdMob 등)를 붙일 때는 _show_native() 만 구현하면 되고,
+## provider
+##   "admob" : Godot AdMob 플러그인(poing-studios, addons/admob)이 들어 있고 안드로이드일 때
+##   "mock"  : 테스트용 가짜 광고 (5초 카운트다운 후 보상) - PC/에디터/플러그인 없음
 ## 게임 코드는 Ads.show_rewarded(placement, on_reward) 만 호출한다.
+## 광고 제거(Profile.no_ads)를 산 경우 광고 없이 바로 보상.
 ## 자세한 연결 방법: docs/ADS.md
 ##
 ## placement(광고 위치) 목록 - 통계/광고 단위 구분용
@@ -24,12 +26,36 @@ const MOCK_SECONDS := 5
 var provider := "mock"
 var showing := false
 var auto_claim := false          # 자동 테스트용: 테스트 광고를 즉시 보상 처리
+var _classes := {}               # AdMob 플러그인 클래스 (이름 -> Script)
+var _rewarded: Object = null     # 미리 불러 둔 보상형 광고
+var _loading := false
+var _retry := 0.0
 
 
 func _ready() -> void:
-	# 네이티브 광고 플러그인이 있으면 여기서 감지해서 provider 를 바꾼다 (docs/ADS.md 참고)
-	if Engine.has_singleton("SquareDefenseAds"):
-		provider = "native"
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	if OS.get_name() in ["Android", "iOS"] and _find_admob():
+		provider = "admob"
+		_cls("MobileAds").initialize()
+		_preload.call_deferred()
+
+
+func rewarded_id() -> String:
+	## 출시 전 실제 광고 단위 ID 로 교체 (project.godot 의 application/ads/... 로도 덮어쓸 수 있음)
+	if OS.get_name() == "iOS":
+		return ProjectSettings.get_setting("application/ads/ios_rewarded_id", IOS_REWARDED_ID)
+	return ProjectSettings.get_setting("application/ads/android_rewarded_id", ANDROID_REWARDED_ID)
+
+
+func _process(delta: float) -> void:
+	if provider == "admob" and _rewarded == null and not _loading:
+		_retry -= delta
+		if _retry <= 0.0:
+			_preload()
+
+
+func ready_to_show() -> bool:
+	return provider != "admob" or _rewarded != null or Profile.no_ads
 
 
 func show_rewarded(placement: String, on_reward: Callable) -> void:
@@ -45,22 +71,72 @@ func show_rewarded(placement: String, on_reward: Callable) -> void:
 		ad_closed.emit(placement, rewarded)
 		if rewarded:
 			on_reward.call()
-	if auto_claim:
+	if auto_claim or Profile.no_ads:
 		finish.call(true)
-	elif provider == "native":
-		_show_native(placement, finish)
+	elif provider == "admob":
+		_show_admob(placement, finish)
 	else:
 		_show_mock(placement, finish)
 
 
-func _show_native(placement: String, finish: Callable) -> void:
-	## 네이티브 플러그인 호출 자리. 예시 (가상의 싱글톤 API):
-	##   var ads = Engine.get_singleton("SquareDefenseAds")
-	##   ads.connect("rewarded", func(): finish.call(true), CONNECT_ONE_SHOT)
-	##   ads.connect("closed", func(): finish.call(false), CONNECT_ONE_SHOT)
-	##   ads.showRewarded(ANDROID_REWARDED_ID, placement)
-	push_warning("native 광고 제공자가 구현되지 않아 테스트 광고로 대체합니다: " + placement)
-	_show_mock(placement, finish)
+# ---- AdMob (poing-studios godot-admob-plugin). 클래스를 이름으로 찾아서 플러그인이 없어도 컴파일됨 ----
+func _find_admob() -> bool:
+	for c in ProjectSettings.get_global_class_list():
+		_classes[c["class"]] = c["path"]
+	for n in ["MobileAds", "RewardedAdLoader", "RewardedAdLoadCallback", "AdRequest", "FullScreenContentCallback", "OnUserEarnedRewardListener"]:
+		if not _classes.has(n):
+			return false
+	return true
+
+
+func _cls(n: String) -> Object:
+	var sc: Script = load(_classes[n])
+	return sc.new() if n != "MobileAds" else sc
+
+
+func _preload() -> void:
+	if _loading or _rewarded != null:
+		return
+	_loading = true
+	var cb: Object = _cls("RewardedAdLoadCallback")
+	cb.on_ad_loaded = func(ad: Object):
+		_rewarded = ad
+		_loading = false
+	cb.on_ad_failed_to_load = func(_err: Object):
+		_loading = false
+		_retry = 20.0
+	_cls("RewardedAdLoader").load(rewarded_id(), _cls("AdRequest"), cb)
+
+
+func _show_admob(_placement: String, finish: Callable) -> void:
+	if _rewarded == null:
+		# 아직 못 불러옴 → 잠시 기다려 보고 안 되면 취소
+		_preload()
+		for i in 6:
+			await get_tree().create_timer(0.5, true, false, true).timeout
+			if _rewarded != null:
+				break
+		if _rewarded == null:
+			finish.call(false)
+			Platform.show_toast("광고를 불러오지 못했어요. 잠시 후 다시 시도해 주세요")
+			return
+	var ad: Object = _rewarded
+	_rewarded = null
+	var earned := [false]
+	var fs: Object = _cls("FullScreenContentCallback")
+	fs.on_ad_dismissed_full_screen_content = func():
+		ad.destroy()
+		finish.call(earned[0])
+		_preload()
+	fs.on_ad_failed_to_show_full_screen_content = func(_e: Object):
+		ad.destroy()
+		finish.call(false)
+		_preload()
+	ad.full_screen_content_callback = fs
+	var lis: Object = _cls("OnUserEarnedRewardListener")
+	lis.on_user_earned_reward = func(_item: Object):
+		earned[0] = true
+	ad.show(lis)
 
 
 func _show_mock(_placement: String, finish: Callable) -> void:

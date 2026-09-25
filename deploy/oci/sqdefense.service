@@ -8,6 +8,9 @@ Type=simple
 User=sqdefense
 Group=sqdefense
 Environment=HOME=/opt/sqdefense
+# 인앱 결제 영수증 확인 (docs/IAP.md). 키 파일을 두고 주석을 푸세요
+#Environment=SQD_GOOGLE_SA=/opt/sqdefense/sa.json
+#Environment=SQD_PACKAGE=com.squaredefense.game
 WorkingDirectory=/opt/sqdefense
 ExecStart=/opt/sqdefense/godot --headless --path /opt/sqdefense/game -- --server --port @PORT@
 Restart=always

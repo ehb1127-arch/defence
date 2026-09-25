@@ -23,9 +23,11 @@ signal snapshot_received(data: Dictionary)
 signal record_updated(record: Dictionary)      # 내 레이팅/전적
 signal rating_changed(rating: int, delta: int)
 signal leaderboard_received(list: Array, my_rank: int)
+signal account_synced                          # 서버 계정(재화)과 동기화 완료
+signal iap_result(req_id: int, ok: bool, product_id: String, msg: String)
 
 const DEFAULT_PORT := 24680
-const PROTOCOL := 2
+const PROTOCOL := 3
 const MAX_ROOMS := 200
 const MAX_NAME := 12
 const SETTINGS_PATH := "user://online.cfg"
@@ -54,6 +56,14 @@ var _devices := {}              # peer_id -> device_id
 var _db := {}                   # device_id -> {name, rating, wins, losses, coop_best}
 var _db_dirty := false
 const DB_PATH := "user://server_db.json"
+const ProfileScript := preload("res://scripts/autoload/Profile.gd")
+const IapVerifierScript := preload("res://scripts/server/IapVerifier.gd")
+var _econ := {}                 # device_id -> 서버용 Profile 인스턴스 (접속 중인 계정만)
+var _bucket := {}               # device_id -> [남은 판 정산 횟수, 마지막 충전 시각]
+var _iap: RefCounted = null     # 결제 영수증 검증기 (전용 서버)
+var _save_timer := 0.0
+const MATCH_END_BURST := 10     # 판 정산 몰아서 보내기 허용량 (오프라인 판 재전송 포함)
+const MATCH_END_REFILL := 60.0  # 초당 1회씩 다시 채움
 const ELO_K := 32.0
 
 
@@ -84,6 +94,7 @@ func start_dedicated(port: int) -> Error:
 		return err
 	dedicated = true
 	_load_db()
+	_iap = IapVerifierScript.new(self)
 	_log("전용 서버 시작 - 포트 %d, 프로토콜 %d, 등록 플레이어 %d명" % [port, PROTOCOL, _db.size()])
 	return OK
 
@@ -141,6 +152,12 @@ func close() -> void:
 	_rooms.clear()
 	_peer_room.clear()
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
+	if Profile.econ_server:
+		Profile.econ_server = false
+		Profile.op_done.emit([-1, null])
+	for dev in _econ:
+		_econ[dev].free()
+	_econ.clear()
 	if was:
 		connection_changed.emit(false)
 		room_updated.emit({})
@@ -252,6 +269,12 @@ func _on_peer_disconnected(id: int) -> void:
 		_log("접속 종료: %d (%s)" % [id, _names.get(id, "?")])
 		_names.erase(id)
 		_leave(id)
+		var dev: String = _devices.get(id, "")
+		if _econ.has(dev):
+			_store_econ(dev)
+			_econ[dev].free()
+			_econ.erase(dev)
+			_save_db()
 		_devices.erase(id)
 
 
@@ -346,7 +369,10 @@ func _s_hello(player_name: String, protocol: int, device_id: String) -> void:
 	var rec := _record_for(id)
 	_log("입장: %d = %s (레이팅 %d)" % [id, _names[id], rec["rating"]])
 	_to_client(id, "_c_welcome", [id, _room_list()])
-	_to_client(id, "_c_record", [rec])
+	_to_client(id, "_c_record", [_public(rec)])
+	if dedicated and not "#" in dev:
+		var inst := _econ_for(dev)
+		_to_client(id, "_c_profile", [inst.to_dict() if inst != null else {}, inst == null])
 
 
 @rpc("any_peer", "reliable")
@@ -545,6 +571,13 @@ func _record_for(id: int) -> Dictionary:
 	return rec
 
 
+func _public(rec: Dictionary) -> Dictionary:
+	## 레이팅/전적만 (계정 재화는 _c_profile/_c_op 로 따로)
+	var d := rec.duplicate()
+	d.erase("profile")
+	return d
+
+
 func _rate(r: Dictionary, winner: int, loser: int) -> void:
 	r["rated"] = true
 	var w := _record_for(winner)
@@ -559,9 +592,9 @@ func _rate(r: Dictionary, winner: int, loser: int) -> void:
 	_save_db()
 	_log("레이팅: %s +%d (%d) / %s -%d (%d)" % [w["name"], delta, w["rating"], l["name"], delta, l["rating"]])
 	if _names.has(winner):
-		_to_client(winner, "_c_rating", [w, delta])
+		_to_client(winner, "_c_rating", [_public(w), delta])
 	if _names.has(loser):
-		_to_client(loser, "_c_rating", [l, -delta])
+		_to_client(loser, "_c_rating", [_public(l), -delta])
 
 
 func _load_db() -> void:
@@ -741,3 +774,195 @@ func _c_partner_left() -> void:
 		in_match = false
 		disconnected.emit()
 	status_changed.emit("상대가 나갔습니다.")
+
+
+# ===========================================================================
+# 계정 재화 (전용 서버가 기준). 클라이언트는 같은 규칙(Profile.gd)으로 먼저 반영하고
+# 서버가 실행한 결과로 덮어쓴다. 자세한 내용: docs/ECONOMY.md
+# ===========================================================================
+func send_op(req_id: int, op: String, args: Array) -> void:
+	if connected and not is_server:
+		_s_op.rpc_id(1, req_id, op, args)
+
+
+func send_iap(req_id: int, product_id: String, token: String) -> void:
+	if connected and not is_server:
+		_s_iap.rpc_id(1, req_id, product_id, token)
+
+
+func econ_online() -> bool:
+	return connected and Profile.econ_server
+
+
+func _process(delta: float) -> void:
+	if not (is_server and dedicated):
+		return
+	_save_timer -= delta
+	if _save_timer <= 0.0:
+		_save_timer = 5.0
+		_save_db()
+
+
+func _econ_for(dev: String) -> Node:
+	## 접속한 계정의 서버용 Profile. 서버에 계정 재화가 아직 없으면 null (첫 접속 → 이전 요청)
+	if _econ.has(dev):
+		return _econ[dev]
+	if not _db.has(dev) or not _db[dev].has("profile"):
+		return null
+	var inst: Node = ProfileScript.new()
+	inst.server_side = true
+	inst.from_dict(_db[dev]["profile"])
+	inst.rating = int(_db[dev].get("rating", 1000))
+	_econ[dev] = inst
+	return inst
+
+
+func _store_econ(dev: String) -> void:
+	if _econ.has(dev) and _db.has(dev):
+		_db[dev]["profile"] = _econ[dev].to_dict()
+		_db_dirty = true
+
+
+func _take_match_end(dev: String) -> bool:
+	var now := Time.get_unix_time_from_system()
+	var b: Array = _bucket.get(dev, [float(MATCH_END_BURST), now])
+	b[0] = minf(float(MATCH_END_BURST), b[0] + (now - b[1]) / MATCH_END_REFILL)
+	b[1] = now
+	_bucket[dev] = b
+	if b[0] < 1.0:
+		return false
+	b[0] -= 1.0
+	return true
+
+
+static func sanitize_migration(d: Dictionary) -> Dictionary:
+	## 첫 접속 때 기기에 있던 진행을 서버로 옮긴다. 기기 파일은 조작될 수 있으므로 상한을 둔다
+	var p: Node = ProfileScript.new()
+	p.server_side = true
+	p.from_dict(d)
+	p.coins = clampi(p.coins, 0, 5000)
+	p.level = clampi(p.level, 1, 30)
+	p.xp = clampi(p.xp, 0, GameData.xp_to_next(p.level))
+	for id in p.items.keys():
+		if GameData.shop_item(id).is_empty():
+			p.items.erase(id)
+		else:
+			p.items[id] = clampi(int(p.items[id]), 0, 10)
+	for id in p.perks.keys():
+		var pk := GameData.perk(id)
+		if pk.is_empty():
+			p.perks.erase(id)
+		else:
+			p.perks[id] = clampi(int(p.perks[id]), 0, int(pk["max"]))
+	for id in p.unit_levels.keys():
+		if not GameData.UNITS.has(id):
+			p.unit_levels.erase(id)
+		else:
+			p.unit_levels[id] = clampi(int(p.unit_levels[id]), 0, GameData.UNIT_MAX_LEVEL)
+	for id in p.campaign.keys():
+		if Story.get_stage(id).is_empty():
+			p.campaign.erase(id)
+		else:
+			p.campaign[id] = clampi(int(p.campaign[id]), 0, 3)
+	for k in p.stats.keys():
+		var cap := 500 if k in ["mythics", "bosses", "jackpots", "wins"] else 200000
+		if k == "max_star":
+			cap = GameData.STAR_MAX
+		elif k == "best_round":
+			cap = GameData.FINAL_WAVE + 5
+		p.stats[k] = clampi(int(p.stats[k]), 0, cap)
+	# 옮긴 기록으로 이미 도달한 업적 단계는 "받은 것"으로 처리 (조작된 기록으로 보상 받기 방지)
+	for a in GameData.ACHIEVEMENTS:
+		var tier := clampi(int(p.achievements.get(a["id"], 0)), 0, a["goals"].size())
+		var v: int = p.ach_value(a["stat"])
+		while tier < a["goals"].size() and v >= a["goals"][tier]:
+			tier += 1
+		p.achievements[a["id"]] = tier
+	# 결제로만 얻는 것은 옮기지 않는다 (서버 결제 기록이 기준)
+	p.no_ads = false
+	p.purchases = {}
+	var out: Dictionary = p.to_dict()
+	p.free()
+	return out
+
+
+@rpc("any_peer", "reliable")
+func _s_migrate(d: Dictionary) -> void:
+	if not (is_server and dedicated):
+		return
+	var id := _sender()
+	var dev: String = _devices.get(id, "")
+	if dev == "" or "#" in dev or not _db.has(dev) or _db[dev].has("profile"):
+		return
+	_db[dev]["profile"] = sanitize_migration(d)
+	_db_dirty = true
+	_save_db()
+	var inst := _econ_for(dev)
+	_log("계정 이전: %s (코인 %d)" % [_names.get(id, "?"), inst.coins])
+	_to_client(id, "_c_profile", [inst.to_dict(), false])
+
+
+@rpc("any_peer", "reliable")
+func _s_op(req_id: int, op: String, args: Array) -> void:
+	if not (is_server and dedicated):
+		return
+	var id := _sender()
+	var dev: String = _devices.get(id, "")
+	var inst := _econ_for(dev)
+	if inst == null or args.size() > 4:
+		return
+	var result: Variant = null
+	if op == "match_end" and not _take_match_end(dev):
+		result = null
+	elif op == "match_end" and not (args.size() == 1 and args[0] is Dictionary):
+		result = null
+	else:
+		result = inst.run_op(op, args)
+	inst.rating = int(_db[dev].get("rating", 1000))
+	_store_econ(dev)
+	_to_client(id, "_c_op", [req_id, result, inst.to_dict()])
+
+
+@rpc("any_peer", "reliable")
+func _s_iap(req_id: int, product_id: String, token: String) -> void:
+	## 결제 영수증 검증 → 지급. 검증은 Google Play Developer API (IapVerifier)
+	if not (is_server and dedicated):
+		return
+	var id := _sender()
+	var dev: String = _devices.get(id, "")
+	if _econ_for(dev) == null:
+		return
+	var res: Dictionary = await _iap.verify(product_id, token, dev)
+	var inst := _econ_for(dev)   # 기다리는 동안 나갔을 수 있음
+	if inst == null:
+		return
+	var ok: bool = res.get("ok", false)
+	if ok:
+		ok = inst.iap_grant(product_id)
+		if not ok:
+			res["msg"] = "이미 받은 상품"
+		_store_econ(dev)
+		_save_db()
+		_log("결제 %s: %s %s" % ["지급" if ok else "거절", _names.get(id, "?"), product_id])
+	if _names.has(id):
+		_to_client(id, "_c_iap", [req_id, ok, product_id, inst.to_dict(), str(res.get("msg", ""))])
+
+
+@rpc("authority", "reliable")
+func _c_profile(d: Dictionary, need_upload: bool) -> void:
+	if need_upload:
+		_s_migrate.rpc_id(1, Profile.to_dict())
+		return
+	Profile.link_server(d)
+	account_synced.emit()
+
+
+@rpc("authority", "reliable")
+func _c_op(req_id: int, result: Variant, d: Dictionary) -> void:
+	Profile.apply_server(d, req_id, result)
+
+
+@rpc("authority", "reliable")
+func _c_iap(req_id: int, ok: bool, product_id: String, d: Dictionary, msg: String) -> void:
+	Profile.apply_server(d, 0, null)
+	iap_result.emit(req_id, ok, product_id, msg)

@@ -2,7 +2,7 @@
 
 전송: WebSocket (`ws://` 또는 리버스 프록시 뒤 `wss://`), Godot High-level Multiplayer RPC.
 서버는 peer id `1`. 모든 RPC 는 `/root/Net` (autoload `scripts/autoload/Net.gd`) 에 정의되어 있습니다.
-버전: `Net.PROTOCOL` (현재 `2`). 다르면 서버가 `_c_error` 후 연결을 끊습니다.
+버전: `Net.PROTOCOL` (현재 `3`). 다르면 서버가 `_c_error` 후 연결을 끊습니다.
 
 ## 흐름
 
@@ -39,6 +39,9 @@
 | `_s_match_end` | - | 매치 종료 알림 |
 | `_s_event` | `kind: String, data: Variant` | 상대에게 이벤트 전달 |
 | `_s_snap` | `snapshot: Dictionary` | 상대에게 스냅샷 전달 (unreliable_ordered) |
+| `_s_migrate` | `profile: Dictionary` | (전용 서버, 첫 접속) 기기 진행을 서버 계정으로 이전. 상한 적용 |
+| `_s_op` | `req_id: int, op: String, args: Array` | 계정 재화 작업 (`Profile.OPS` 만 허용). docs/ECONOMY.md |
+| `_s_iap` | `req_id: int, product_id: String, token: String` | 결제 영수증 확인 요청. docs/IAP.md |
 
 ## 서버 → 클라이언트
 
@@ -55,6 +58,9 @@
 | `_c_record` | `record` | 내 계정 기록 `{name, rating, wins, losses, coop_best}` |
 | `_c_rating` | `record, delta` | 대전 후 레이팅 변화 (ELO, K=32) |
 | `_c_leaderboard` | `list, my_rank` | 랭킹 |
+| `_c_profile` | `profile: Dictionary, need_upload: bool` | 접속 직후 계정 재화. `need_upload` 면 서버에 계정이 없음 → `_s_migrate` |
+| `_c_op` | `req_id, result, profile` | 작업 결과 + 서버 기준 계정 전체 (클라이언트는 덮어씀) |
+| `_c_iap` | `req_id, ok, product_id, profile, msg` | 결제 확인 결과 |
 
 방 목록 항목: `{id, name, mode, count, playing, quick, players: [이름]}`
 방 상태: `{id, name, mode, owner, members: [peer_id], players: [이름], playing, quick}`
@@ -85,4 +91,5 @@
 ## 서버 저장
 
 계정 기록은 서버의 `user://server_db.json` (systemd 설치 기준 `/opt/sqdefense/.local/share/godot/app_userdata/사각 디펜스 (Square Defense)/server_db.json`) 에 JSON 으로 저장됩니다.
-백업은 이 파일만 복사하면 됩니다.
+계정 재화(`profile` 키)도 같은 파일에 들어 있고, 사용한 결제 영수증은 `server_iap.json` 에 저장됩니다.
+백업은 이 두 파일을 복사하면 됩니다.

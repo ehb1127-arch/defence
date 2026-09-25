@@ -103,7 +103,9 @@ func _layout(ui: CanvasLayer) -> void:
 		if p["kind"] == "human":
 			human_count += 1
 	_build_top_bar(ui)
-	if n == 1:
+	if n == 2 and human_count == 1 and (Platform.is_mobile() or Profile.settings.get("focus_layout", false)):
+		_layout_focus(ui)
+	elif n == 1:
 		var s := 1.41
 		var b: Board = boards[0]
 		b.scale = Vector2(s, s)
@@ -141,7 +143,56 @@ func _layout(ui: CanvasLayer) -> void:
 	ui.add_child(_pause_label)
 
 
-func _make_hud(i: int, human_count: int) -> BoardHUD:
+func _layout_focus(ui: CanvasLayer) -> void:
+	## 휴대폰: 사람 1명 vs 봇/원격 → 내 전장을 크게. 상대 전장은 위쪽 [상대 보기] 버튼으로 같은 자리에 바꿔 보기
+	var me := 0 if not (boards[0].is_bot or boards[0].is_remote) else 1
+	_peek_me = me
+	var s := 1.41
+	for i in 2:
+		var b: Board = boards[i]
+		b.scale = Vector2(s, s)
+		b.position = Vector2(14, TOP_BAR + 6 + Board.HEADER * s)
+		b.visible = i == me
+		var hud := _make_hud(i, 1, i == me)
+		if i == me:
+			hud.sheet_rect = Rect2(b.position, Vector2(Board.SIZE, Board.SIZE) * s)
+			var x := 14 + Board.SIZE * s + 14
+			hud.position = Vector2(x, TOP_BAR + 8)
+			hud.size = Vector2(1600 - x - 14, 900 - TOP_BAR - 16)
+		else:
+			hud.visible = false
+		ui.add_child(hud)
+	_btn_peek = ActionButton.make("attack", Color(1, 0.55, 0.45), "상대 전장 보기 (필드 적 수)", _toggle_peek, Vector2(90, 44))
+	_top_right.add_child(_btn_peek)
+	_top_right.move_child(_btn_peek, 0)
+
+
+var _peek_me := -1
+var _btn_peek: ActionButton
+var _top_right: HBoxContainer
+
+
+func _toggle_peek() -> void:
+	var mine: Board = boards[_peek_me]
+	var other: Board = boards[1 - _peek_me]
+	other.visible = mine.visible
+	mine.visible = not other.visible
+	_btn_peek.selected = other.visible
+	_btn_peek.queue_redraw()
+
+
+func _update_peek() -> void:
+	if _btn_peek == null:
+		return
+	var n: int = boards[1 - _peek_me].field_count()
+	var txt := str(n)
+	if _btn_peek.badge != txt:
+		_btn_peek.badge = txt
+		_btn_peek.glow = n >= GameData.ENEMY_LIMIT * 0.7
+		_btn_peek.queue_redraw()
+
+
+func _make_hud(i: int, human_count: int, tall := false) -> BoardHUD:
 	var b: Board = boards[i]
 	var hud := BoardHUD.new()
 	var interactive := not b.is_bot and not b.is_remote
@@ -158,7 +209,7 @@ func _make_hud(i: int, human_count: int) -> BoardHUD:
 	hud.ad_summon_requested.connect(_on_ad_summon)
 	hud.emote_requested.connect(_on_emote)
 	hud.emotes_enabled = interactive and Session.online
-	hud.setup(b, interactive, hint, boards.size() == 1)
+	hud.setup(b, interactive, hint, boards.size() == 1 or tall)
 	huds.append(hud)
 	return hud
 
@@ -183,8 +234,7 @@ func _on_emote(hud: BoardHUD, emote: String) -> void:
 
 
 func _after_intro() -> void:
-	Profile.story_seen[Session.stage] = true
-	Profile.save()
+	Profile.mark_story_seen(Session.stage)
 	paused = false
 	if Session.tutorial and mode == "solo":
 		_start_tutorial(ui_layer())
@@ -216,8 +266,7 @@ func _start_tutorial(ui: CanvasLayer) -> void:
 	var done := func():
 		paused = false
 		Session.tutorial = false
-		Profile.tutorial_done = true
-		Profile.save()
+		Profile.mark_tutorial_done()
 	var tut := Tutorial.new()
 	tut.steps = [
 		{"text": "적은 사각형 테두리 길을 계속 돕니다.\n필드에 적이 100마리 쌓이면 패배!", "target": header_rect},
@@ -337,6 +386,7 @@ func _build_top_bar(ui: CanvasLayer) -> void:
 	_lbl_round.add_theme_constant_override("outline_size", 6)
 	h.add_child(_lbl_round)
 	var right := HBoxContainer.new()
+	_top_right = right
 	right.custom_minimum_size = Vector2(380, 0)
 	right.alignment = BoxContainer.ALIGNMENT_END
 	h.add_child(right)
@@ -419,13 +469,14 @@ func _process(delta: float) -> void:
 			_snap_t = 0.1
 			Net.send_snapshot(boards[Session.local_index].snapshot())
 	_update_center_label()
+	_update_peek()
 	if not over and not paused:
 		_ach_t -= delta
 		if _ach_t <= 0.0:
 			_ach_t = 1.0
 			var me := _local_board()
 			if not me.is_bot and not me.is_remote:
-				for e in Profile.check_achievements(me):
+				for e in Profile.preview_achievements(me):
 					_match_achs.append(e)
 					_toast_achievement(e)
 
@@ -497,8 +548,7 @@ func _finish_stage_win() -> void:
 
 
 func _after_outro(key: String, stage_name: String) -> void:
-	Profile.story_seen[key] = true
-	Profile.save()
+	Profile.mark_story_seen(key)
 	over = false
 	_finish(0, "스테이지 클리어!  %s" % stage_name, false)
 
@@ -667,7 +717,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if mb.button_index != MOUSE_BUTTON_LEFT and mb.button_index != MOUSE_BUTTON_RIGHT:
 			return
 		for b in boards:
-			if b.is_bot or b.is_remote:
+			if b.is_bot or b.is_remote or not b.visible:
 				continue
 			var local: Vector2 = b.get_global_transform().affine_inverse() * mb.position
 			if b.handle_click(local, mb.button_index == MOUSE_BUTTON_RIGHT):
@@ -759,6 +809,39 @@ func _cycle_speed() -> void:
 	_btn_speed.queue_redraw()
 
 
+# ---- 모바일: 뒤로 가기 / 앱 전환 (Platform 이 부름) ----
+func on_back() -> bool:
+	for h in huds:
+		if h._sheet != null:
+			h.close_sheet()
+			return true
+	if over:
+		_to_menu()
+		return true
+	if Session.online:
+		Platform.show_toast("대전 중에는 위쪽 메뉴 버튼으로 나갈 수 있어요")
+		return true
+	if not paused:
+		_toggle_pause()
+		Platform.show_toast("한 번 더 누르면 메인 메뉴로")
+		return true
+	_to_menu()
+	return true
+
+
+func on_app_paused() -> void:
+	if not paused and not over and not Session.online:
+		_toggle_pause()
+
+
+func _enter_tree() -> void:
+	Platform.keep_screen_on(true)
+
+
+func _exit_tree() -> void:
+	Platform.keep_screen_on(false)
+
+
 func _toggle_pause() -> void:
 	if Session.online or over:
 		return
@@ -801,15 +884,12 @@ func _finish(winner: int, text: String, broadcast: bool) -> void:
 	_last_won = won
 	Sfx.play("win" if won else "lose")
 	var me := _local_board()
-	_pending_coins = GameData.match_coins(me.wave, me.kills, won)
-	_streak_bonus = 0.0
-	if won and not Session.online:
-		_streak_bonus = 0.1 * mini(Profile.streak + 1, 5)
-		_pending_coins = int(_pending_coins * (1.0 + _streak_bonus))
+	var mc := Profile.match_coins_preview(_match_summary())
+	_pending_coins = mc["coins"]
+	_streak_bonus = mc["streak_bonus"]
 	_stage_result = {}
 	if Session.stage != "" and won:
-		_stage_result = Profile.record_stage(Session.stage, me.stage_stars())
-		_stage_result["stars"] = me.stage_stars()
+		_stage_result = Profile.preview_stage(Session.stage, me.stage_stars())
 	_coins_given = false
 	var can_revive := not won and not Session.online and mode != "pvp"
 	_build_over_panel(text, won, can_revive)
@@ -1100,6 +1180,7 @@ func _do_revive() -> void:
 	holder.queue_free()
 	_over_panel = null
 	_pending_coins = 0
+	_ad_double_used = false
 	over = false
 	for b in boards:
 		if not b.is_remote:
@@ -1110,21 +1191,28 @@ func _give_coins(_mult: int) -> void:
 	if _coins_given or not over:
 		return
 	_coins_given = true
-	Profile.add_coins(_pending_coins)
+	# 정산은 판 요약 하나로: 로컬에서 바로 반영하고, 온라인 경제면 서버가 같은 요약을 검증해 덮어쓴다
+	var s := _match_summary()
+	Profile.apply_match_end(s)
+	Profile.sync("match_end", [s])
+
+
+func _match_summary() -> Dictionary:
+	## 로컬 사람 전장 기준 판 요약 (서버로 보내는 형식과 같음)
 	var me := _local_board()
-	Profile.record_match(mode, me.wave, _last_won)
-	if not Session.online:
-		Profile.note_result(_last_won)
-	# 도감 등록 + 일일 미션 진행 (로컬 사람 전장 기준)
+	var ob: Array = []
 	for b in boards:
 		if not b.is_bot and not b.is_remote:
-			Profile.discover(b.obtained.keys())
-	Profile.add_progress("play", 1)
-	Profile.add_progress("kill", me.kills)
-	Profile.add_progress("merge", me.merges_done)
-	Profile.add_progress("mythic", me.mythics_done)
-	Profile.add_progress("boss", me.bosses_killed)
-	Profile.finish_match(me, _last_won)
+			for id in b.obtained.keys():
+				if not id in ob:
+					ob.append(id)
+	return {
+		"mode": mode, "stage": Session.stage, "online": Session.online, "won": _last_won,
+		"wave": me.wave, "kills": me.kills, "stars": me.stage_stars() if _last_won else 0,
+		"merges_done": me.merges_done, "mythics_done": me.mythics_done, "bosses_killed": me.bosses_killed,
+		"interrupts": me.interrupts, "slot_jackpots": me.slot_jackpots, "best_combo": me.best_combo,
+		"max_star": me.max_star, "obtained": ob, "ad_double": _ad_double_used,
+	}
 
 
 func _mvp_ids(b: Board) -> Array:

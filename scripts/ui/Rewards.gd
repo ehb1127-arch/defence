@@ -203,18 +203,6 @@ func _claim(m: Dictionary) -> void:
 		Sfx.play("merge")
 
 
-func _pick() -> int:
-	var total := 0
-	for s in GameData.ROULETTE:
-		total += s["w"]
-	var r := randi() % total
-	for i in GameData.ROULETTE.size():
-		r -= GameData.ROULETTE[i]["w"]
-		if r < 0:
-			return i
-	return 0
-
-
 func _spin(by_ad: bool) -> void:
 	if _wheel.spinning:
 		return
@@ -229,8 +217,14 @@ func _spin(by_ad: bool) -> void:
 
 
 func _start_spin(by_ad: bool) -> void:
-	Profile.use_roulette(by_ad)
-	var idx := _pick()
+	## 결과는 Profile(온라인이면 서버)이 정하고 즉시 지급 → 바퀴는 그 칸에 멈추는 연출만
+	_result.text = "두근두근..."
+	var r: Variant = await Profile.request("roulette", [by_ad])
+	if r == null or int(r) < 0:
+		_result.text = "지금은 돌릴 수 없어요"
+		_refresh()
+		return
+	var idx := int(r)
 	_pending = GameData.ROULETTE[idx]
 	_result.text = "두근두근..."
 	_result.add_theme_color_override("font_color", Color(0.8, 0.8, 0.9))
@@ -240,7 +234,6 @@ func _start_spin(by_ad: bool) -> void:
 
 func _on_wheel_stopped(_idx: int) -> void:
 	var r := _pending
-	Profile.grant(r)
 	var txt := ""
 	if r.has("coins"):
 		txt = "코인 +%d" % r["coins"]

@@ -69,7 +69,15 @@ Godot 4 로 만든 **스타크래프트 유즈맵 스타일 사각형 디펜스*
   - 무료 보상: 광고 보고 코인 / 랜덤 아이템 (하루 8회)
 - 게임 중: **광고 보고 무료 소환 3회**, 패배 시 **광고 보고 부활** (각 판당 1회, 솔로·로컬 협동)
 - 대전에서는 공정성을 위해 아이템·영구 강화·게임 중 광고가 적용되지 않습니다
-- 광고는 현재 테스트 광고로 동작하며, 실제 AdMob 연결 방법은 [docs/ADS.md](docs/ADS.md)
+- **충전**(인앱 결제): 코인 묶음, 초보자 꾸러미, 광고 제거 — 결제 확인과 지급은 서버가 함 ([docs/IAP.md](docs/IAP.md))
+- 광고: 안드로이드 + AdMob 플러그인이면 실제 광고, 아니면 테스트 광고 ([docs/ADS.md](docs/ADS.md))
+- 서버에 접속한 계정은 **재화가 서버에 저장**되고, 오프라인 플레이는 다음 접속 때 반영 ([docs/ECONOMY.md](docs/ECONOMY.md))
+
+## 안드로이드
+
+- 가로 화면, 뒤로 가기 버튼, 앱 전환 시 자동 일시정지/저장, 진동, 길게 눌러 설명 보기
+- 휴대폰 대전 화면: 내 전장 크게 + 상대 전장 바꿔 보기
+- 빌드 방법: [docs/ANDROID.md](docs/ANDROID.md) (`--export-debug "Android"` 로 APK)
 
 ## 스토리 모드
 
@@ -132,8 +140,11 @@ scripts/autoload/Session.gd   선택한 모드/참가자 보관
 scripts/autoload/Net.gd       온라인(WebSocket): 전용 서버 / LAN 호스트 / 클라이언트 - 방·매칭·중계
 scripts/autoload/Sfx.gd       코드로 생성하는 효과음
 scripts/autoload/Art.gd       그림 교체 지점 (art/ 에 PNG 가 있으면 사용)
-scripts/autoload/Profile.gd   코인·아이템·영구 강화·설정·기록 저장 (user://profile.cfg)
-scripts/autoload/Ads.gd       보상형 광고 (현재 테스트 광고, 네이티브 연결 자리)
+scripts/autoload/Profile.gd   코인·아이템·강화·기록 + 재화 규칙(작업 op). 서버도 같은 코드로 계정 처리
+scripts/autoload/Ads.gd       보상형 광고 (AdMob 플러그인 자동 감지, 없으면 테스트 광고)
+scripts/autoload/Platform.gd  모바일: 뒤로 가기, 앱 전환 일시정지, 진동, 화면 켜짐
+scripts/autoload/Store.gd     인앱 결제 (Google Play Billing 플러그인 / 개발용 테스트 결제)
+scripts/server/IapVerifier.gd 서버: Google Play 영수증 확인 (서비스 계정 JWT)
 scripts/ui/Glyphs.gd          이미지 없을 때 쓰는 벡터 아이콘/유닛 문양
 scripts/ui/ActionButton.gd    아이콘 + 비용 뱃지 버튼
 scripts/ui/Shop.gd            상점 화면
@@ -177,6 +188,10 @@ godot --headless --path . -- --server --port 24680
 godot --headless res://scenes/Main.tscn -- --server --port 24690
 godot --headless res://tests/NetTest.tscn -- quick pvp 20 127.0.0.1:24690
 godot --headless res://tests/NetTest.tscn -- quick pvp 20 127.0.0.1:24690
+
+# 서버 경제 테스트 (계정 이전, 재화 작업, 판 정산 상한, 룰렛, 결제, 오프라인 재전송)
+SQD_IAP_TEST=1 godot --headless res://scenes/Main.tscn -- --server --port 24695
+godot --headless res://tests/EconTest.tscn -- 127.0.0.1:24695
 
 # LAN 호스트 + 게스트
 godot --headless res://tests/NetTest.tscn -- lanhost coop 20 24691

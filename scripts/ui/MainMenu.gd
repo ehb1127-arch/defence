@@ -146,6 +146,7 @@ func _ready() -> void:
 	_build_achievements()
 	_build_two_player()
 	_build_idle()
+	_auto_account()
 	# 온라인 매치에서 돌아왔으면 로비를 바로 보여준다
 	if Net.connected:
 		_online.visible = true
@@ -671,13 +672,13 @@ func _set_diff(lvl: int) -> void:
 
 
 func _build_settings() -> void:
-	_settings = _panel(Vector2(560, 250), Vector2(480, 330), "설정")
+	_settings = _panel(Vector2(540, 190), Vector2(520, 480), "설정")
 	_settings.visible = false
 	var v: VBoxContainer = _settings.get_child(0)
-	for spec in [["sound", "효과음"], ["captions", "버튼 이름 표시 (이미지 적용 전 도움)"]]:
+	for spec in [["sound", "효과음"], ["captions", "버튼 이름 표시 (이미지 적용 전 도움)"], ["vibrate", "진동"], ["focus_layout", "대전: 내 전장 크게 (휴대폰은 항상)"], ["account_sync", "시작할 때 서버 계정과 동기화"]]:
 		var cb := CheckButton.new()
 		cb.text = spec[1]
-		cb.button_pressed = Profile.settings[spec[0]]
+		cb.button_pressed = Profile.settings.get(spec[0], true)
 		var key: String = spec[0]
 		cb.toggled.connect(func(on): Profile.set_setting(key, on))
 		v.add_child(cb)
@@ -688,6 +689,24 @@ func _build_settings() -> void:
 	v.add_child(lab)
 	var close := _small_btn("닫기", func(): _settings.visible = false)
 	v.add_child(close)
+
+
+func _auto_account() -> void:
+	## 재화를 서버 계정에 맞추기 위해 메뉴에 들어오면 조용히 서버에 접속해 둔다
+	if Net.peer != null or Net.is_server or not Profile.settings.get("account_sync", true):
+		return
+	if "127.0.0.1" in Net.server_address or "localhost" in Net.server_address:
+		return   # 서버 주소를 정하기 전 (Net.DEFAULT_SERVER 를 OCI 주소로 바꾸면 자동 접속)
+	Net.connect_to(Net.server_address)
+
+
+func on_back() -> bool:
+	## 안드로이드 뒤로 가기: 열린 창부터 닫는다
+	for p in [_rank_panel, _achieve, _settings, _help, _two_p, _online]:
+		if p != null and p.visible:
+			p.visible = false
+			return true
+	return false
 
 
 func _replay_tutorial() -> void:

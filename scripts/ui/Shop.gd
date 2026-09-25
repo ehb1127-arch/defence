@@ -51,7 +51,7 @@ func _ready() -> void:
 	tabs.position = Vector2(30, 112)
 	tabs.add_theme_constant_override("separation", 12)
 	add_child(tabs)
-	for spec in [["items", "gift", Color(0.8, 0.6, 1.0), "아이템"], ["perks", "upgrade", Color(0.45, 0.95, 0.6), "영구 강화"], ["free", "ad", Color(0.4, 0.7, 1.0), "무료 보상"]]:
+	for spec in [["items", "gift", Color(0.8, 0.6, 1.0), "아이템"], ["perks", "upgrade", Color(0.45, 0.95, 0.6), "영구 강화"], ["free", "ad", Color(0.4, 0.7, 1.0), "무료 보상"], ["charge", "coin", Color(1, 0.8, 0.35), "충전"]]:
 		var key: String = spec[0]
 		var b := ActionButton.make(spec[1], spec[2], spec[3], func(): _show(key), Vector2(200, 76))
 		b.badge = spec[3]
@@ -77,6 +77,8 @@ func _ready() -> void:
 	_toast.add_theme_constant_override("outline_size", 6)
 	add_child(_toast)
 	Profile.changed.connect(_rebuild)
+	Store.products_updated.connect(_rebuild)
+	Store.purchase_finished.connect(_on_purchase)
 	_show("items")
 
 
@@ -116,6 +118,9 @@ func _rebuild() -> void:
 		"free":
 			_grid.add_child(_ad_card("coin", "코인 +%d" % GameData.AD_COINS, "광고를 보고 코인 받기", func(): _watch_ad_coins()))
 			_grid.add_child(_ad_card("gift", "랜덤 아이템", "광고를 보고 상점 아이템 1개", func(): _watch_ad_item()))
+		"charge":
+			for p in GameData.IAP_PRODUCTS:
+				_grid.add_child(_iap_card(p))
 
 
 func _card_base(icon: String, col: Color, title: String, desc: String) -> Array:
@@ -213,6 +218,42 @@ func _perk_card(pk: Dictionary) -> Control:
 	return base[0]
 
 
+func _iap_card(p: Dictionary) -> Control:
+	var id: String = p["id"]
+	var g: Dictionary = p["grant"]
+	var parts: Array = []
+	if g.has("coins"):
+		parts.append("코인 %d" % g["coins"])
+	for it in g.get("items", {}):
+		parts.append("%s x%d" % [GameData.shop_item(it)["name"], g["items"][it]])
+	var desc: String = p.get("desc", "")
+	if desc != "":
+		parts.push_front(desc)
+	var base := _card_base(p["icon"], Color(1, 0.8, 0.35), p["name"], "\n".join(parts))
+	var v: VBoxContainer = base[1]
+	var owned := Store.owned(id)
+	var buy := ActionButton.make("", Color.WHITE, "구매", func(): Store.buy(id), Vector2(250, 70))
+	buy.badge = "보유 중" if owned else Store.price(id)
+	buy.disabled = owned or not Store.available()
+	if p.has("tag") and not owned:
+		buy.count = 0
+		var tag := Label.new()
+		tag.text = p["tag"]
+		tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		tag.add_theme_font_size_override("font_size", 20)
+		tag.add_theme_color_override("font_color", Color(1, 0.45, 0.45))
+		v.add_child(tag)
+	v.add_child(buy)
+	return base[0]
+
+
+func _on_purchase(id: String, ok: bool, msg: String) -> void:
+	if ok:
+		toast("%s 지급 완료!" % GameData.iap_product(id).get("name", id))
+	elif msg != "":
+		toast(msg, false)
+
+
 func _ad_card(icon: String, title: String, desc: String, cb: Callable) -> Control:
 	var base := _card_base(icon, Color(0.45, 0.7, 1.0), title, desc)
 	var v: VBoxContainer = base[1]
@@ -242,13 +283,11 @@ func _watch_ad_item() -> void:
 
 
 func _reward_coins() -> void:
-	Profile.note_ad()
-	Profile.add_coins(GameData.AD_COINS)
-	toast("코인 +%d" % GameData.AD_COINS)
+	if await Profile.request("ad_reward", ["shop_coins"]):
+		toast("코인 +%d" % GameData.AD_COINS)
 
 
 func _reward_item() -> void:
-	Profile.note_ad()
-	var it: Dictionary = GameData.SHOP_ITEMS[randi() % GameData.SHOP_ITEMS.size()]
-	Profile.give_item(it["id"])
-	toast("%s 획득!" % it["name"])
+	var id: Variant = await Profile.request("ad_reward", ["shop_item"])
+	if id is String and id != "":
+		toast("%s 획득!" % GameData.shop_item(id)["name"])

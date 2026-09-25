@@ -8,6 +8,9 @@ config/description="사각형 트랙 안에서 막는 조합형 협동/대전 �
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
 config/icon="res://icon.svg"
+config/quit_on_go_back=false
+ads/android_rewarded_id="ca-app-pub-3940256099942544/5224354917"
+ads/ios_rewarded_id="ca-app-pub-3940256099942544/1712485313"
 
 [autoload]
 
@@ -18,6 +21,8 @@ Sfx="*res://scripts/autoload/Sfx.gd"
 Art="*res://scripts/autoload/Art.gd"
 Profile="*res://scripts/autoload/Profile.gd"
 Ads="*res://scripts/autoload/Ads.gd"
+Platform="*res://scripts/autoload/Platform.gd"
+Store="*res://scripts/autoload/Store.gd"
 
 [display]
 
@@ -25,11 +30,14 @@ window/size/viewport_width=1600
 window/size/viewport_height=900
 window/stretch/mode="canvas_items"
 window/stretch/aspect="keep"
+window/handheld/orientation=4
+window/energy_saving/keep_screen_on=false
 
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
 environment/defaults/default_clear_color=Color(0.07, 0.08, 0.11, 1)
 
 [gui]

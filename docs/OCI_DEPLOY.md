@@ -121,3 +121,19 @@ Godot 바이너리 + 프로젝트 폴더 대신 **단일 실행 파일**로 올�
 - 게임 판정은 클라이언트가 하므로(중계 방식) 조작된 클라이언트를 완전히 막지는 못합니다.
   랭크전 등이 필요해지면 서버가 전장을 직접 계산하는 방식으로 확장할 수 있도록 `Board.step()` 이 화면과 분리돼 있습니다.
 - 서버 한 대(1 OCPU)로 동시 수백 방까지 무리 없는 구조입니다 (방당 초당 20개 정도의 작은 메시지 중계).
+
+## 계정 재화 / 결제 (서버 저장)
+
+서버가 계정 재화와 결제 영수증을 저장합니다 (docs/ECONOMY.md, docs/IAP.md).
+
+- 결제 확인을 켜려면 서비스 계정 키를 `/opt/sqdefense/sa.json` (권한 600, 소유자 sqdefense) 에 두고
+  `sqdefense.service` 의 `SQD_GOOGLE_SA` / `SQD_PACKAGE` 줄 주석을 푼 뒤 재시작
+- 서버에서 Google API 로 나가는 HTTPS(443) 가 필요 (OCI 기본 이그레스 규칙은 모두 허용)
+- **백업** (하루 1번 이상 권장):
+
+```bash
+D="/opt/sqdefense/.local/share/godot/app_userdata/사각 디펜스 (Square Defense)"
+sudo tar czf /opt/sqdefense-backup-$(date +%F).tgz -C "$D" server_db.json server_iap.json
+```
+
+  OCI Object Storage 로 복사해 두면 인스턴스가 사라져도 복구할 수 있습니다.

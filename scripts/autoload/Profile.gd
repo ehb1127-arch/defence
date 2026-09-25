@@ -1,6 +1,11 @@
 extends Node
 ## 플레이어 프로필 (코인, 보유 아이템, 영구 강화, 광고 시청 횟수, 설정, 기록).
-## user://profile.cfg 에 저장. 서버 저장이 필요해지면 save()/load_profile() 만 바꾸면 된다.
+##
+## 두 가지로 동작한다.
+##  - 로컬: user://profile.cfg 에 저장 (오프라인/개발)
+##  - 서버 경제(econ_server): 전용 서버가 계정별로 이 스크립트의 인스턴스(server_side)를 만들어
+##    같은 규칙으로 작업(op)을 검증·실행한다. 클라이언트는 즉시 반영(낙관적) 후
+##    서버가 돌려준 프로필로 덮어써서 조작된 값은 되돌아간다.
 
 signal changed
 
@@ -22,7 +27,7 @@ var chests := {}         # "장-단계" -> 받음
 var story_seen := {}     # 스테이지 id -> 대사 봄
 var streak := 0          # 연승
 var idle_last := 0       # 방치 보상 마지막 수령 (유닉스 초)
-var settings := {"sound": true, "captions": false}
+var settings := {"sound": true, "captions": false, "vibrate": true, "account_sync": true, "focus_layout": false}
 var device_id := ""
 var unit_levels := {}    # 유닛 id -> 영구 레벨
 var discovered := {}     # 도감: 한 번이라도 얻은 유닛
@@ -31,7 +36,21 @@ var attendance := {"last": "", "day": 0}
 var tutorial_done := false
 var rating := 1000       # 서버에서 받은 대전 레이팅 (캐시)
 var roulette := {"date": "", "free": false, "ads": 0}
+var no_ads := false      # 광고 제거 구매
+var purchases := {}      # 1회 한정 상품 구매 기록 (product id -> true)
 
+var server_side := false # 서버가 계정 처리용으로 만든 인스턴스
+var econ_server := false # 클라이언트: 서버가 재화의 기준
+var linked := false      # 이 기기 진행이 서버 계정과 연결됨 (한 번이라도 동기화)
+var pending_ops: Array = [] # 연결된 계정인데 오프라인일 때 쌓아 둔 작업 → 다음 접속 때 서버에 재전송
+const MAX_PENDING := 200
+var _req_id := 0
+signal op_done(r: Array)   # [req_id, result]
+
+## 저장/동기화 대상 필드 (설정·기기 ID 는 기기별이라 제외)
+const PERSIST := ["coins", "items", "equipped", "perks", "ad_date", "ad_count", "stats", "level", "xp",
+	"achievements", "campaign", "chests", "story_seen", "streak", "idle_last", "unit_levels", "discovered",
+	"daily", "attendance", "tutorial_done", "rating", "roulette", "no_ads", "purchases"]
 
 func _ready() -> void:
 	load_profile()
@@ -41,67 +60,81 @@ func _ready() -> void:
 		device_id = "%08x%08x%08x" % [randi(), randi(), Time.get_ticks_usec() & 0xFFFFFFFF]
 		save()
 	apply_settings()
-	Ads.ad_closed.connect(func(_p, rewarded): if rewarded: add_progress("ad", 1))
+	Ads.ad_closed.connect(_on_ad_closed)
+
+
+func _on_ad_closed(_p: String, rewarded: bool) -> void:
+	if rewarded:
+		add_progress("ad", 1)
+		sync("ad_watched", [])
+
+
+func mark_story_seen(id: String) -> void:
+	story_seen[id] = true
+	save()
+	sync("story_seen", [id])
+
+
+func mark_tutorial_done() -> void:
+	tutorial_done = true
+	save()
+	sync("tutorial_done", [])
 
 
 func load_profile() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(PATH) != OK:
 		return
-	coins = cfg.get_value("p", "coins", coins)
-	items = cfg.get_value("p", "items", {})
-	equipped = cfg.get_value("p", "equipped", {})
-	perks = cfg.get_value("p", "perks", {})
-	ad_date = cfg.get_value("p", "ad_date", "")
-	ad_count = cfg.get_value("p", "ad_count", 0)
-	stats.merge(cfg.get_value("p", "stats", {}), true)
+	var d := {}
+	for k in PERSIST:
+		if cfg.has_section_key("p", k):
+			d[k] = cfg.get_value("p", k)
+	from_dict(d)
 	settings.merge(cfg.get_value("p", "settings", {}), true)
 	device_id = cfg.get_value("p", "device_id", "")
-	unit_levels = cfg.get_value("p", "unit_levels", {})
-	discovered = cfg.get_value("p", "discovered", {})
-	daily = cfg.get_value("p", "daily", daily)
-	attendance = cfg.get_value("p", "attendance", attendance)
-	tutorial_done = cfg.get_value("p", "tutorial_done", false)
-	rating = cfg.get_value("p", "rating", 1000)
-	level = cfg.get_value("p", "level", 1)
-	xp = cfg.get_value("p", "xp", 0)
-	achievements = cfg.get_value("p", "achievements", {})
-	campaign = cfg.get_value("p", "campaign", {})
-	chests = cfg.get_value("p", "chests", {})
-	story_seen = cfg.get_value("p", "story_seen", {})
-	streak = cfg.get_value("p", "streak", 0)
-	idle_last = cfg.get_value("p", "idle_last", 0)
-	roulette = cfg.get_value("p", "roulette", roulette)
+	linked = cfg.get_value("p", "linked", false)
+	pending_ops = cfg.get_value("p", "pending_ops", [])
 
 
 func save() -> void:
+	if server_side:
+		return
 	var cfg := ConfigFile.new()
-	cfg.set_value("p", "coins", coins)
-	cfg.set_value("p", "items", items)
-	cfg.set_value("p", "equipped", equipped)
-	cfg.set_value("p", "perks", perks)
-	cfg.set_value("p", "ad_date", ad_date)
-	cfg.set_value("p", "ad_count", ad_count)
-	cfg.set_value("p", "stats", stats)
+	var d := to_dict()
+	for k in d:
+		cfg.set_value("p", k, d[k])
 	cfg.set_value("p", "settings", settings)
 	cfg.set_value("p", "device_id", device_id)
-	cfg.set_value("p", "unit_levels", unit_levels)
-	cfg.set_value("p", "discovered", discovered)
-	cfg.set_value("p", "daily", daily)
-	cfg.set_value("p", "attendance", attendance)
-	cfg.set_value("p", "tutorial_done", tutorial_done)
-	cfg.set_value("p", "rating", rating)
-	cfg.set_value("p", "level", level)
-	cfg.set_value("p", "xp", xp)
-	cfg.set_value("p", "achievements", achievements)
-	cfg.set_value("p", "campaign", campaign)
-	cfg.set_value("p", "chests", chests)
-	cfg.set_value("p", "story_seen", story_seen)
-	cfg.set_value("p", "streak", streak)
-	cfg.set_value("p", "idle_last", idle_last)
-	cfg.set_value("p", "roulette", roulette)
+	cfg.set_value("p", "linked", linked)
+	cfg.set_value("p", "pending_ops", pending_ops)
 	cfg.save(PATH)
 	changed.emit()
+
+
+func to_dict() -> Dictionary:
+	var d := {}
+	for k in PERSIST:
+		var v = get(k)
+		d[k] = v.duplicate(true) if v is Dictionary or v is Array else v
+	return d
+
+
+func from_dict(d: Dictionary) -> void:
+	for k in d:
+		if not k in PERSIST:
+			continue
+		var cur = get(k)
+		if cur is Dictionary and d[k] is Dictionary:
+			if k == "stats":
+				stats.merge(d[k], true)
+			else:
+				set(k, d[k].duplicate(true))
+		elif cur is int:
+			set(k, int(d[k]))
+		elif cur is bool:
+			set(k, bool(d[k]))
+		else:
+			set(k, d[k])
 
 
 func apply_settings() -> void:
@@ -143,6 +176,7 @@ func buy_item(id: String) -> bool:
 	if id != "revive":
 		equipped[id] = true
 	save()
+	sync("buy_item", [id])
 	return true
 
 
@@ -153,12 +187,14 @@ func buy_perk(id: String) -> bool:
 	coins -= perk_price(id)
 	perks[id] = perk_level(id) + 1
 	save()
+	sync("buy_perk", [id])
 	return true
 
 
 func toggle_equip(id: String) -> void:
 	equipped[id] = not equipped.get(id, false)
 	save()
+	sync("toggle_equip", [id])
 
 
 func give_item(id: String, n := 1) -> void:
@@ -171,6 +207,7 @@ func use_item(id: String) -> bool:
 		return false
 	items[id] = item_count(id) - 1
 	save()
+	sync("use_item", [id])
 	return true
 
 
@@ -190,6 +227,7 @@ func take_loadout(mode: String) -> Array:
 				equipped[id] = false
 	if not out.is_empty():
 		save()
+		sync("take_loadout", [mode])
 	return out
 
 
@@ -242,6 +280,7 @@ func level_up_unit(id: String) -> bool:
 	coins -= cost
 	unit_levels[id] = lvl + 1
 	save()
+	sync("level_up_unit", [id])
 	return true
 
 
@@ -275,6 +314,7 @@ func claim_daily(m: Dictionary) -> bool:
 	daily["claimed"][m["id"]] = true
 	coins += m["coins"]
 	save()
+	sync("claim_daily", [m["id"]])
 	return true
 
 
@@ -292,6 +332,7 @@ func claim_daily_bonus() -> bool:
 	daily["all"] = true
 	coins += GameData.DAILY_ALL_BONUS
 	save()
+	sync("claim_daily_bonus", [])
 	return true
 
 
@@ -322,6 +363,7 @@ func attend() -> Dictionary:
 		items[r["item"]] = item_count(r["item"]) + 1
 	attendance = {"last": Time.get_date_string_from_system(), "day": day + 1}
 	save()
+	sync("attend", [])
 	return r
 
 
@@ -403,6 +445,22 @@ func ach_tier(id: String) -> int:
 	return int(achievements.get(id, 0))
 
 
+var _previewed := {}
+
+
+func preview_achievements(b: Board) -> Array:
+	## 게임 중 알림용 (지급은 판 종료 정산 때). 같은 단계는 한 번만 알린다
+	var out: Array = []
+	for a in GameData.ACHIEVEMENTS:
+		var tier := maxi(ach_tier(a["id"]), int(_previewed.get(a["id"], 0)))
+		var v := ach_value(a["stat"], b)
+		while tier < a["goals"].size() and v >= a["goals"][tier]:
+			out.append({"a": a, "tier": tier})
+			tier += 1
+		_previewed[a["id"]] = tier
+	return out
+
+
 func check_achievements(b: Board = null) -> Array:
 	## 새로 달성한 업적 단계 목록 [{a, tier}] (보상 코인 즉시 지급)
 	var out: Array = []
@@ -419,14 +477,15 @@ func check_achievements(b: Board = null) -> Array:
 	return out
 
 
-func finish_match(b: Board, won: bool) -> Dictionary:
-	## 판 종료: 누적 기록 반영 → 경험치/레벨업 → 업적. 결과 화면용 요약을 돌려준다
-	var best := b.wave > int(stats.get("best_round", 0))
+func finish_match(s: Dictionary, won: bool) -> Dictionary:
+	## 판 종료: 누적 기록 반영 → 경험치/레벨업 → 업적. s 는 Match 가 만든 판 요약
+	var wave := int(s.get("wave", 0))
+	var best := wave > int(stats.get("best_round", 0))
 	for k in _SUM_STATS:
-		stats[k] = int(stats.get(k, 0)) + int(b.get(_SUM_STATS[k]))
+		stats[k] = int(stats.get(k, 0)) + int(s.get(_SUM_STATS[k], 0))
 	for k in _MAX_STATS:
-		stats[k] = maxi(int(stats.get(k, 0)), int(b.get(_MAX_STATS[k])))
-	var gained := GameData.match_xp(b.wave, b.kills, won)
+		stats[k] = maxi(int(stats.get(k, 0)), int(s.get(_MAX_STATS[k], 0)))
+	var gained := GameData.match_xp(wave, int(s.get("kills", 0)), won)
 	xp += gained
 	var levels := 0
 	var level_coins := 0
@@ -497,6 +556,7 @@ func claim_chest(ch: int, step: int) -> bool:
 	coins += int(c[1]) * ch
 	items[c[2]] = item_count(c[2]) + 1
 	save()
+	sync("claim_chest", [ch, step])
 	return true
 
 
@@ -527,4 +587,266 @@ func claim_idle(mult := 1) -> int:
 	coins += n
 	idle_last = int(Time.get_unix_time_from_system())
 	save()
+	sync("claim_idle", [mult])
 	return n
+
+
+
+# ===========================================================================
+# 판 종료 정산 (로컬/서버 공통)
+# ===========================================================================
+func preview_stage(id: String, stars: int) -> Dictionary:
+	var old := stage_stars(id)
+	var ch := int(id.split("-")[0])
+	var out := {"first": old == 0 and stars > 0, "new_stars": maxi(0, stars - old), "coins": 0, "stars": stars}
+	if out["first"]:
+		out["coins"] += 40 + ch * 30
+	out["coins"] += out["new_stars"] * (15 + ch * 10)
+	return out
+
+
+func match_coins_preview(s: Dictionary) -> Dictionary:
+	var won: bool = s.get("won", false)
+	var c := GameData.match_coins(int(s.get("wave", 0)), int(s.get("kills", 0)), won)
+	var bonus := 0.0
+	if won and not s.get("online", false):
+		bonus = 0.1 * mini(streak + 1, 5)
+	c = int(c * (1.0 + bonus))
+	if s.get("ad_double", false):
+		c *= 2
+	return {"coins": c, "streak_bonus": bonus}
+
+
+func apply_match_end(s: Dictionary) -> Dictionary:
+	## 판 결과 반영: 코인/연승/스테이지 ★/도감/일일 미션/누적 기록/경험치/업적
+	if server_side:
+		s = validate_summary(s)
+	var won: bool = s.get("won", false)
+	if s.get("ad_double", false):
+		note_ad()
+	var mc := match_coins_preview(s)
+	var out := {"coins": mc["coins"], "streak_bonus": mc["streak_bonus"], "stage": {}}
+	coins += mc["coins"]
+	var stage: String = s.get("stage", "")
+	if stage != "" and won and stage_unlocked(stage):
+		out["stage"] = record_stage(stage, int(s.get("stars", 1)))
+	stats["games"] = int(stats["games"]) + 1
+	if won:
+		stats["wins"] = int(stats["wins"]) + 1
+	if not s.get("online", false):
+		streak = streak + 1 if won else 0
+	discover(s.get("obtained", []))
+	add_progress("play", 1)
+	add_progress("kill", int(s.get("kills", 0)))
+	add_progress("merge", int(s.get("merges_done", 0)))
+	add_progress("mythic", int(s.get("mythics_done", 0)))
+	add_progress("boss", int(s.get("bosses_killed", 0)))
+	out["finish"] = finish_match(s, won)
+	_previewed.clear()
+	save()
+	return out
+
+
+func validate_summary(s: Dictionary) -> Dictionary:
+	## 서버: 클라이언트가 보낸 판 요약의 상한 검사 (게임 계산이 클라이언트라 완전한 검증은 불가 → 이득을 제한)
+	var v := {}
+	var mode := str(s.get("mode", "solo"))
+	v["mode"] = mode if mode in ["solo", "coop", "pvp"] else "solo"
+	v["online"] = bool(s.get("online", false))
+	var wave := clampi(int(s.get("wave", 0)), 0, GameData.FINAL_WAVE + 5)
+	var stage := str(s.get("stage", ""))
+	var won := bool(s.get("won", false))
+	if stage != "":
+		var st := Story.get_stage(stage)
+		if st.is_empty() or not stage_unlocked(stage):
+			stage = ""
+			won = false
+		else:
+			wave = mini(wave, int(st["data"]["rounds"]))
+			if wave < int(st["data"]["rounds"]):
+				won = false
+	elif v["mode"] != "pvp" and won and wave < GameData.FINAL_WAVE:
+		won = false
+	v["stage"] = stage
+	v["wave"] = wave
+	v["won"] = won
+	var kills := clampi(int(s.get("kills", 0)), 0, wave * 45 + 20)
+	v["kills"] = kills
+	v["stars"] = clampi(int(s.get("stars", 0)), 0, 3) if won else 0
+	v["merges_done"] = clampi(int(s.get("merges_done", 0)), 0, kills / 2 + 50)
+	v["mythics_done"] = clampi(int(s.get("mythics_done", 0)), 0, 12)
+	v["bosses_killed"] = clampi(int(s.get("bosses_killed", 0)), 0, wave / 10 + 2)
+	v["interrupts"] = clampi(int(s.get("interrupts", 0)), 0, 100)
+	v["slot_jackpots"] = clampi(int(s.get("slot_jackpots", 0)), 0, 30)
+	v["best_combo"] = clampi(int(s.get("best_combo", 0)), 0, kills)
+	v["max_star"] = clampi(int(s.get("max_star", 0)), 0, GameData.STAR_MAX)
+	var ob: Array = []
+	for id in s.get("obtained", []):
+		if GameData.UNITS.has(str(id)) and not str(id) in ob:
+			ob.append(str(id))
+	v["obtained"] = ob
+	# 광고 2배는 하루 광고 한도 안에서만
+	v["ad_double"] = bool(s.get("ad_double", false)) and ads_left() > 0
+	return v
+
+
+# ===========================================================================
+# 작업(op): 서버가 같은 규칙으로 실행하는 재화 변경 목록
+# ===========================================================================
+const OPS := ["buy_item", "buy_perk", "level_up_unit", "toggle_equip", "claim_daily", "claim_daily_bonus", "attend",
+	"claim_chest", "claim_idle", "use_item", "take_loadout", "ad_reward", "roulette", "match_end", "story_seen", "tutorial_done",
+	"ad_watched"]
+
+
+func run_op(op: String, a: Array) -> Variant:
+	if not op in OPS:
+		return null
+	match op:
+		"buy_item": return buy_item(str(a[0]))
+		"buy_perk": return buy_perk(str(a[0]))
+		"level_up_unit": return level_up_unit(str(a[0]))
+		"toggle_equip":
+			toggle_equip(str(a[0]))
+			return true
+		"claim_daily":
+			for m in GameData.DAILY_MISSIONS:
+				if m["id"] == str(a[0]):
+					return claim_daily(m)
+			return false
+		"claim_daily_bonus": return claim_daily_bonus()
+		"attend": return attend()
+		"claim_chest": return claim_chest(int(a[0]), int(a[1]))
+		"claim_idle": return claim_idle(int(a[0]) if a.size() > 0 else 1)
+		"use_item": return use_item(str(a[0]))
+		"take_loadout": return take_loadout(str(a[0]))
+		"ad_reward": return ad_reward(str(a[0]))
+		"roulette": return roulette_spin(bool(a[0]))
+		"match_end": return apply_match_end(a[0])
+		"story_seen":
+			story_seen[str(a[0])] = true
+			save()
+			return true
+		"tutorial_done":
+			tutorial_done = true
+			save()
+			return true
+		"ad_watched":
+			add_progress("ad", 1)
+			return true
+	return null
+
+
+func sync(op: String, a: Array) -> void:
+	## 클라이언트: 로컬에서 방금 실행한 작업을 서버에도 보낸다 (서버 결과가 최종)
+	if server_side:
+		return
+	if econ_server:
+		_req_id += 1
+		Net.send_op(_req_id, op, a)
+	elif linked:
+		if pending_ops.size() < MAX_PENDING:
+			pending_ops.append([op, a])
+		save()
+
+
+func link_server(d: Dictionary) -> void:
+	## 서버 계정 받음 → 서버 값으로 맞추고, 오프라인 동안 쌓인 작업을 순서대로 다시 보낸다
+	from_dict(d)
+	econ_server = true
+	linked = true
+	var q := pending_ops
+	pending_ops = []
+	save()
+	for p in q:
+		_req_id += 1
+		Net.send_op(_req_id, str(p[0]), p[1])
+
+
+func request(op: String, a: Array) -> Variant:
+	## 결과가 서버 난수에 달린 작업(룰렛·랜덤 보상): 서버 경제면 서버 응답을 기다린다
+	if server_side:
+		return run_op(op, a)
+	if not econ_server:
+		var r: Variant = run_op(op, a)
+		sync(op, a)
+		return r
+	_req_id += 1
+	var my := _req_id
+	Net.send_op(my, op, a)
+	while true:
+		var r: Array = await op_done
+		if r[0] == my:
+			return r[1]
+		if r[0] == -1:   # 서버 연결이 끊김
+			return null
+	return null
+
+
+func apply_server(d: Dictionary, req_id: int, result: Variant) -> void:
+	## 서버 응답: 프로필을 서버 값으로 덮어쓰기 (더 최근 요청이 날아가 있으면 그 응답을 기다림)
+	if req_id >= _req_id or req_id == 0:
+		from_dict(d)
+		save()
+	op_done.emit([req_id, result])
+
+
+func ad_reward(placement: String) -> Variant:
+	## 상점 광고 보상 (하루 한도). 경기 중 광고 보상은 판 정산에서 처리
+	match placement:
+		"shop_coins":
+			if ads_left() <= 0:
+				return false
+			note_ad()
+			coins += GameData.AD_COINS
+			save()
+			return true
+		"shop_item":
+			if ads_left() <= 0:
+				return ""
+			note_ad()
+			var it: Dictionary = GameData.SHOP_ITEMS[randi() % GameData.SHOP_ITEMS.size()]
+			items[it["id"]] = item_count(it["id"]) + 1
+			save()
+			return it["id"]
+	return false
+
+
+func roulette_spin(by_ad: bool) -> int:
+	## 룰렛 한 번 (서버 난수). 돌릴 수 없으면 -1
+	if by_ad:
+		if roulette_ads_left() <= 0:
+			return -1
+	elif not roulette_free_left():
+		return -1
+	use_roulette(by_ad)
+	var total := 0
+	for seg in GameData.ROULETTE:
+		total += seg["w"]
+	var r := randi() % total
+	var idx := 0
+	for i in GameData.ROULETTE.size():
+		r -= GameData.ROULETTE[i]["w"]
+		if r < 0:
+			idx = i
+			break
+	grant(GameData.ROULETTE[idx])
+	return idx
+
+
+func iap_grant(product_id: String) -> bool:
+	## 결제 확인 후 지급 (서버 또는 개발용 테스트 결제에서만 호출)
+	var p := GameData.iap_product(product_id)
+	if p.is_empty():
+		return false
+	if p.get("once", false) and purchases.get(product_id, false):
+		return false
+	var g: Dictionary = p["grant"]
+	coins += int(g.get("coins", 0))
+	for id in g.get("items", {}):
+		items[id] = item_count(id) + int(g["items"][id])
+	if g.get("no_ads", false):
+		no_ads = true
+	if p.get("once", false):
+		purchases[product_id] = true
+	save()
+	return true

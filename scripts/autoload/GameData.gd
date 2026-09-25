@@ -384,6 +384,31 @@ func match_coins(wave: int, kills: int, won: bool) -> int:
 	return wave * 3 + kills / 25 + (60 if won else 0)
 
 
+## 인앱 결제 상품 (Google Play Console 의 "인앱 상품" ID 와 같게 등록).
+## consumable: 결제 확인 후 소비(consume) → 다시 구매 가능. once: 1회 한정(acknowledge 만)
+## price 는 스토어 가격을 못 받아왔을 때 보여줄 표시용 문자열일 뿐, 실제 가격은 스토어가 결정한다.
+const IAP_PRODUCTS := [
+	{"id": "coins_s", "name": "코인 한 줌", "price": "₩1,200", "icon": "coin", "consumable": true,
+		"grant": {"coins": 300}},
+	{"id": "coins_m", "name": "코인 자루", "price": "₩5,900", "icon": "coin", "consumable": true, "tag": "+20%",
+		"grant": {"coins": 1800}},
+	{"id": "coins_l", "name": "코인 금고", "price": "₩12,000", "icon": "coin", "consumable": true, "tag": "+40%",
+		"grant": {"coins": 4200}},
+	{"id": "starter_pack", "name": "초보자 꾸러미", "price": "₩2,500", "icon": "gift", "once": true, "tag": "1회",
+		"grant": {"coins": 800, "items": {"revive": 3, "summon_ticket": 5, "lucky_charm": 2}}},
+	{"id": "no_ads", "name": "광고 제거", "price": "₩4,900", "icon": "ad", "once": true,
+		"desc": "광고 없이 보상 즉시 받기",
+		"grant": {"no_ads": true, "coins": 500}},
+]
+
+
+func iap_product(id: String) -> Dictionary:
+	for p in IAP_PRODUCTS:
+		if p["id"] == id:
+			return p
+	return {}
+
+
 func shop_item(id: String) -> Dictionary:
 	for it in SHOP_ITEMS:
 		if it["id"] == id:
