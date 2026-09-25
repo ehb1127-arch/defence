@@ -8,6 +8,7 @@ var local_index := 0
 var seed_value := 0
 var bot_level := 1                # 0 쉬움 / 1 보통 / 2 어려움
 var player_name := "플레이어"
+var tutorial := false             # 다음 솔로 판에서 튜토리얼 표시
 
 
 func setup_local(p_mode: String, p_players: Array) -> void:

@@ -14,11 +14,23 @@ var ad_date := ""
 var ad_count := 0
 var stats := {"games": 0, "wins": 0, "best_round": 0}
 var settings := {"sound": true, "captions": false}
+var device_id := ""
+var unit_levels := {}    # 유닛 id -> 영구 레벨
+var discovered := {}     # 도감: 한 번이라도 얻은 유닛
+var daily := {"date": "", "progress": {}, "claimed": {}, "all": false}
+var attendance := {"last": "", "day": 0}
+var tutorial_done := false
+var rating := 1000       # 서버에서 받은 대전 레이팅 (캐시)
+var roulette := {"date": "", "free": false, "ads": 0}
 
 
 func _ready() -> void:
 	load_profile()
+	if device_id == "":
+		device_id = "%08x%08x%08x" % [randi(), randi(), Time.get_ticks_usec() & 0xFFFFFFFF]
+		save()
 	apply_settings()
+	Ads.ad_closed.connect(func(_p, rewarded): if rewarded: add_progress("ad", 1))
 
 
 func load_profile() -> void:
@@ -33,6 +45,14 @@ func load_profile() -> void:
 	ad_count = cfg.get_value("p", "ad_count", 0)
 	stats.merge(cfg.get_value("p", "stats", {}), true)
 	settings.merge(cfg.get_value("p", "settings", {}), true)
+	device_id = cfg.get_value("p", "device_id", "")
+	unit_levels = cfg.get_value("p", "unit_levels", {})
+	discovered = cfg.get_value("p", "discovered", {})
+	daily = cfg.get_value("p", "daily", daily)
+	attendance = cfg.get_value("p", "attendance", attendance)
+	tutorial_done = cfg.get_value("p", "tutorial_done", false)
+	rating = cfg.get_value("p", "rating", 1000)
+	roulette = cfg.get_value("p", "roulette", roulette)
 
 
 func save() -> void:
@@ -45,6 +65,14 @@ func save() -> void:
 	cfg.set_value("p", "ad_count", ad_count)
 	cfg.set_value("p", "stats", stats)
 	cfg.set_value("p", "settings", settings)
+	cfg.set_value("p", "device_id", device_id)
+	cfg.set_value("p", "unit_levels", unit_levels)
+	cfg.set_value("p", "discovered", discovered)
+	cfg.set_value("p", "daily", daily)
+	cfg.set_value("p", "attendance", attendance)
+	cfg.set_value("p", "tutorial_done", tutorial_done)
+	cfg.set_value("p", "rating", rating)
+	cfg.set_value("p", "roulette", roulette)
 	cfg.save(PATH)
 	changed.emit()
 
@@ -161,3 +189,162 @@ func record_match(mode: String, wave: int, won: bool) -> void:
 	if mode != "pvp":
 		stats["best_round"] = maxi(int(stats["best_round"]), wave)
 	save()
+
+
+
+# ---- 도감 / 유닛 레벨 ----
+func unit_level(id: String) -> int:
+	return int(unit_levels.get(id, 0))
+
+
+func discover(ids: Array) -> void:
+	var changed_any := false
+	for id in ids:
+		if not discovered.has(id):
+			discovered[id] = true
+			changed_any = true
+	if changed_any:
+		save()
+
+
+func level_up_unit(id: String) -> bool:
+	var lvl := unit_level(id)
+	if not discovered.has(id) or lvl >= GameData.UNIT_MAX_LEVEL:
+		return false
+	var cost := GameData.unit_level_cost(id, lvl)
+	if coins < cost:
+		return false
+	coins -= cost
+	unit_levels[id] = lvl + 1
+	save()
+	return true
+
+
+# ---- 일일 미션 ----
+func _daily_reset() -> void:
+	var today := Time.get_date_string_from_system()
+	if daily.get("date", "") != today:
+		daily = {"date": today, "progress": {}, "claimed": {}, "all": false}
+
+
+func add_progress(key: String, n: int) -> void:
+	if n <= 0:
+		return
+	_daily_reset()
+	daily["progress"][key] = int(daily["progress"].get(key, 0)) + n
+	save()
+
+
+func daily_progress(m: Dictionary) -> int:
+	_daily_reset()
+	return mini(int(daily["progress"].get(m["key"], 0)), m["goal"])
+
+
+func daily_claimable(m: Dictionary) -> bool:
+	return daily_progress(m) >= m["goal"] and not daily["claimed"].get(m["id"], false)
+
+
+func claim_daily(m: Dictionary) -> bool:
+	if not daily_claimable(m):
+		return false
+	daily["claimed"][m["id"]] = true
+	coins += m["coins"]
+	save()
+	return true
+
+
+func all_daily_done() -> bool:
+	_daily_reset()
+	for m in GameData.DAILY_MISSIONS:
+		if not daily["claimed"].get(m["id"], false):
+			return false
+	return true
+
+
+func claim_daily_bonus() -> bool:
+	if not all_daily_done() or daily.get("all", false):
+		return false
+	daily["all"] = true
+	coins += GameData.DAILY_ALL_BONUS
+	save()
+	return true
+
+
+func daily_badge() -> int:
+	var n := 0
+	for m in GameData.DAILY_MISSIONS:
+		if daily_claimable(m):
+			n += 1
+	if all_daily_done() and not daily.get("all", false):
+		n += 1
+	return n
+
+
+# ---- 출석 ----
+func can_attend() -> bool:
+	return attendance.get("last", "") != Time.get_date_string_from_system()
+
+
+func attend() -> Dictionary:
+	## 오늘 출석 보상 지급. 7일 주기
+	if not can_attend():
+		return {}
+	var day := int(attendance.get("day", 0)) % GameData.ATTENDANCE.size()
+	var r: Dictionary = GameData.ATTENDANCE[day]
+	if r.has("coins"):
+		coins += r["coins"]
+	if r.has("item"):
+		items[r["item"]] = item_count(r["item"]) + 1
+	attendance = {"last": Time.get_date_string_from_system(), "day": day + 1}
+	save()
+	return r
+
+
+func attendance_day() -> int:
+	## 다음에 받을 칸(0~6)
+	return int(attendance.get("day", 0)) % GameData.ATTENDANCE.size()
+
+
+
+# ---- 룰렛 ----
+func _roulette_reset() -> void:
+	var today := Time.get_date_string_from_system()
+	if roulette.get("date", "") != today:
+		roulette = {"date": today, "free": false, "ads": 0}
+
+
+func roulette_free_left() -> bool:
+	_roulette_reset()
+	return not roulette["free"]
+
+
+func roulette_ads_left() -> int:
+	_roulette_reset()
+	return GameData.ROULETTE_AD_SPINS - int(roulette["ads"])
+
+
+func use_roulette(by_ad: bool) -> void:
+	_roulette_reset()
+	if by_ad:
+		roulette["ads"] = int(roulette["ads"]) + 1
+	else:
+		roulette["free"] = true
+	save()
+
+
+func grant(reward: Dictionary) -> void:
+	if reward.has("coins"):
+		coins += int(reward["coins"])
+	if reward.has("item"):
+		items[reward["item"]] = item_count(reward["item"]) + 1
+	save()
+
+
+func reward_badge() -> int:
+	## 메뉴 보상 버튼의 빨간 숫자
+	var n := daily_badge()
+	if can_attend():
+		n += 1
+	if roulette_free_left():
+		n += 1
+	return n

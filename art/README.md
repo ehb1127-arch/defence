@@ -96,6 +96,12 @@
 | `icons/star.png` | 등급 / 난이도 / 솔로 카드 |
 | `icons/spawn.png` | 적 출현 지점 |
 | `icons/defeat.png` | 패배 표시 |
+| `icons/slot.png` | 럭키 슬롯 |
+| `icons/emote.png` | 이모티콘 (온라인) |
+| `icons/book.png` | 도감 |
+| `icons/help.png` | 게임 방법 |
+| `icons/wheel.png` | 룰렛 |
+| `icons/skull.png` | 해골 (슬롯 꽝, 보스 미션) |
 | `icons/mode_solo.png` | 메뉴 카드: 솔로 (없으면 star) |
 | `icons/mode_coop_ai.png` | 메뉴 카드: 협동 AI |
 | `icons/mode_pvp_ai.png` | 메뉴 카드: 대전 AI |

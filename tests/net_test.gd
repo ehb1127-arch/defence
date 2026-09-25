@@ -57,16 +57,19 @@ func _process(delta: float) -> void:
 		# 양방향 이벤트 전달 확인용
 		Net.send_event("gold", 1)
 		print(_role, " match started, local_index=", Session.local_index, " mode=", Session.mode, " names=", Session.players.map(func(p): return p["name"]))
+	if OS.get_cmdline_user_args().has("lose") and _botted and _t >= _dur - 6.0 and m != null and "boards" in m and not m.over:
+		# 결과 보고 경로 확인: 이쪽이 보스 실패로 패배
+		m.boards[Session.local_index].boss_failed = true
 	if _t >= _dur:
 		_done = true
 		var args := OS.get_cmdline_user_args()
-		if args.size() > 4:
+		if args.size() > 4 and args[4].ends_with(".png") and DisplayServer.get_name() != "headless":
 			get_viewport().get_texture().get_image().save_png(args[4])
 		if m != null and "boards" in m:
 			for b in m.boards:
 				print("%s sees board%d remote=%s wave=%d gold=%d kills=%d field=%d units=%d alive=%s" % [
 					_role, b.index, b.is_remote, b.wave, b.gold, b.kills, b.field_count(), b.used_cells(), b.alive])
-			print(_role, " over=", m.over, " events=", _events)
+			print(_role, " over=", m.over, " events=", _events, " record=", Net.my_record)
 		else:
 			print(_role, " NO MATCH")
 		get_tree().quit()

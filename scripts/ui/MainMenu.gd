@@ -6,6 +6,10 @@ var _help: PanelContainer
 var _online: PanelContainer
 var _settings: PanelContainer
 var _coin_lbl: Label
+var _rewards_btn: ActionButton
+var _record_lbl: Label
+var _rank_panel: PanelContainer
+var _rank_list: ItemList
 var _diff_btns: Array = []
 # 온라인
 var _addr_edit: LineEdit
@@ -111,7 +115,21 @@ func _ready() -> void:
 	room_row.add_child(_btn_start)
 	_btn_leave = _small_btn("방 나가기", func(): Net.leave_room())
 	room_row.add_child(_btn_leave)
+	var rec_row := HBoxContainer.new()
+	rv.add_child(rec_row)
+	_record_lbl = _label("")
+	_record_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_record_lbl.add_theme_color_override("font_color", Color(1, 0.85, 0.45))
+	rec_row.add_child(_record_lbl)
+	var rank_btn := _small_btn("랭킹", func(): Net.request_leaderboard())
+	rank_btn.size_flags_horizontal = Control.SIZE_SHRINK_END
+	rank_btn.custom_minimum_size = Vector2(110, 40)
+	rec_row.add_child(rank_btn)
 	rv.add_child(_small_btn("닫기", func(): _online.visible = false))
+	_build_rank_panel()
+	Net.record_updated.connect(func(_r): _refresh_record())
+	Net.leaderboard_received.connect(_on_leaderboard)
+	_refresh_record()
 
 	Net.status_changed.connect(_on_status)
 	Net.rooms_updated.connect(_on_rooms)
@@ -272,6 +290,8 @@ func _start_local(mode: String, two_humans: bool) -> void:
 			var bot_name: String = ["초보 AI", "AI", "고수 AI"][Session.bot_level]
 			players.append({"name": ("동료 " if mode == "coop" else "상대 ") + bot_name, "kind": "bot", "keys": -1})
 	Session.setup_local(mode, players)
+	if mode == "solo" and not Profile.tutorial_done:
+		Session.tutorial = true
 	get_tree().change_scene_to_file("res://scenes/Match.tscn")
 
 
@@ -342,8 +362,8 @@ func _build_top() -> void:
 		add_child(title)
 	var right := HBoxContainer.new()
 	right.add_theme_constant_override("separation", 10)
-	right.position = Vector2(1060, 30)
-	right.size = Vector2(510, 70)
+	right.position = Vector2(840, 30)
+	right.size = Vector2(730, 70)
 	right.alignment = BoxContainer.ALIGNMENT_END
 	add_child(right)
 	var chip := PanelContainer.new()
@@ -361,10 +381,12 @@ func _build_top() -> void:
 	ch.add_child(_coin_lbl)
 	chip.add_child(ch)
 	right.add_child(chip)
+	_rewards_btn = ActionButton.make("gift", Color(1, 0.75, 0.4), "보상 (출석 · 미션 · 룰렛)", func(): get_tree().change_scene_to_file("res://scenes/Rewards.tscn"), Vector2(70, 64))
+	right.add_child(_rewards_btn)
+	right.add_child(ActionButton.make("book", Color(0.6, 0.8, 1.0), "도감 (유닛 레벨업)", func(): get_tree().change_scene_to_file("res://scenes/Collection.tscn"), Vector2(70, 64)))
 	var shop := ActionButton.make("shop", Color(1, 0.8, 0.35), "상점", func(): get_tree().change_scene_to_file("res://scenes/Shop.tscn"), Vector2(70, 64))
-	shop.glow = true
 	right.add_child(shop)
-	right.add_child(ActionButton.make("recipe", Color(0.7, 0.8, 1.0), "게임 방법", _show_help, Vector2(64, 64)))
+	right.add_child(ActionButton.make("help", Color(0.45, 0.6, 0.9), "게임 방법", _show_help, Vector2(64, 64)))
 	right.add_child(ActionButton.make("gear", Color(0.85, 0.9, 1.0), "설정", func(): _settings.visible = true, Vector2(64, 64)))
 	right.add_child(ActionButton.make("close", Color(1, 0.5, 0.5), "종료", func(): get_tree().quit(), Vector2(64, 64)))
 	Profile.changed.connect(_refresh_coins)
@@ -374,6 +396,11 @@ func _build_top() -> void:
 func _refresh_coins() -> void:
 	if is_instance_valid(_coin_lbl):
 		_coin_lbl.text = str(Profile.coins)
+	if is_instance_valid(_rewards_btn):
+		var n := Profile.reward_badge()
+		_rewards_btn.count = n
+		_rewards_btn.glow = n > 0
+		_rewards_btn.queue_redraw()
 
 
 func _build_mode_cards() -> void:
@@ -448,6 +475,42 @@ func _build_bottom() -> void:
 	bar.add_child(st)
 
 
+func _refresh_record() -> void:
+	if not is_instance_valid(_record_lbl):
+		return
+	var r := Net.my_record
+	if r.is_empty():
+		_record_lbl.text = "대전 레이팅 %d" % Profile.rating
+	else:
+		_record_lbl.text = "대전 레이팅 %d  ·  %d승 %d패  ·  협동 최고 R%d" % [int(r.get("rating", 1000)), int(r.get("wins", 0)), int(r.get("losses", 0)), int(r.get("coop_best", 0))]
+
+
+func _build_rank_panel() -> void:
+	_rank_panel = _panel(Vector2(520, 120), Vector2(560, 660), "랭킹 (대전 레이팅)")
+	_rank_panel.visible = false
+	var v: VBoxContainer = _rank_panel.get_child(0)
+	_rank_list = ItemList.new()
+	_rank_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_rank_list.add_theme_font_size_override("font_size", 18)
+	v.add_child(_rank_list)
+	v.add_child(_small_btn("닫기", func(): _rank_panel.visible = false))
+
+
+func _on_leaderboard(list: Array, my_rank: int) -> void:
+	_rank_list.clear()
+	for i in list.size():
+		var e: Dictionary = list[i]
+		var idx := _rank_list.add_item("%2d위   %s   %d점   (%d승 %d패)" % [i + 1, e["name"], int(e["rating"]), int(e["wins"]), int(e["losses"])])
+		if i < 3:
+			_rank_list.set_item_custom_fg_color(idx, [Color(1, 0.85, 0.3), Color(0.85, 0.85, 0.95), Color(0.9, 0.6, 0.35)][i])
+	if list.is_empty():
+		_rank_list.add_item("아직 기록이 없습니다. 첫 대전의 주인공이 되세요!")
+	if my_rank > 0:
+		_rank_list.add_item("")
+		_rank_list.add_item("내 순위: %d위" % my_rank)
+	_rank_panel.visible = true
+
+
 func _set_diff(lvl: int) -> void:
 	Session.bot_level = lvl
 	for i in _diff_btns.size():
@@ -473,6 +536,11 @@ func _build_settings() -> void:
 	v.add_child(lab)
 	var close := _small_btn("닫기", func(): _settings.visible = false)
 	v.add_child(close)
+
+
+func _replay_tutorial() -> void:
+	Profile.tutorial_done = false
+	_start_local("solo", false)
 
 
 func _show_help() -> void:
@@ -510,6 +578,11 @@ func _build_help() -> void:
 	close.text = "닫기"
 	close.custom_minimum_size = Vector2(0, 44)
 	close.pressed.connect(func(): _help.visible = false)
+	var replay := Button.new()
+	replay.text = "튜토리얼 다시 하기"
+	replay.custom_minimum_size = Vector2(0, 44)
+	replay.pressed.connect(_replay_tutorial)
+	v.add_child(replay)
 	v.add_child(close)
 
 

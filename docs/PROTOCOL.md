@@ -2,7 +2,7 @@
 
 전송: WebSocket (`ws://` 또는 리버스 프록시 뒤 `wss://`), Godot High-level Multiplayer RPC.
 서버는 peer id `1`. 모든 RPC 는 `/root/Net` (autoload `scripts/autoload/Net.gd`) 에 정의되어 있습니다.
-버전: `Net.PROTOCOL` (현재 `1`). 다르면 서버가 `_c_error` 후 연결을 끊습니다.
+버전: `Net.PROTOCOL` (현재 `2`). 다르면 서버가 `_c_error` 후 연결을 끊습니다.
 
 ## 흐름
 
@@ -27,7 +27,9 @@
 
 | RPC | 인자 | 설명 |
 | --- | --- | --- |
-| `_s_hello` | `name: String, protocol: int` | 접속 직후 1회 |
+| `_s_hello` | `name: String, protocol: int, device_id: String` | 접속 직후 1회. 기기 ID 로 계정(레이팅) 식별 |
+| `_s_report` | `winner: int, my_round: int` | 매치 결과 보고. 자기 패배는 즉시 인정, 자기 승리 주장은 상대 보고와 일치해야 인정 |
+| `_s_leaderboard` | - | 랭킹 요청 (상위 20명 + 내 순위) |
 | `_s_list` | - | 방 목록 요청 |
 | `_s_create` | `mode: "coop"/"pvp", room_name: String, quick: bool` | 방 만들기 |
 | `_s_join` | `room_id: int` | 방 참가 |
@@ -49,7 +51,10 @@
 | `_c_start` | `mode, seed: int, name0, name1, my_index: int` | 매치 시작. `my_index` 0/1 = 내 전장 번호 |
 | `_c_event` | `kind, data` | 상대가 보낸 이벤트 |
 | `_c_snap` | `snapshot` | 상대 전장 스냅샷 |
-| `_c_partner_left` | - | 매치 중 상대 이탈 |
+| `_c_partner_left` | - | 매치 중 상대 이탈 (대전이면 남은 쪽 승리로 레이팅 반영) |
+| `_c_record` | `record` | 내 계정 기록 `{name, rating, wins, losses, coop_best}` |
+| `_c_rating` | `record, delta` | 대전 후 레이팅 변화 (ELO, K=32) |
+| `_c_leaderboard` | `list, my_rank` | 랭킹 |
 
 방 목록 항목: `{id, name, mode, count, playing, quick, players: [이름]}`
 방 상태: `{id, name, mode, owner, members: [peer_id], players: [이름], playing, quick}`
@@ -64,6 +69,7 @@
 | `blast` | `0` | (협동) 합동 폭격 |
 | `defeat` | 전장 번호 `int` | (대전) 내 전장이 무너짐 |
 | `gameover` | `{winner: int, text: String}` | 결과 확정 (-1 모두 패배, -2 모두 승리) |
+| `emote` | 아이콘 이름 `String` | 이모티콘 |
 
 ## 스냅샷 (`Board.snapshot()`)
 
@@ -75,3 +81,8 @@
 | `f` | int | 필드 적 수(가중치 합) |
 | `a`,`fc`,`bf` | bool | 생존, 최종 보스 격파, 보스 제한시간 실패 |
 | `sc`,`u`,`ga` | int/Array/int | 소환 비용, 강화 레벨, 폭격 게이지 |
+
+## 서버 저장
+
+계정 기록은 서버의 `user://server_db.json` (systemd 설치 기준 `/opt/sqdefense/.local/share/godot/app_userdata/사각 디펜스 (Square Defense)/server_db.json`) 에 JSON 으로 저장됩니다.
+백업은 이 파일만 복사하면 됩니다.

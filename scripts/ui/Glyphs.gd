@@ -143,6 +143,38 @@ static func draw(ci: CanvasItem, name: String, c: Vector2, s: float, col: Color)
 			ci.draw_arc(c, s * 0.25, 0.3, PI * 1.6, 12, Color(0, 0, 0, 0.5), w)
 		"star":
 			_star(ci, c, s, col)
+		"slot":
+			ci.draw_rect(Rect2(c + Vector2(-s * 0.85, -s * 0.7), Vector2(s * 1.5, s * 1.5)), col)
+			for k in 3:
+				ci.draw_rect(Rect2(c + Vector2(-s * 0.72 + k * s * 0.44, -s * 0.35), Vector2(s * 0.36, s * 0.55)), Color.WHITE)
+				ci.draw_circle(c + Vector2(-s * 0.54 + k * s * 0.44, -s * 0.08), s * 0.1, Color(0.9, 0.2, 0.25))
+			ci.draw_line(c + Vector2(s * 0.75, -s * 0.2), c + Vector2(s * 0.95, -s * 0.8), col.lightened(0.3), w)
+			ci.draw_circle(c + Vector2(s * 0.95, -s * 0.85), s * 0.13, Color(0.9, 0.2, 0.25))
+		"emote":
+			ci.draw_circle(c, s * 0.85, col)
+			ci.draw_circle(c + Vector2(-s * 0.3, -s * 0.2), s * 0.12, Color(0, 0, 0, 0.7))
+			ci.draw_circle(c + Vector2(s * 0.3, -s * 0.2), s * 0.12, Color(0, 0, 0, 0.7))
+			ci.draw_arc(c + Vector2(0, s * 0.05), s * 0.45, 0.3, PI - 0.3, 12, Color(0, 0, 0, 0.7), w)
+		"book":
+			ci.draw_rect(Rect2(c + Vector2(-s * 0.9, -s * 0.7), Vector2(s * 0.85, s * 1.4)), col)
+			ci.draw_rect(Rect2(c + Vector2(s * 0.05, -s * 0.7), Vector2(s * 0.85, s * 1.4)), col.lightened(0.15))
+			for k in 3:
+				ci.draw_line(c + Vector2(-s * 0.7, -s * 0.35 + k * s * 0.3), c + Vector2(-s * 0.2, -s * 0.35 + k * s * 0.3), Color(1, 1, 1, 0.6), w * 0.6)
+				ci.draw_line(c + Vector2(s * 0.25, -s * 0.35 + k * s * 0.3), c + Vector2(s * 0.7, -s * 0.35 + k * s * 0.3), Color(1, 1, 1, 0.6), w * 0.6)
+		"help":
+			ci.draw_circle(c, s * 0.9, col)
+			ci.draw_arc(c + Vector2(0, -s * 0.2), s * 0.3, PI, TAU + PI * 0.4, 12, Color.WHITE, w * 1.2)
+			ci.draw_line(c + Vector2(s * 0.08, s * 0.05), c + Vector2(0, s * 0.3), Color.WHITE, w * 1.2)
+			ci.draw_circle(c + Vector2(0, s * 0.55), s * 0.1, Color.WHITE)
+		"wheel":
+			for k in 8:
+				var a0 := k * TAU / 8.0
+				var pts := PackedVector2Array([c])
+				for j in 5:
+					pts.append(c + Vector2.from_angle(a0 + j * TAU / 32.0) * s * 0.9)
+				ci.draw_colored_polygon(pts, col if k % 2 == 0 else col.lightened(0.35))
+			ci.draw_circle(c, s * 0.18, Color.WHITE)
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-s * 0.15, -s * 1.0), c + Vector2(s * 0.15, -s * 1.0), c + Vector2(0, -s * 0.7)]), Color.WHITE)
 		"gear":
 			for k in 8:
 				var d := Vector2.from_angle(k * PI / 4)

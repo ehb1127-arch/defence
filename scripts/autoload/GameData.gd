@@ -106,6 +106,7 @@ const PREP_TIME := 8.0
 const BOSS_HP_MULT := 26.0
 const BOSS_HP_DECAY := 0.7
 const FINAL_BOSS_TIME := 90.0
+const FINAL_BOSS_HP_SCALE := 0.8
 const SPAWN_PER_WAVE := 20
 const SPAWN_INTERVAL := 0.6
 const ENEMY_LIMIT := 100
@@ -228,7 +229,10 @@ func wave_hp(wave: int) -> float:
 ## 보스 체력 = 해당 라운드 일반 체력 x 배수 (후반일수록 배수를 낮춰 제한시간 안에 잡을 수 있게)
 func boss_hp(wave: int) -> float:
 	var n := maxi(wave / 10, 1)
-	return wave_hp(wave) * BOSS_HP_MULT * pow(BOSS_HP_DECAY, n - 1)
+	var hp := wave_hp(wave) * BOSS_HP_MULT * pow(BOSS_HP_DECAY, n - 1)
+	if wave == FINAL_WAVE:
+		hp *= FINAL_BOSS_HP_SCALE
+	return hp
 
 
 func boss_time(wave: int) -> float:
@@ -392,3 +396,61 @@ func perk(id: String) -> Dictionary:
 		if p["id"] == id:
 			return p
 	return {}
+
+
+# ---------------------------------------------------------------------------
+# 메타 진행: 일일 미션 / 출석 / 유닛 레벨(도감)
+# ---------------------------------------------------------------------------
+## key: 진행도 이름 (Profile.add_progress 로 누적)
+const DAILY_MISSIONS := [
+	{"id": "d_play", "key": "play", "goal": 3, "name": "게임 3판", "icon": "play", "coins": 30},
+	{"id": "d_kill", "key": "kill", "goal": 1000, "name": "적 1000마리 처치", "icon": "attack", "coins": 40},
+	{"id": "d_merge", "key": "merge", "goal": 20, "name": "합성 20회", "icon": "merge", "coins": 30},
+	{"id": "d_mythic", "key": "mythic", "goal": 1, "name": "신화 조합 1회", "icon": "recipe", "coins": 50},
+	{"id": "d_boss", "key": "boss", "goal": 3, "name": "보스 3마리 처치", "icon": "skull", "coins": 40},
+	{"id": "d_ad", "key": "ad", "goal": 1, "name": "광고 1회 보기", "icon": "ad", "coins": 20},
+]
+const DAILY_ALL_BONUS := 100
+
+## 7일 출석 보상 (코인 또는 아이템)
+const ATTENDANCE := [
+	{"coins": 50}, {"item": "summon_ticket"}, {"coins": 80}, {"item": "start_gems"},
+	{"coins": 100}, {"item": "lucky_charm"}, {"coins": 150, "item": "revive"},
+]
+
+const UNIT_MAX_LEVEL := 10
+const UNIT_LEVEL_BONUS := 0.05       # 레벨당 공격력 +5%
+
+
+func unit_level_cost(id: String, level: int) -> int:
+	return (UNITS[id]["rarity"] + 1) * 20 * (level + 1)
+
+
+# ---------------------------------------------------------------------------
+# 럭키 슬롯 (게임 중 골드 도박)
+# ---------------------------------------------------------------------------
+const SLOT_SYMBOLS := ["gold", "gem", "summon", "star", "skull"]
+const SLOT_WEIGHTS := [30, 14, 20, 8, 28]
+const SLOT_BETS := [50, 200]
+const SLOT_SPIN_TIME := 1.6
+
+# 콤보 / 잭팟
+const COMBO_WINDOW := 1.2
+const COMBO_STEP := 20
+const JACKPOT_CHANCE := 0.004
+
+
+# ---------------------------------------------------------------------------
+# 일일 룰렛 (메뉴): 하루 무료 1회 + 광고 3회
+# ---------------------------------------------------------------------------
+const ROULETTE := [
+	{"coins": 20, "w": 22, "color": Color(0.35, 0.45, 0.75)},
+	{"item": "summon_ticket", "w": 14, "color": Color(0.3, 0.7, 0.45)},
+	{"coins": 50, "w": 18, "color": Color(0.55, 0.35, 0.8)},
+	{"item": "start_gold", "w": 12, "color": Color(0.8, 0.6, 0.2)},
+	{"coins": 100, "w": 10, "color": Color(0.35, 0.45, 0.75)},
+	{"item": "lucky_charm", "w": 8, "color": Color(0.3, 0.7, 0.45)},
+	{"coins": 30, "w": 14, "color": Color(0.55, 0.35, 0.8)},
+	{"coins": 500, "w": 2, "color": Color(0.9, 0.2, 0.3), "jackpot": true},
+]
+const ROULETTE_AD_SPINS := 3

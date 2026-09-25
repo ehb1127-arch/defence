@@ -71,6 +71,8 @@ func _ready() -> void:
 		bots.append(BotBrain.new(boards[i], other, Session.bot_level) if boards[i].is_bot else null)
 	_layout(ui)
 	_apply_loadout()
+	if Session.tutorial and mode == "solo":
+		_start_tutorial(ui)
 	if Session.online:
 		Net.event_received.connect(_on_net_event)
 		Net.snapshot_received.connect(_on_net_snapshot)
@@ -141,6 +143,8 @@ func _make_hud(i: int, human_count: int) -> BoardHUD:
 	hud.sheet_parent = ui_layer()
 	hud.ad_available = interactive and not Session.online and mode != "pvp" and _ad_ok()
 	hud.ad_summon_requested.connect(_on_ad_summon)
+	hud.emote_requested.connect(_on_emote)
+	hud.emotes_enabled = interactive and Session.online
 	hud.setup(b, interactive, hint, boards.size() == 1)
 	huds.append(hud)
 	return hud
@@ -158,6 +162,53 @@ func _on_ad_summon(hud: BoardHUD) -> void:
 	if not hud.ad_available:
 		return
 	Ads.show_rewarded("match_summon", _grant_ad_summon.bind(hud))
+
+
+func _on_emote(hud: BoardHUD, emote: String) -> void:
+	hud.board.show_emote(emote)
+	Net.send_event("emote", emote)
+
+
+func _start_tutorial(ui: CanvasLayer) -> void:
+	var b: Board = boards[0]
+	var hud: BoardHUD = huds[0]
+	paused = true
+	var board_rect := func() -> Rect2:
+		return Rect2(b.position + Board.GRID_ORIGIN * b.scale, Vector2(448, 448) * b.scale)
+	var btn_rect := func(key: String) -> Rect2:
+		return hud._btn[key].get_global_rect()
+	var units := func() -> int:
+		var n := 0
+		for c in b.cells:
+			n += c["n"]
+		return n
+	var header_rect := func() -> Rect2:
+		return Rect2(b.position + Vector2(165, -31) * b.scale, Vector2(215, 21) * b.scale)
+	var round_rect := func() -> Rect2:
+		return _lbl_round.get_global_rect()
+	var give_free := func():
+		b.free_summons += 8
+	var three_units := func() -> bool:
+		return units.call() >= 3
+	var merged := func() -> bool:
+		return b.merges_done >= 1 or (b.free_summons == 0 and b.gold < b.summon_cost())
+	var done := func():
+		paused = false
+		Session.tutorial = false
+		Profile.tutorial_done = true
+		Profile.save()
+	var tut := Tutorial.new()
+	tut.steps = [
+		{"text": "적은 사각형 테두리 길을 계속 돕니다.\n필드에 적이 100마리 쌓이면 패배!", "target": header_rect},
+		{"text": "소환 버튼을 눌러 유닛을 3번 뽑아보세요.\n(튜토리얼 동안 무료!)", "target": btn_rect.bind("summon"), "enter": give_free, "wait": three_units},
+		{"text": "유닛은 사각형 안 칸에서 사거리 안의 적을 자동 공격해요.\n칸을 눌러 선택 → 다른 칸을 눌러 이동!", "target": board_rect},
+		{"text": "같은 유닛 3마리가 한 칸에 모이면 반짝여요.\n합성 버튼으로 한 단계 높은 등급을 얻으세요!", "target": btn_rect.bind("merge"), "wait": merged},
+		{"text": "보석으로 도박, 골드로 럭키 슬롯!\n잭팟이 터지면 대박 보상이 쏟아집니다.", "target": btn_rect.bind("slot")},
+		{"text": "강화로 공격력을 올리고,\n재료를 모아 신화 유닛을 조합하세요.", "target": btn_rect.bind("recipe")},
+		{"text": "10라운드마다 보스! 제한시간 안에 못 잡으면 바로 패배.\n남은 시간은 여기 상단에 표시됩니다.", "target": round_rect},
+	]
+	tut.finished.connect(done)
+	ui.add_child(tut)
 
 
 func _grant_ad_summon(hud: BoardHUD) -> void:
@@ -178,7 +229,7 @@ func _apply_loadout() -> void:
 	if target == null:
 		return
 	var items := Profile.take_loadout(mode)
-	var notes := target.apply_loadout(items, Profile.perks)
+	var notes := target.apply_loadout(items, Profile.perks, Profile.unit_levels)
 	if not notes.is_empty():
 		var names: Array = []
 		for id in notes:
@@ -467,6 +518,10 @@ func _on_net_event(kind: String, data: Variant) -> void:
 			me.receive_unit(str(data))
 		"blast":
 			me.receive_blast()
+		"emote":
+			for b in boards:
+				if b.is_remote:
+					b.show_emote(str(data))
 		"defeat":
 			var idx := int(data)
 			if idx >= 0 and idx < boards.size():
@@ -625,6 +680,7 @@ func _finish(winner: int, text: String, broadcast: bool) -> void:
 	if Session.online:
 		if broadcast:
 			Net.send_event("gameover", {"winner": winner, "text": text})
+		Net.report_result(winner, _local_board().wave)
 		Net.end_match()
 	var won := winner == -2 or (winner >= 0 and (not Session.online or winner == Session.local_index))
 	if mode == "solo":
@@ -715,6 +771,17 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 	coin_lbl.add_theme_color_override("font_color", Color(0.85, 0.7, 1.0))
 	coin_row.add_child(coin_lbl)
 	v.add_child(coin_row)
+	if Session.online and mode == "pvp":
+		var rl := Label.new()
+		rl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		rl.add_theme_font_size_override("font_size", 20)
+		rl.text = "레이팅 %d  (집계 중...)" % Profile.rating
+		v.add_child(rl)
+		var on_rating := func(r: int, d: int):
+			if is_instance_valid(rl):
+				rl.text = "레이팅 %d  (%s%d)" % [r, "+" if d >= 0 else "", d]
+				rl.add_theme_color_override("font_color", Color(0.5, 1, 0.6) if d >= 0 else Color(1, 0.5, 0.5))
+		Net.rating_changed.connect(on_rating)
 	var h := HBoxContainer.new()
 	h.alignment = BoxContainer.ALIGNMENT_CENTER
 	h.add_theme_constant_override("separation", 14)
@@ -785,7 +852,17 @@ func _give_coins(_mult: int) -> void:
 		return
 	_coins_given = true
 	Profile.add_coins(_pending_coins)
-	Profile.record_match(mode, _local_board().wave, _last_won)
+	var me := _local_board()
+	Profile.record_match(mode, me.wave, _last_won)
+	# 도감 등록 + 일일 미션 진행 (로컬 사람 전장 기준)
+	for b in boards:
+		if not b.is_bot and not b.is_remote:
+			Profile.discover(b.obtained.keys())
+	Profile.add_progress("play", 1)
+	Profile.add_progress("kill", me.kills)
+	Profile.add_progress("merge", me.merges_done)
+	Profile.add_progress("mythic", me.mythics_done)
+	Profile.add_progress("boss", me.bosses_killed)
 
 
 func _mvp_ids(b: Board) -> Array:

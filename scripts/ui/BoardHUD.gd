@@ -7,6 +7,7 @@ extends PanelContainer
 ##  - 도박/강화/조합/공격/협동/과제는 전장 위에 카드형 시트로 열림
 
 signal ad_summon_requested(hud)
+signal emote_requested(hud, emote)
 
 var board: Board
 var interactive := true
@@ -15,6 +16,7 @@ var tall := false
 var sheet_parent: Node          # 시트를 띄울 레이어 (Match 가 지정)
 var sheet_rect := Rect2()       # 시트를 띄울 화면 영역 (보통 전장 위)
 var ad_available := false       # 이 판에서 광고 무료 소환 가능 여부
+var emotes_enabled := false     # 온라인: 이모티콘 버튼
 
 var _chip_gold: Label
 var _chip_gems: Label
@@ -101,6 +103,7 @@ func _action_buttons(sz: Vector2) -> Array:
 	_btn["summon"].badge_icon = "gold"
 	add.call("merge", "merge", Color(1, 0.85, 0.4), "자동 합성 (E)\n같은 유닛 3마리 → 상위 등급", func(): board.auto_merge())
 	add.call("gamble", "gamble", Color(0.75, 0.45, 1.0), "도박\n보석으로 영웅/전설 뽑기", func(): _toggle_sheet("gamble"))
+	add.call("slot", "slot", Color(1, 0.35, 0.45), "럭키 슬롯\n골드를 걸고 한 판!", func(): _toggle_sheet("slot"))
 	add.call("upgrade", "upgrade", Color(0.45, 0.95, 0.6), "강화\n등급별 공격력 / 소환 행운", func(): _toggle_sheet("upgrade"))
 	add.call("recipe", "recipe", Color(1, 0.35, 0.4), "신화 조합표", func(): _toggle_sheet("recipe"))
 	if board.mode == "pvp":
@@ -108,6 +111,8 @@ func _action_buttons(sz: Vector2) -> Array:
 	elif board.mode == "coop":
 		add.call("special", "gift", Color(0.5, 0.95, 0.8), "협동\n골드 선물 / 합동 폭격", func(): _toggle_sheet("coop"))
 	add.call("mission", "mission", Color(0.5, 1.0, 0.6), "도전 과제 / 조작법", func(): _toggle_sheet("mission"))
+	if emotes_enabled:
+		add.call("emote", "emote", Color(1, 0.8, 0.2), "이모티콘", func(): _toggle_sheet("emote"))
 	if ad_available:
 		add.call("ad", "ad", Color(0.35, 0.6, 1.0), "광고 보고 무료 소환 3회 (판당 1회)", func(): ad_summon_requested.emit(self))
 		_btn["ad"].badge_icon = ""
@@ -154,7 +159,7 @@ func _build_compact() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	root.add_child(row)
-	for ab in _action_buttons(Vector2(60, 70)):
+	for ab in _action_buttons(Vector2(56, 70)):
 		ab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(ab)
 	var card := _selected_card(42)
@@ -171,7 +176,7 @@ func _build_tall() -> void:
 	grid.add_theme_constant_override("h_separation", 8)
 	grid.add_theme_constant_override("v_separation", 8)
 	root.add_child(grid)
-	for ab in _action_buttons(Vector2(174, 96)):
+	for ab in _action_buttons(Vector2(174, 84)):
 		ab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		grid.add_child(ab)
 	var card_panel := PanelContainer.new()
@@ -288,7 +293,7 @@ func _toggle_sheet(kind: String) -> void:
 	if same or sheet_parent == null:
 		return
 	_sheet_kind = kind
-	var key: String = {"gamble": "gamble", "upgrade": "upgrade", "recipe": "recipe", "attack": "special", "coop": "special", "mission": "mission"}[kind]
+	var key: String = {"emote": "emote", "slot": "slot", "gamble": "gamble", "upgrade": "upgrade", "recipe": "recipe", "attack": "special", "coop": "special", "mission": "mission"}[kind]
 	if _btn.has(key):
 		_btn[key].selected = true
 	_sheet = PanelContainer.new()
@@ -315,6 +320,8 @@ func _toggle_sheet(kind: String) -> void:
 	var head := HBoxContainer.new()
 	v.add_child(head)
 	var info: Array = {
+		"slot": ["slot", "럭키 슬롯", Color(1, 0.35, 0.45)],
+		"emote": ["emote", "이모티콘", Color(1, 0.8, 0.2)],
 		"gamble": ["gamble", "도박", Color(0.75, 0.45, 1.0)], "upgrade": ["upgrade", "강화", Color(0.45, 0.95, 0.6)],
 		"recipe": ["recipe", "신화 조합", Color(1, 0.35, 0.4)], "attack": ["attack", "공격", Color(1, 0.5, 0.4)],
 		"coop": ["gift", "협동", Color(0.5, 0.95, 0.8)], "mission": ["mission", "도전 과제", Color(0.5, 1.0, 0.6)],
@@ -327,6 +334,20 @@ func _toggle_sheet(kind: String) -> void:
 	head.add_child(tl)
 	head.add_child(ActionButton.make("close", Color(0.85, 0.85, 0.9), "닫기 (Esc)", close_sheet, Vector2(44, 44)))
 	match kind:
+		"slot":
+			_slot_sheet(v)
+		"emote":
+			var cards: Array = []
+			for spec in [["emote", Color(1, 0.8, 0.2)], ["heart", Color(1, 0.35, 0.45)], ["star", Color(1, 0.8, 0.2)], ["skull", Color(0.6, 0.6, 0.65)], ["attack", Color(0.9, 0.3, 0.3)], ["gift", Color(0.3, 0.8, 0.6)]]:
+				var em: String = spec[0]
+				var send := func():
+					emote_requested.emit(self, em)
+					close_sheet()
+				var c := _card(em, spec[1], "", "보내기", send)
+				c[1].custom_minimum_size = Vector2(80, 80)
+				c[2].visible = false
+				cards.append(c)
+			_sheet_cards(v, cards)
 		"gamble":
 			_sheet_cards(v, _gamble_cards())
 		"upgrade":
@@ -368,6 +389,47 @@ func _sheet_cards(v: VBoxContainer, cards: Array) -> void:
 	v.add_child(h)
 	for c in cards:
 		h.add_child(c[0])
+
+
+func _slot_sheet(v: VBoxContainer) -> void:
+	var reels := SlotReels.new()
+	reels.board = board
+	reels.custom_minimum_size = Vector2(0, 150)
+	v.add_child(reels)
+	var result := Label.new()
+	result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	result.add_theme_font_size_override("font_size", 22)
+	v.add_child(result)
+	var h := HBoxContainer.new()
+	h.alignment = BoxContainer.ALIGNMENT_CENTER
+	h.add_theme_constant_override("separation", 16)
+	v.add_child(h)
+	var bets: Array = []
+	for i in GameData.SLOT_BETS.size():
+		var bi := i
+		var b := ActionButton.make("slot", Color(1, 0.35, 0.45) if i == 0 else Color(1, 0.75, 0.2), ["한 판", "크게 한 판"][i] + "\n세 개가 같으면 잭팟!", func(): board.slot_spin(bi), Vector2(170, 90))
+		b.badge_icon = "gold"
+		h.add_child(b)
+		bets.append(b)
+	var pay := Label.new()
+	pay.text = "골드x3 = 8배   보석x3 · 소환x3 · 별x3 = 특별 보상   두 개 = 1.5배"
+	pay.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pay.add_theme_font_size_override("font_size", 13)
+	pay.add_theme_color_override("font_color", Color(0.6, 0.65, 0.75))
+	v.add_child(pay)
+	_sheet_refresh = func():
+		var spinning := not board.pending_slot.is_empty()
+		for i in bets.size():
+			var bet := board.slot_bet(i)
+			bets[i].set_state(str(bet), not board.alive or spinning or board.gold < bet, not spinning and board.gold >= bet * 3)
+		if spinning:
+			result.text = "두근두근..."
+			result.add_theme_color_override("font_color", Color(0.8, 0.8, 0.9))
+		elif not board.last_slot.is_empty():
+			result.text = board.last_slot["text"]
+			result.add_theme_color_override("font_color", Color(1, 0.85, 0.3) if board.last_slot["win"] > 0 else Color(0.65, 0.65, 0.7))
+		else:
+			result.text = "골드를 걸고 레버를 당기세요"
 
 
 func _gamble_cards() -> Array:
@@ -500,6 +562,7 @@ func _refresh() -> void:
 			merges += 1
 	_btn["merge"].set_state("", not ok or merges == 0, merges > 0, merges)
 	_btn["gamble"].set_state("", not ok, b.gems >= GameData.GAMBLES[1]["gems"])
+	_btn["slot"].set_state("", not ok, b.pending_slot.is_empty() and b.gold >= b.slot_bet(0) * 4)
 	var can_up := false
 	for i in 4:
 		if b.can_afford_upgrade(i):
@@ -537,7 +600,7 @@ func _refresh_selected() -> void:
 		_sel_icon.set_unit(id)
 		_sel_name.text = "%s  x%d" % [u["name"], b.cells[sel]["n"]]
 		_sel_name.add_theme_color_override("font_color", GameData.RARITY_COLORS[u["rarity"]])
-		var mult := b.dmg_mult(u["rarity"])
+		var mult := b.unit_power(id)
 		var stats := "공격 %d · %.2f초 · 사거리 %d" % [int(u["dmg"] * mult), u["cd"], int(u["range"])]
 		_sel_stats.text = (stats + "\n" + u["desc"]) if tall else (stats + " · " + u["desc"])
 		var r: int = u["rarity"]

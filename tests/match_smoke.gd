@@ -19,6 +19,14 @@ func _ready() -> void:
 	_shots = args[2] if args.size() > 2 else ""
 	Engine.time_scale = float(args[3]) if args.size() > 3 else 1.0
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	if mode in ["rewards", "collection"]:
+		Session.mode = mode
+		Profile.coins = maxi(Profile.coins, 2000)
+		Profile.discover(["sword", "archer", "knight", "storm", "dragoon", "phoenix"])
+		Profile.add_progress("play", 3)
+		_match = load("res://scenes/%s.tscn" % mode.capitalize()).instantiate()
+		add_child(_match)
+		return
 	if mode == "shop":
 		_match = load("res://scenes/Shop.tscn").instantiate()
 		add_child(_match)
@@ -32,6 +40,7 @@ func _ready() -> void:
 		players.append({"name": "AI", "kind": "bot", "keys": -1})
 	Session.setup_local(mode, players)
 	Session.seed_value = 42
+	Session.tutorial = OS.get_cmdline_user_args().has("tutorial")
 	_match = load("res://scenes/Match.tscn").instantiate()
 	add_child(_match)
 	_match.speed = 3.0
@@ -44,6 +53,23 @@ func _process(delta: float) -> void:
 	if _done:
 		return
 	_t += delta / Engine.time_scale
+	if not "boards" in _match and (_match.has_method("_spin") or _match.has_method("_level_up")):
+		if _t > 1.0 and _shot_i == 0:
+			_shot_i = 1
+			get_viewport().get_texture().get_image().save_png("%s/%s_0.png" % [_shots, Session.mode])
+			if _match.has_method("_spin"):
+				_match._spin(false)
+			else:
+				_match._select("storm")
+				_match._level_up()
+		elif _t > 3.0 and _shot_i == 1:
+			_shot_i = 2
+			get_viewport().get_texture().get_image().save_png("%s/%s_1.png" % [_shots, Session.mode])
+		elif _t > 6.0 and _shot_i == 2:
+			_done = true
+			get_viewport().get_texture().get_image().save_png("%s/%s_2.png" % [_shots, Session.mode])
+			get_tree().quit()
+		return
 	if not "boards" in _match and _match.has_method("toast"):
 		# 상점: 탭별 캡처 + 광고 보상 흐름
 		if _t > 1.0 and _shot_i == 0:
@@ -83,14 +109,20 @@ func _process(delta: float) -> void:
 			get_viewport().get_texture().get_image().save_png("%s/help.png" % _shots)
 			get_tree().quit()
 		return
+	if OS.get_cmdline_user_args().has("fx"):
+		_fx_capture()
+		return
 	if _shots != "" and _t >= _next_shot:
 		_next_shot += maxf(4.0, _dur / 4.0)
 		var img := get_viewport().get_texture().get_image()
 		img.save_png("%s/shot_%d.png" % [_shots, _shot_i])
 		_shot_i += 1
 		if _match.huds.size() > 0 and _match.huds[0].interactive:
-			var kinds := ["recipe", "upgrade", "gamble", "attack" if Session.mode == "pvp" else ("coop" if Session.mode == "coop" else "mission")]
+			var kinds := ["slot", "recipe", "upgrade", "attack" if Session.mode == "pvp" else ("coop" if Session.mode == "coop" else "mission")]
 			_match.huds[0]._toggle_sheet(kinds[_shot_i % kinds.size()])
+			if kinds[_shot_i % kinds.size()] == "slot":
+				_match.boards[0].gold += 500
+				_match.boards[0].slot_spin(0)
 		var b0: Board = _match.boards[0]
 		for i in b0.cells.size():
 			if b0.cells[i]["id"] != "":
@@ -114,4 +146,40 @@ func _process(delta: float) -> void:
 		if _shots != "" and _match.over:
 			await get_tree().process_frame
 			get_viewport().get_texture().get_image().save_png("%s/shot_end.png" % _shots)
+		get_tree().quit()
+
+
+var _fx_step := 0
+
+
+func _fx_capture() -> void:
+	## 슬롯 회전 중 / 결과 / 가챠 연출 중간 캡처
+	var b0: Board = _match.boards[0]
+	var shot := func(name: String):
+		get_viewport().get_texture().get_image().save_png("%s/%s.png" % [_shots, name])
+	if _fx_step == 0 and _t > 1.0:
+		_fx_step = 1
+		_match.speed = 1.0
+		Engine.time_scale = 1.0
+		b0.gold += 2000
+		_match.huds[0]._toggle_sheet("slot")
+		b0.slot_spin(1)
+	elif _fx_step == 1 and _t > 1.6:
+		_fx_step = 2
+		shot.call("slot_spinning")
+	elif _fx_step == 2 and _t > 3.4:
+		_fx_step = 3
+		shot.call("slot_result")
+		_match.huds[0].close_sheet()
+		var idx := b0.add_unit("dragoon")
+		b0._rare_pull_fx(idx, 3)
+	elif _fx_step == 3 and _t > 3.9:
+		_fx_step = 4
+		shot.call("reveal")
+		for k in 30:
+			b0._kill(b0._spawn("normal", 1.0, 0.0))
+	elif _fx_step == 4 and _t > 4.2:
+		_fx_step = 5
+		shot.call("combo")
+		_done = true
 		get_tree().quit()

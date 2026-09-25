@@ -20,9 +20,12 @@ signal error_received(msg: String)
 signal disconnected                            # 매치 중 상대 이탈 또는 서버 끊김
 signal event_received(kind: String, data: Variant)
 signal snapshot_received(data: Dictionary)
+signal record_updated(record: Dictionary)      # 내 레이팅/전적
+signal rating_changed(rating: int, delta: int)
+signal leaderboard_received(list: Array, my_rank: int)
 
 const DEFAULT_PORT := 24680
-const PROTOCOL := 1
+const PROTOCOL := 2
 const MAX_ROOMS := 200
 const MAX_NAME := 12
 const SETTINGS_PATH := "user://online.cfg"
@@ -38,6 +41,7 @@ var my_id := 0
 var room: Dictionary = {}       # 내가 들어간 방 (클라이언트 시점)
 var rooms: Array = []           # 마지막으로 받은 방 목록
 var in_match := false
+var my_record: Dictionary = {}
 var server_address := normalize_address(DEFAULT_SERVER)
 
 # ---- 서버 상태 ----
@@ -46,6 +50,11 @@ var _rooms := {}                # room_id -> {id, name, mode, owner, members, pl
 var _peer_room := {}            # peer_id -> room_id
 var _next_room := 1
 var _local_sender := 0          # LAN 호스트가 자기 서버 함수를 직접 부를 때의 보낸 사람
+var _devices := {}              # peer_id -> device_id
+var _db := {}                   # device_id -> {name, rating, wins, losses, coop_best}
+var _db_dirty := false
+const DB_PATH := "user://server_db.json"
+const ELO_K := 32.0
 
 
 func _ready() -> void:
@@ -74,7 +83,8 @@ func start_dedicated(port: int) -> Error:
 		get_tree().quit(1)
 		return err
 	dedicated = true
-	_log("전용 서버 시작 - 포트 %d, 프로토콜 %d" % [port, PROTOCOL])
+	_load_db()
+	_log("전용 서버 시작 - 포트 %d, 프로토콜 %d, 등록 플레이어 %d명" % [port, PROTOCOL, _db.size()])
 	return OK
 
 
@@ -85,8 +95,11 @@ func host_lan(port: int) -> Error:
 		status_changed.emit("서버 열기 실패 (포트 %d, 오류 %d)" % [port, err])
 		return err
 	dedicated = false
+	_load_db()
 	my_id = 1
 	_names[1] = _clean_name(Session.player_name)
+	_devices[1] = Profile.device_id
+	my_record = _record_for(1)
 	connected = true
 	connection_changed.emit(true)
 	status_changed.emit("이 PC 에서 서버 실행 중 (포트 %d). 친구는 내 IP 로 접속하세요." % port)
@@ -124,6 +137,7 @@ func close() -> void:
 	room = {}
 	rooms = []
 	_names.clear()
+	_devices.clear()
 	_rooms.clear()
 	_peer_room.clear()
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
@@ -198,6 +212,16 @@ func send_snapshot(d: Dictionary) -> void:
 		_s_snap.rpc_id(1, d)
 
 
+func report_result(winner: int, my_round: int) -> void:
+	## 매치 결과 보고 (서버가 레이팅/기록 반영)
+	if in_match:
+		_to_server("_s_report", [winner, my_round])
+
+
+func request_leaderboard() -> void:
+	_to_server("_s_leaderboard", [])
+
+
 func is_room_owner() -> bool:
 	return not room.is_empty() and int(room.get("owner", -1)) == my_id
 
@@ -228,11 +252,12 @@ func _on_peer_disconnected(id: int) -> void:
 		_log("접속 종료: %d (%s)" % [id, _names.get(id, "?")])
 		_names.erase(id)
 		_leave(id)
+		_devices.erase(id)
 
 
 func _on_connected_to_server() -> void:
 	my_id = multiplayer.get_unique_id()
-	_s_hello.rpc_id(1, _clean_name(Session.player_name), PROTOCOL)
+	_s_hello.rpc_id(1, _clean_name(Session.player_name), PROTOCOL, Profile.device_id)
 
 
 func _on_connection_failed() -> void:
@@ -303,7 +328,7 @@ func _save_settings() -> void:
 # 서버 측 (클라이언트 → 서버)
 # ===========================================================================
 @rpc("any_peer", "reliable")
-func _s_hello(player_name: String, protocol: int) -> void:
+func _s_hello(player_name: String, protocol: int, device_id: String) -> void:
 	if not is_server:
 		return
 	var id := _sender()
@@ -313,8 +338,15 @@ func _s_hello(player_name: String, protocol: int) -> void:
 			peer.disconnect_peer.call_deferred(id)
 		return
 	_names[id] = _clean_name(player_name)
-	_log("입장: %d = %s" % [id, _names[id]])
+	var dev := device_id.substr(0, 40) if device_id != "" else "peer%d" % id
+	if dev in _devices.values():
+		# 같은 기기에서 창을 두 개 띄운 경우 (테스트/LAN) 별도 기록으로
+		dev += "#%d" % id
+	_devices[id] = dev
+	var rec := _record_for(id)
+	_log("입장: %d = %s (레이팅 %d)" % [id, _names[id], rec["rating"]])
 	_to_client(id, "_c_welcome", [id, _room_list()])
+	_to_client(id, "_c_record", [rec])
 
 
 @rpc("any_peer", "reliable")
@@ -447,6 +479,110 @@ func _s_snap(d: Dictionary) -> void:
 		_c_snap.rpc_id(to, d)
 
 
+@rpc("any_peer", "reliable")
+func _s_report(winner_index: int, my_round: int) -> void:
+	## 승패 보고. 자기 패배/상대 승리 보고는 바로 인정, 자기 승리 주장은 상대 보고와 일치해야 인정
+	if not is_server:
+		return
+	var id := _sender()
+	var rid: int = _peer_room.get(id, -1)
+	if rid < 0:
+		return
+	var r: Dictionary = _rooms[rid]
+	var m: Array = r["members"]
+	var my_index := m.find(id)
+	if my_index < 0:
+		return
+	var rec := _record_for(id)
+	if r["mode"] == "coop":
+		rec["coop_best"] = maxi(int(rec.get("coop_best", 0)), clampi(my_round, 0, 999))
+		_db_dirty = true
+		_save_db()
+		return
+	if r.get("rated", false) or m.size() < 2 or winner_index < 0 or winner_index > 1:
+		return
+	r["reports"][id] = winner_index
+	var other: int = m[1 - my_index]
+	if winner_index != my_index:
+		_rate(r, m[winner_index], m[1 - winner_index])
+	elif r["reports"].get(other, -1) == winner_index:
+		_rate(r, id, other)
+
+
+@rpc("any_peer", "reliable")
+func _s_leaderboard() -> void:
+	if not is_server:
+		return
+	var id := _sender()
+	var list: Array = []
+	for dev in _db:
+		var e: Dictionary = _db[dev]
+		if int(e.get("wins", 0)) + int(e.get("losses", 0)) > 0 or int(e.get("coop_best", 0)) > 0:
+			list.append({"name": e["name"], "rating": e["rating"], "wins": e.get("wins", 0), "losses": e.get("losses", 0), "coop_best": e.get("coop_best", 0), "dev": dev})
+	list.sort_custom(func(a, b): return a["rating"] > b["rating"])
+	var my_dev: String = _devices.get(id, "")
+	var my_rank := -1
+	for i in list.size():
+		if list[i]["dev"] == my_dev:
+			my_rank = i + 1
+	var top: Array = []
+	for i in mini(20, list.size()):
+		var e: Dictionary = list[i].duplicate()
+		e.erase("dev")
+		top.append(e)
+	_to_client(id, "_c_leaderboard", [top, my_rank])
+
+
+func _record_for(id: int) -> Dictionary:
+	var dev: String = _devices.get(id, "peer%d" % id)
+	if not _db.has(dev):
+		_db[dev] = {"name": _names.get(id, "?"), "rating": 1000, "wins": 0, "losses": 0, "coop_best": 0}
+		_db_dirty = true
+	var rec: Dictionary = _db[dev]
+	if _names.has(id) and rec["name"] != _names[id]:
+		rec["name"] = _names[id]
+		_db_dirty = true
+	return rec
+
+
+func _rate(r: Dictionary, winner: int, loser: int) -> void:
+	r["rated"] = true
+	var w := _record_for(winner)
+	var l := _record_for(loser)
+	var ew := 1.0 / (1.0 + pow(10.0, (l["rating"] - w["rating"]) / 400.0))
+	var delta := maxi(1, int(round(ELO_K * (1.0 - ew))))
+	w["rating"] = int(w["rating"]) + delta
+	l["rating"] = maxi(0, int(l["rating"]) - delta)
+	w["wins"] = int(w["wins"]) + 1
+	l["losses"] = int(l["losses"]) + 1
+	_db_dirty = true
+	_save_db()
+	_log("레이팅: %s +%d (%d) / %s -%d (%d)" % [w["name"], delta, w["rating"], l["name"], delta, l["rating"]])
+	if _names.has(winner):
+		_to_client(winner, "_c_rating", [w, delta])
+	if _names.has(loser):
+		_to_client(loser, "_c_rating", [l, -delta])
+
+
+func _load_db() -> void:
+	if not FileAccess.file_exists(DB_PATH):
+		return
+	var f := FileAccess.open(DB_PATH, FileAccess.READ)
+	var data = JSON.parse_string(f.get_as_text())
+	if data is Dictionary:
+		_db = data
+
+
+func _save_db() -> void:
+	if not _db_dirty:
+		return
+	var f := FileAccess.open(DB_PATH, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify(_db))
+	_db_dirty = false
+
+
 func _partner(id: int) -> int:
 	var rid: int = _peer_room.get(id, -1)
 	if rid < 0 or not _rooms[rid]["playing"]:
@@ -460,6 +596,8 @@ func _partner(id: int) -> int:
 func _start_room(rid: int) -> void:
 	var r: Dictionary = _rooms[rid]
 	r["playing"] = true
+	r["rated"] = false
+	r["reports"] = {}
 	var seed_v := randi()
 	var m: Array = r["members"]
 	_log("매치 시작 #%d %s: %s vs %s" % [rid, r["mode"], _names[m[0]], _names[m[1]]])
@@ -477,6 +615,9 @@ func _leave(id: int) -> void:
 	r["members"].erase(id)
 	if r["playing"]:
 		r["playing"] = false
+		if r["mode"] == "pvp" and not r.get("rated", false) and r["members"].size() == 1:
+			# 매치 도중 나간 쪽 패배
+			_rate(r, r["members"][0], id)
 		for m in r["members"]:
 			_to_client(m, "_c_partner_left", [])
 	if r["members"].is_empty():
@@ -535,6 +676,28 @@ func _c_welcome(id: int, list: Array) -> void:
 	connection_changed.emit(true)
 	status_changed.emit("서버 접속 완료! 방을 만들거나 참가하세요.")
 	rooms_updated.emit(list)
+
+
+@rpc("authority", "reliable")
+func _c_record(rec: Dictionary) -> void:
+	my_record = rec
+	Profile.rating = int(rec.get("rating", 1000))
+	Profile.save()
+	record_updated.emit(rec)
+
+
+@rpc("authority", "reliable")
+func _c_rating(rec: Dictionary, delta: int) -> void:
+	my_record = rec
+	Profile.rating = int(rec.get("rating", 1000))
+	Profile.save()
+	record_updated.emit(rec)
+	rating_changed.emit(int(rec.get("rating", 1000)), delta)
+
+
+@rpc("authority", "reliable")
+func _c_leaderboard(list: Array, my_rank: int) -> void:
+	leaderboard_received.emit(list, my_rank)
 
 
 @rpc("authority", "reliable")

@@ -64,6 +64,21 @@ var bonus_chest := 0.0            # 영구 강화: 보물상자 확률 배수 �
 var bonus_gamble := 0.0           # 영구 강화: 도박 성공률 추가
 var bonus_boss_time := 0.0        # 영구 강화: 보스 제한시간 추가
 var revived := 0
+var unit_levels := {}             # 도감 유닛 영구 레벨 (대전은 비움)
+var obtained := {}                # 이번 판에 얻은 유닛 (도감 등록용)
+var merges_done := 0
+var mythics_done := 0
+var bosses_killed := 0
+var combo := 0
+var best_combo := 0
+var _combo_t := 0.0
+var combo_pop := 0.0
+var boss_warn_t := 0.0
+var pending_slot := {}            # 돌아가는 중인 슬롯 {reels, bet, t}
+var last_slot := {}               # 마지막 결과 (UI 표시용)
+var slot_spins := 0
+var emote := ""
+var emote_t := 0.0
 var _alarm_t := 0.0
 var missions := {}
 var gamble_wins := 0
@@ -118,7 +133,7 @@ func _reset_cells() -> void:
 
 
 func _empty_cell() -> Dictionary:
-	return {"id": "", "n": 0, "timers": [0.0, 0.0, 0.0], "ramp": 0, "last": null, "hits": 0, "skill_t": 0.0}
+	return {"id": "", "n": 0, "timers": [0.0, 0.0, 0.0], "ramp": 0, "last": null, "hits": 0, "skill_t": 0.0, "kick": 0.0}
 
 
 # ===========================================================================
@@ -229,6 +244,12 @@ func mergeable(i: int) -> bool:
 	return c["id"] != "" and c["n"] >= GameData.MAX_STACK and GameData.UNITS[c["id"]]["rarity"] <= GameData.Rarity.EPIC
 
 
+func unit_power(id: String) -> float:
+	## 강화(등급군) x 도감 유닛 레벨
+	var u: Dictionary = GameData.UNITS[id]
+	return dmg_mult(u["rarity"]) * (1.0 + GameData.UNIT_LEVEL_BONUS * int(unit_levels.get(id, 0)))
+
+
 func dmg_mult(rarity: int) -> float:
 	var lvl := 0
 	for t in 3:
@@ -293,6 +314,7 @@ func add_unit(id: String) -> int:
 		cells[target] = _empty_cell()
 		cells[target]["id"] = id
 	var c: Dictionary = cells[target]
+	obtained[id] = true
 	c["timers"][c["n"]] = rng.randf() * 0.3
 	c["n"] += 1
 	var col: Color = GameData.RARITY_COLORS[GameData.UNITS[id]["rarity"]]
@@ -328,10 +350,12 @@ func merge_cell(i: int) -> bool:
 	var idx := add_unit(id)
 	if selected == i and cells[i]["id"] == "":
 		selected = idx
-	float_text(cell_center(idx), "합성! %s" % GameData.UNITS[id]["name"], GameData.RARITY_COLORS[rarity + 1])
+	merges_done += 1
 	_sfx("merge")
-	if rarity + 1 >= GameData.Rarity.LEGEND:
+	if rarity + 1 >= GameData.Rarity.EPIC:
 		_rare_pull_fx(idx, rarity + 1)
+	else:
+		float_text(cell_center(idx), "합성!", GameData.RARITY_COLORS[rarity + 1])
 	return true
 
 
@@ -356,8 +380,8 @@ func combine(mythic: String) -> bool:
 	for k in need:
 		remove_units(k, need[k])
 	var idx := add_unit(mythic)
+	mythics_done += 1
 	_rare_pull_fx(idx, GameData.Rarity.MYTHIC)
-	show_banner("신화 강림!", GameData.UNITS[mythic]["name"], GameData.RARITY_COLORS[4])
 	_complete_mission("first_mythic")
 	return true
 
@@ -610,6 +634,7 @@ func step(dt: float) -> void:
 	_update_enemies(dt)
 	_update_units(dt)
 	_update_chests(dt)
+	_update_slot(dt)
 	_cleanup()
 	_mission_t -= dt
 	if _mission_t <= 0.0:
@@ -680,6 +705,7 @@ func _start_wave(w: int) -> void:
 		if w == GameData.FINAL_WAVE:
 			b.boss_name = "최종 보스 · 사각의 군주"
 			b.size *= 1.3
+		boss_warn_t = 2.5
 		show_banner("ROUND %d - 보스!" % w, "%s 등장! %d초 안에 못 잡으면 패배" % [b.boss_name, int(GameData.boss_time(w))], Color(1, 0.3, 0.5))
 		_sfx("boss")
 	elif GameData.is_bonus_wave(w):
@@ -826,6 +852,7 @@ func _update_units(dt: float) -> void:
 				c["ramp"] = 0
 				continue
 			c["timers"][k] = u["cd"]
+			c["kick"] = 0.12
 			_attack(i, c, u, target)
 
 
@@ -858,7 +885,7 @@ func _attack(i: int, c: Dictionary, u: Dictionary, target: EnemyState) -> void:
 	var fx: Dictionary = u["fx"]
 	var center := cell_center(i)
 	var id: String = c["id"]
-	var base: float = u["dmg"] * dmg_mult(u["rarity"])
+	var base: float = u["dmg"] * unit_power(c["id"])
 	var col: Color = u["color"]
 	# 광전사 가속
 	if fx.has("ramp"):
@@ -940,7 +967,8 @@ func _hit(t: EnemyState, dmg: float, id: String, fx: Dictionary, crit: bool) -> 
 		float_text(t.pos + Vector2(0, -16), "처형!", Color(0.8, 0.4, 1.0), 14)
 		_damage(t, t.hp + t.shield + 1.0, id, false, true)
 	if crit:
-		float_text(t.pos + Vector2(rng.randf_range(-8, 8), -18), "치명! %d" % int(dmg), Color(1, 0.35, 0.3), 14)
+		float_text(t.pos + Vector2(rng.randf_range(-8, 8), -18), str(int(dmg)), Color(1, 0.35, 0.3), 16)
+		_sparks(t.pos, Color(1, 0.8, 0.3), 6)
 
 
 func _nearest_unhit(p: Vector2, r: float, hit_list: Array) -> EnemyState:
@@ -976,10 +1004,30 @@ func _damage(e: EnemyState, amount: float, src: String, _show: bool, true_dmg :=
 func _kill(e: EnemyState) -> void:
 	e.alive = false
 	kills += 1
+	# 콤보: 짧은 시간 안에 연속 처치
+	combo += 1
+	_combo_t = GameData.COMBO_WINDOW
+	combo_pop = 1.0
+	best_combo = maxi(best_combo, combo)
+	if combo % GameData.COMBO_STEP == 0:
+		var cb := 5 + combo / 4 + wave
+		gold += cb
+		float_text(Vector2(SIZE - 110, 150), "+%dG" % cb, Color(1, 0.6, 0.2), 20)
+		_sfx("merge")
+	# 잭팟 처치
+	if not e.is_boss and e.weight > 0 and rng.randf() < GameData.JACKPOT_CHANCE:
+		var jg := 50 + wave * 10
+		gold += jg
+		show_banner("JACKPOT!", "+%d 골드" % jg, Color(1, 0.85, 0.2))
+		_coin_burst(e.pos, 14)
+		_flash(Color(1, 0.85, 0.3), 0.35)
+		_sfx("win")
 	gauge = mini(gauge + 1, GameData.COOP_BLAST_NEED)
 	var g := 1 + wave / 10
 	match e.kind:
 		"boss":
+			bosses_killed += 1
+			_coin_burst(e.pos, 22)
 			boss_kill_times[wave] = snappedf(GameData.boss_time(wave) + bonus_boss_time - wave_timer, 0.1)
 			g = 100 + wave * 10
 			var gm := 3 + wave / 10
@@ -1019,7 +1067,7 @@ func _kill(e: EnemyState) -> void:
 func _cast_skill(i: int, c: Dictionary, u: Dictionary) -> void:
 	var center := cell_center(i)
 	var n: int = c["n"]
-	var base: float = u["dmg"] * dmg_mult(u["rarity"])
+	var base: float = u["dmg"] * unit_power(c["id"])
 	var sid: String = u["skill"]["id"]
 	float_text(center + Vector2(0, -30), u["skill"]["name"] + "!", u["color"], 18)
 	match sid:
@@ -1192,9 +1240,10 @@ func apply_snapshot(d: Dictionary) -> void:
 # ===========================================================================
 # 시각 효과
 # ===========================================================================
-func apply_loadout(item_ids: Array, perk_levels: Dictionary) -> Array:
-	## 상점 아이템/영구 강화 적용. 적용된 내용 설명 목록을 돌려준다.
+func apply_loadout(item_ids: Array, perk_levels: Dictionary, p_unit_levels := {}) -> Array:
+	## 상점 아이템/영구 강화/도감 유닛 레벨 적용. 적용된 아이템 목록을 돌려준다.
 	var notes: Array = []
+	unit_levels = p_unit_levels.duplicate()
 	var pg: int = perk_levels.get("p_gold", 0)
 	if pg > 0:
 		gold += 15 * pg
@@ -1244,13 +1293,147 @@ func revive() -> void:
 	_sfx("rare")
 
 
+# ===========================================================================
+# 럭키 슬롯
+# ===========================================================================
+func slot_bet(i: int) -> int:
+	return GameData.SLOT_BETS[i] + (GameData.SLOT_BETS[i] * wave) / 20
+
+
+func slot_spin(i: int) -> bool:
+	if not alive or not pending_slot.is_empty():
+		return false
+	var bet := slot_bet(i)
+	if gold < bet:
+		float_text(Vector2(SIZE / 2, 150), "골드 부족!", Color(1, 0.4, 0.4))
+		return false
+	gold -= bet
+	slot_spins += 1
+	var reels: Array = []
+	for r in 3:
+		reels.append(_roll_symbol())
+	# 가끔 "아깝다" 연출: 두 개가 같으면 세 번째가 한 칸 옆에 멈춘 것처럼 보이게 (결과는 그대로)
+	pending_slot = {"reels": reels, "bet": bet, "big": i == 1, "t": GameData.SLOT_SPIN_TIME}
+	last_slot = {}
+	_sfx("summon")
+	return true
+
+
+func _roll_symbol() -> String:
+	var total := 0
+	for w in GameData.SLOT_WEIGHTS:
+		total += w
+	var r := rng.randi() % total
+	for k in GameData.SLOT_SYMBOLS.size():
+		r -= GameData.SLOT_WEIGHTS[k]
+		if r < 0:
+			return GameData.SLOT_SYMBOLS[k]
+	return "skull"
+
+
+func _update_slot(dt: float) -> void:
+	if pending_slot.is_empty():
+		return
+	pending_slot["t"] -= dt
+	if pending_slot["t"] > 0.0:
+		return
+	var reels: Array = pending_slot["reels"]
+	var bet: int = pending_slot["bet"]
+	var big: bool = pending_slot["big"]
+	pending_slot = {}
+	var result := {"reels": reels, "text": "꽝", "win": 0}
+	var center := Vector2(SIZE / 2, SIZE / 2 - 40)
+	if reels[0] == reels[1] and reels[1] == reels[2]:
+		match reels[0]:
+			"gold":
+				gold += bet * 8
+				result["text"] = "JACKPOT +%dG" % (bet * 8)
+				show_banner("JACKPOT!!", "+%d 골드" % (bet * 8), Color(1, 0.85, 0.2))
+				_coin_burst(center, 30)
+			"gem":
+				var gm := 6 if big else 2
+				gems += gm
+				result["text"] = "보석 +%d" % gm
+				show_banner("보석 잭팟!", "+%d 보석" % gm, Color(0.5, 0.85, 1.0))
+				_coin_burst(center, 20, Color(0.5, 0.85, 1.0))
+			"summon":
+				var fs := 10 if big else 3
+				free_summons += fs
+				result["text"] = "무료 소환 +%d" % fs
+				show_banner("소환 잭팟!", "무료 소환 +%d" % fs, Color(0.5, 1.0, 0.6))
+			"star":
+				var r := GameData.Rarity.LEGEND if big and rng.randf() < 0.5 else GameData.Rarity.EPIC
+				var id := GameData.random_unit_of(rng, r)
+				var idx := add_unit(id)
+				if idx >= 0:
+					_rare_pull_fx(idx, r)
+					result["text"] = "%s 획득!" % GameData.UNITS[id]["name"]
+				else:
+					gems += 3
+					result["text"] = "보석 +3"
+			"skull":
+				result["text"] = "꽝꽝꽝..."
+				shake = 8.0
+		result["win"] = 2 if reels[0] != "skull" else 0
+		if reels[0] != "skull":
+			_flash(Color(1, 0.9, 0.4), 0.4)
+		_sfx("win" if reels[0] != "skull" else "fail")
+	elif (reels[0] == reels[1] or reels[1] == reels[2] or reels[0] == reels[2]):
+		var pair: String = reels[1] if (reels[1] == reels[0] or reels[1] == reels[2]) else reels[0]
+		if pair != "skull":
+			var back := int(bet * 1.5)
+			gold += back
+			result["text"] = "아깝다! +%dG" % back
+			result["win"] = 1
+			_sfx("merge")
+		else:
+			result["text"] = "해골 둘... 꽝"
+			_sfx("fail")
+	else:
+		_sfx("fail")
+	last_slot = result
+	float_text(center, result["text"], Color(1, 0.85, 0.3) if result["win"] > 0 else Color(0.7, 0.7, 0.75), 22 if result["win"] > 1 else 18)
+
+
+# ===========================================================================
+# 파티클
+# ===========================================================================
+func _coin_burst(p: Vector2, n: int, col := Color(1, 0.85, 0.25)) -> void:
+	for k in n:
+		var v := Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(80, 260) + Vector2(0, -120)
+		_add_effect({"type": "coin", "pos": p, "vel": v, "t": 0.0, "dur": rng.randf_range(0.6, 1.0), "color": col})
+
+
+func _sparks(p: Vector2, col: Color, n: int) -> void:
+	for k in n:
+		var v := Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(60, 160)
+		_add_effect({"type": "spark", "pos": p, "vel": v, "t": 0.0, "dur": 0.25, "color": col})
+
+
 func _sfx(sound: String) -> void:
 	if sfx:
 		Sfx.play(sound)
 
 
+func show_emote(name: String) -> void:
+	emote = name
+	emote_t = 2.5
+	_sfx("tick")
+
+
 func float_text(p: Vector2, text: String, color: Color, fsize := 14) -> void:
-	texts.append({"pos": p, "text": text, "color": color, "t": 0.0, "dur": 1.1, "size": fsize})
+	# 같은 자리에 막 뜬 글자가 있으면 아래로 한 줄씩 밀어서 겹치지 않게
+	var pos := p
+	for k in 6:
+		var clash := false
+		for t in texts:
+			if t["t"] < 0.6 and absf(t["pos"].y - pos.y) < fsize + 4 and absf(t["pos"].x - pos.x) < 140:
+				clash = true
+				break
+		if not clash:
+			break
+		pos.y += fsize + 8
+	texts.append({"pos": pos, "text": text, "color": color, "t": 0.0, "dur": 1.1, "size": fsize})
 	if texts.size() > 40:
 		texts.pop_front()
 
@@ -1277,12 +1460,17 @@ func _rare_pull_fx(idx: int, rarity: int) -> void:
 		return
 	var col: Color = GameData.RARITY_COLORS[rarity]
 	_sfx("rare")
+	# 가챠 연출: 등급이 높을수록 길고 화려하게
+	if rarity >= GameData.Rarity.EPIC and sfx:
+		effects = effects.filter(func(f): return f["type"] != "reveal")
+		effects.append({"type": "reveal", "id": cells[idx]["id"], "rarity": rarity, "pos": cell_center(idx), "t": 0.0,
+			"dur": [0.0, 0.0, 0.9, 1.3, 1.8][rarity], "color": col})
 	_add_effect({"type": "ring", "pos": cell_center(idx), "r0": 10.0, "r1": 110.0, "t": 0.0, "dur": 0.7, "color": col})
 	_add_effect({"type": "beam", "pos": cell_center(idx), "t": 0.0, "dur": 0.8, "color": col})
 	if rarity >= GameData.Rarity.LEGEND:
 		_flash(col, 0.3)
 		shake = maxf(shake, 6.0)
-		show_banner("%s 등급 획득!" % GameData.RARITY_NAMES[rarity], GameData.UNITS[cells[idx]["id"]]["name"], col)
+		_coin_burst(cell_center(idx), 10 if rarity == 3 else 20, col)
 
 
 func _update_visuals(dt: float) -> void:
@@ -1296,6 +1484,16 @@ func _update_visuals(dt: float) -> void:
 			texts.remove_at(i)
 	banner_t = maxf(0.0, banner_t - dt)
 	flash_t = maxf(0.0, flash_t - dt)
+	combo_pop = maxf(0.0, combo_pop - dt * 4.0)
+	emote_t = maxf(0.0, emote_t - dt)
+	boss_warn_t = maxf(0.0, boss_warn_t - dt)
+	for c in cells:
+		if c["kick"] > 0.0:
+			c["kick"] = maxf(0.0, c["kick"] - dt)
+	if _combo_t > 0.0:
+		_combo_t -= dt
+		if _combo_t <= 0.0:
+			combo = 0
 	shake = maxf(0.0, shake - dt * 30.0)
 	queue_redraw()
 
@@ -1341,6 +1539,7 @@ func _draw() -> void:
 	if shake > 0.0:
 		off = Vector2(randf_range(-shake, shake), randf_range(-shake, shake)) * 0.5
 	_draw_header()
+	_draw_emote()
 	draw_set_transform(off)
 	_draw_field()
 	_draw_grid()
@@ -1353,9 +1552,12 @@ func _draw() -> void:
 		var fc := flash_color
 		fc.a = clampf(flash_t, 0.0, 0.5) * 0.6
 		draw_rect(Rect2(0, 0, SIZE, SIZE), fc)
+	_draw_boss_warning()
 	_draw_tag(hover if hover >= 0 else selected)
-	_draw_banner()
+	_draw_combo()
 	_draw_countdown()
+	_draw_reveal()
+	_draw_banner()
 	if not alive:
 		draw_rect(Rect2(0, 0, SIZE, SIZE), Color(0, 0, 0, 0.6))
 		Glyphs.draw_icon(self, "defeat", Vector2(SIZE / 2, SIZE / 2), 70.0, Color(1, 0.3, 0.3))
@@ -1408,6 +1610,18 @@ func _draw_field() -> void:
 		draw_circle(Vector2(INSET, INSET), 17.0 + 3.0 * pulse, Color(0.8, 0.1, 0.15, 0.35))
 		draw_circle(Vector2(INSET, INSET), 12.0, Color(0.55, 0.08, 0.12))
 		draw_arc(Vector2(INSET, INSET), 12.0, 0, TAU, 20, Color(1, 0.4, 0.4), 2.0)
+
+
+func _draw_emote() -> void:
+	if emote_t <= 0.0:
+		return
+	var pop := minf(1.0, (2.5 - emote_t) * 6.0)
+	var a := clampf(emote_t * 2.0, 0.0, 1.0)
+	var c := Vector2(SIZE - 40, -HEADER - 30)
+	draw_circle(c, 30 * pop, Color(1, 1, 1, 0.95 * a))
+	draw_colored_polygon(PackedVector2Array([c + Vector2(-8, 24), c + Vector2(8, 24), c + Vector2(0, 38)]), Color(1, 1, 1, 0.95 * a))
+	var colors := {"emote": Color(1, 0.8, 0.2), "heart": Color(1, 0.35, 0.45), "star": Color(1, 0.8, 0.2), "skull": Color(0.4, 0.4, 0.45), "attack": Color(0.9, 0.3, 0.3), "gift": Color(0.3, 0.8, 0.6)}
+	Glyphs.draw_icon(self, emote, c, 20 * pop, Color(colors.get(emote, Color.WHITE), a))
 
 
 func _draw_header() -> void:
@@ -1494,7 +1708,7 @@ func _draw_unit_stack(center: Vector2, c: Dictionary) -> void:
 	var n: int = c["n"]
 	var bob := sin(_anim * 3.0 + center.x * 0.1) * 1.5
 	var p := center + Vector2(0, -4 + bob)
-	Glyphs.draw_unit_token(self, c["id"], p, CELL * 0.26, _anim)
+	Glyphs.draw_unit_token(self, c["id"], p, CELL * 0.26 * (1.0 + c.get("kick", 0.0) * 1.2), _anim)
 	# 마릿수: 하단 점 (1~3)
 	for k in n:
 		var x := (k - (n - 1) / 2.0) * 11.0
@@ -1614,6 +1828,17 @@ func _draw_effects() -> void:
 			"ring":
 				var r: float = lerpf(fx["r0"], fx["r1"], k)
 				draw_arc(fx["pos"], r, 0, TAU, 40, Color(col, 1.0 - k), 3.0)
+			"coin":
+				var t: float = fx["t"]
+				var p: Vector2 = fx["pos"] + fx["vel"] * t + Vector2(0, 420) * t * t
+				var r := 5.0 * (1.0 - k * 0.5)
+				draw_circle(p, r, Color(col.darkened(0.3), 1.0 - k * k))
+				draw_circle(p, r * 0.65, Color(col.lightened(0.2), 1.0 - k * k))
+			"spark":
+				var p0: Vector2 = fx["pos"] + fx["vel"] * fx["t"]
+				draw_line(p0, p0 - fx["vel"] * 0.05, Color(col, 1.0 - k), 2.0)
+			"reveal":
+				pass
 			"beam":
 				var h := 200.0 * (1.0 - k)
 				draw_rect(Rect2(fx["pos"] + Vector2(-8, -h), Vector2(16, h)), Color(col, 0.5 * (1.0 - k)))
@@ -1635,6 +1860,59 @@ func _draw_texts() -> void:
 		var col: Color = t["color"]
 		col.a = 1.0 - k * k
 		_text(t["pos"] + Vector2(0, -30.0 * k), t["text"], t["size"], col)
+
+
+func _draw_reveal() -> void:
+	## 가챠 연출: 가운데에서 빛줄기와 함께 커졌다가 칸으로 날아감
+	for fx in effects:
+		if fx["type"] != "reveal":
+			continue
+		var k: float = fx["t"] / fx["dur"]
+		var col: Color = fx["color"]
+		var rarity: int = fx["rarity"]
+		var center := Vector2(SIZE / 2, SIZE / 2)
+		var hold := 0.72
+		var a := 1.0 if k < hold else 1.0 - (k - hold) / (1.0 - hold)
+		draw_rect(Rect2(0, 0, SIZE, SIZE), Color(0, 0, 0, 0.5 * a))
+		var rays := 10 + rarity * 4
+		var rot: float = fx["t"] * (1.2 + rarity * 0.4)
+		for n in rays:
+			var ang := rot + TAU * n / rays
+			var len := 260.0 * minf(1.0, k * 3.0)
+			var w := 0.09
+			draw_colored_polygon(PackedVector2Array([center, center + Vector2.from_angle(ang - w) * len, center + Vector2.from_angle(ang + w) * len]), Color(col, 0.22 * a))
+		var grow := minf(1.0, k / 0.25)
+		var bounce := 1.0 + 0.25 * sin(minf(1.0, k / 0.35) * PI)
+		var pos := center
+		var scale_r := 60.0 * grow * bounce
+		if k > hold:
+			var q := (k - hold) / (1.0 - hold)
+			pos = center.lerp(fx["pos"], q * q)
+			scale_r = lerpf(60.0, CELL * 0.26, q)
+		draw_circle(pos, scale_r * 1.5, Color(col, 0.25 * a))
+		Glyphs.draw_unit_token(self, fx["id"], pos, scale_r, _anim)
+		if k < hold:
+			_text(center + Vector2(0, 110), GameData.RARITY_NAMES[rarity] + "!", 34 + rarity * 4, Color(col, a))
+			_text(center + Vector2(0, 150), GameData.UNITS[fx["id"]]["name"], 20, Color(1, 1, 1, a))
+
+
+func _draw_combo() -> void:
+	if combo < 5 or not alive:
+		return
+	var s := 1.0 + combo_pop * 0.35
+	var col := Color(1, 0.85, 0.3).lerp(Color(1, 0.3, 0.2), clampf(combo / 100.0, 0.0, 1.0))
+	_text(Vector2(SIZE - 100, 78), "COMBO", int(14 * s), Color(col, 0.9))
+	_text(Vector2(SIZE - 100, 104), str(combo), int(30 * s), col)
+
+
+func _draw_boss_warning() -> void:
+	if boss_warn_t <= 0.0:
+		return
+	var pulse := 0.5 + 0.5 * sin(boss_warn_t * 14.0)
+	var a := clampf(boss_warn_t, 0.0, 1.0) * (0.3 + 0.4 * pulse)
+	for w in 4:
+		draw_rect(Rect2(w * 6, w * 6, SIZE - w * 12, SIZE - w * 12), Color(1, 0.1, 0.15, a * (1.0 - w * 0.22)), false, 6.0)
+	_text(Vector2(SIZE / 2, SIZE / 2 - 150), "WARNING", 44, Color(1, 0.25, 0.3, a * 1.6))
 
 
 func _draw_countdown() -> void:
