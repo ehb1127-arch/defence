@@ -60,6 +60,10 @@ var bonus_left := 0
 var boss_kill_times := {}          # 라운드 -> 처치까지 걸린 초 (통계/밸런스용)
 var sfx := false                  # 이 전장에서 효과음을 낼지 (로컬 사람 플레이어만)
 var _last_tick := -1
+var bonus_chest := 0.0            # 영구 강화: 보물상자 확률 배수 추가
+var bonus_gamble := 0.0           # 영구 강화: 도박 성공률 추가
+var bonus_boss_time := 0.0        # 영구 강화: 보스 제한시간 추가
+var revived := 0
 var _alarm_t := 0.0
 var missions := {}
 var gamble_wins := 0
@@ -68,6 +72,7 @@ var chests_opened := 0
 var dmg_by_unit := {}
 var time_alive := 0.0
 var selected := -1
+var hover := -1
 var cursor := 0
 var show_cursor := false
 var banner := ""
@@ -376,7 +381,7 @@ func gamble(g: int) -> bool:
 		float_text(Vector2(SIZE / 2, 150), "빈 칸이 없어요!", Color(1, 0.4, 0.4))
 		return false
 	gems -= d["gems"]
-	if rng.randf() < d["chance"]:
+	if rng.randf() < d["chance"] + bonus_gamble:
 		var id := GameData.random_unit_of(rng, d["rarity"])
 		var idx := add_unit(id)
 		if idx < 0:
@@ -668,7 +673,7 @@ func _start_wave(w: int) -> void:
 	wave = w
 	_last_tick = -1
 	if GameData.is_boss_wave(w):
-		wave_timer = GameData.boss_time(w)
+		wave_timer = GameData.boss_time(w) + bonus_boss_time
 		spawn_left = 0
 		var b: EnemyState = _spawn("boss", GameData.boss_hp(w), 0.0)
 		b.boss_name = GameData.BOSS_NAMES[(w / 10 - 1) % GameData.BOSS_NAMES.size()]
@@ -975,7 +980,7 @@ func _kill(e: EnemyState) -> void:
 	var g := 1 + wave / 10
 	match e.kind:
 		"boss":
-			boss_kill_times[wave] = snappedf(GameData.boss_time(wave) - wave_timer, 0.1)
+			boss_kill_times[wave] = snappedf(GameData.boss_time(wave) + bonus_boss_time - wave_timer, 0.1)
 			g = 100 + wave * 10
 			var gm := 3 + wave / 10
 			gems += gm
@@ -1007,7 +1012,7 @@ func _kill(e: EnemyState) -> void:
 		var m := _spawn("mini", e.max_hp / GameData.ENEMIES["splitter"]["hp"], e.dist - 10.0 * n)
 		m.pos = path_pos(m.dist)
 	_add_effect({"type": "pop", "pos": e.pos, "r": e.size * 1.8, "t": 0.0, "dur": 0.25, "color": e.color})
-	if rng.randf() < CHEST_CHANCE and chests.size() < 3:
+	if rng.randf() < CHEST_CHANCE * (1.0 + bonus_chest) and chests.size() < 3:
 		chests.append({"pos": e.pos, "t": 8.0})
 
 
@@ -1187,6 +1192,58 @@ func apply_snapshot(d: Dictionary) -> void:
 # ===========================================================================
 # 시각 효과
 # ===========================================================================
+func apply_loadout(item_ids: Array, perk_levels: Dictionary) -> Array:
+	## 상점 아이템/영구 강화 적용. 적용된 내용 설명 목록을 돌려준다.
+	var notes: Array = []
+	var pg: int = perk_levels.get("p_gold", 0)
+	if pg > 0:
+		gold += 15 * pg
+	bonus_chest = 0.2 * int(perk_levels.get("p_chest", 0))
+	bonus_gamble = 0.02 * int(perk_levels.get("p_gamble", 0))
+	bonus_boss_time = 3.0 * int(perk_levels.get("p_boss", 0))
+	for id in item_ids:
+		match id:
+			"start_gold":
+				gold += 100
+			"start_gems":
+				gems += 3
+			"summon_ticket":
+				free_summons += 5
+			"lucky_charm":
+				upgrades[3] = mini(upgrades[3] + 1, GameData.MAX_LUCK)
+		notes.append(id)
+	return notes
+
+
+func revive() -> void:
+	## 광고/부활 깃털: 보스와 적 절반을 치우고 다시 시작
+	revived += 1
+	alive = true
+	boss_failed = false
+	var others: Array = []
+	var boss_alive := false
+	for e in enemies:
+		if not e.alive:
+			continue
+		if e.is_boss:
+			# 보스는 남기되 체력 30% 감소 + 제한시간 30초 추가로 재도전
+			boss_alive = true
+			e.hp = maxf(1.0, e.hp - e.max_hp * 0.3)
+		else:
+			others.append(e)
+	# 가장 멀리 간 적부터 절반 제거
+	others.sort_custom(func(a, b): return a.dist > b.dist)
+	for k in others.size() / 2:
+		others[k].alive = false
+	_cleanup()
+	if boss_alive:
+		wave_timer = 30.0
+		_last_tick = -1
+	show_banner("부활!", "적 절반 제거" + (" · 보스 재도전 30초" if boss_alive else ""), Color(0.5, 1.0, 0.7))
+	_flash(Color(0.6, 1.0, 0.8), 0.6)
+	_sfx("rare")
+
+
 func _sfx(sound: String) -> void:
 	if sfx:
 		Sfx.play(sound)
@@ -1296,11 +1353,12 @@ func _draw() -> void:
 		var fc := flash_color
 		fc.a = clampf(flash_t, 0.0, 0.5) * 0.6
 		draw_rect(Rect2(0, 0, SIZE, SIZE), fc)
+	_draw_tag(hover if hover >= 0 else selected)
 	_draw_banner()
 	_draw_countdown()
 	if not alive:
 		draw_rect(Rect2(0, 0, SIZE, SIZE), Color(0, 0, 0, 0.6))
-		_text(Vector2(SIZE / 2, SIZE / 2), "패배", 56, Color(1, 0.3, 0.3))
+		Glyphs.draw_icon(self, "defeat", Vector2(SIZE / 2, SIZE / 2), 70.0, Color(1, 0.3, 0.3))
 	elif final_cleared_flag and mode != "pvp":
 		_text(Vector2(SIZE / 2, SIZE / 2 - 110), "최종 보스 격파!", 26, Color(1, 0.9, 0.4))
 
@@ -1314,6 +1372,13 @@ func _text(center: Vector2, s: String, fsize: int, color: Color, outline := true
 
 
 func _draw_field() -> void:
+	var bg := Art.tex("board/background")
+	if bg != null:
+		# 전장 전체 이미지 (560x560 기준, 트랙 폭 56 / 안쪽 448)
+		draw_texture_rect(bg, Rect2(0, 0, SIZE, SIZE), false)
+		draw_rect(Rect2(1, 1, SIZE - 2, SIZE - 2), accent, false, 2.0)
+		Glyphs.draw_icon(self, "spawn", Vector2(INSET, INSET), 16.0, Color(1, 0.4, 0.4))
+		return
 	draw_rect(Rect2(0, 0, SIZE, SIZE), Color(0.13, 0.15, 0.2))
 	# 트랙
 	var track_col := Color(0.32, 0.27, 0.22)
@@ -1335,8 +1400,14 @@ func _draw_field() -> void:
 	draw_rect(Rect2(56, 56, SIZE - 112, SIZE - 112), accent.darkened(0.3), false, 3.0)
 	draw_rect(Rect2(1, 1, SIZE - 2, SIZE - 2), accent, false, 2.0)
 	# 스폰 지점
-	draw_circle(Vector2(INSET, INSET), 16.0, Color(0.6, 0.1, 0.15, 0.7))
-	_text(Vector2(INSET, INSET), "!", 18, Color(1, 0.8, 0.8))
+	var sp := Art.icon("spawn")
+	if sp != null:
+		draw_texture_rect(sp, Rect2(Vector2(INSET, INSET) - Vector2(18, 18), Vector2(36, 36)), false)
+	else:
+		var pulse := 0.5 + 0.5 * sin(_anim * 4.0)
+		draw_circle(Vector2(INSET, INSET), 17.0 + 3.0 * pulse, Color(0.8, 0.1, 0.15, 0.35))
+		draw_circle(Vector2(INSET, INSET), 12.0, Color(0.55, 0.08, 0.12))
+		draw_arc(Vector2(INSET, INSET), 12.0, 0, TAU, 20, Color(1, 0.4, 0.4), 2.0)
 
 
 func _draw_header() -> void:
@@ -1387,27 +1458,31 @@ func _draw_header() -> void:
 
 
 func _draw_grid() -> void:
+	var cell_tex := Art.tex("board/cell")
 	for i in cells.size():
 		var center := cell_center(i)
-		var rect := Rect2(center - Vector2(CELL, CELL) / 2 + Vector2(3, 3), Vector2(CELL - 6, CELL - 6))
+		var rect := Rect2(center - Vector2(CELL, CELL) / 2 + Vector2(2.5, 2.5), Vector2(CELL - 5, CELL - 5))
 		var c: Dictionary = cells[i]
-		var bg := Color(0.17, 0.19, 0.25)
+		if cell_tex != null:
+			draw_texture_rect(cell_tex, rect, false)
+		else:
+			draw_rect(rect, Color(0.16, 0.18, 0.24))
+			draw_rect(Rect2(rect.position, Vector2(rect.size.x, 3)), Color(1, 1, 1, 0.04))
 		if c["id"] != "":
 			var rc: Color = GameData.RARITY_COLORS[GameData.UNITS[c["id"]]["rarity"]]
-			bg = bg.lerp(rc, 0.12)
-		draw_rect(rect, bg)
+			draw_rect(rect, Color(rc, 0.1))
+			draw_rect(Rect2(rect.position + Vector2(0, rect.size.y - 4), Vector2(rect.size.x, 4)), Color(rc, 0.7))
 		if not is_remote and mergeable(i):
 			var pulse := 0.5 + 0.5 * sin(_anim * 6.0)
-			draw_rect(rect, Color(1, 1, 0.5, 0.35 + 0.4 * pulse), false, 3.0)
-		else:
-			draw_rect(rect, Color(1, 1, 1, 0.08), false, 1.0)
+			draw_rect(rect, Color(1, 0.9, 0.4, 0.4 + 0.5 * pulse), false, 3.0)
 		if c["id"] != "":
 			_draw_unit_stack(center, c)
 	if selected >= 0 and selected < cells.size() and cells[selected]["id"] != "":
 		var sc := cell_center(selected)
 		var u: Dictionary = GameData.UNITS[cells[selected]["id"]]
-		draw_arc(sc, u["range"], 0, TAU, 64, Color(1, 1, 1, 0.35), 2.0)
-		draw_rect(Rect2(sc - Vector2(CELL, CELL) / 2, Vector2(CELL, CELL)), Color(1, 1, 1, 0.9), false, 3.0)
+		draw_circle(sc, u["range"], Color(1, 1, 1, 0.04))
+		draw_arc(sc, u["range"], 0, TAU, 64, Color(1, 1, 1, 0.4), 2.0)
+		draw_rect(Rect2(sc - Vector2(CELL, CELL) / 2, Vector2(CELL, CELL)), Color(1, 1, 1, 0.95), false, 3.0)
 	if show_cursor:
 		var cc := cell_center(cursor)
 		draw_rect(Rect2(cc - Vector2(CELL, CELL) / 2 + Vector2(1, 1), Vector2(CELL - 2, CELL - 2)), accent.lightened(0.4), false, 2.0)
@@ -1415,48 +1490,38 @@ func _draw_grid() -> void:
 
 func _draw_unit_stack(center: Vector2, c: Dictionary) -> void:
 	var u: Dictionary = GameData.UNITS[c["id"]]
-	var rarity: int = u["rarity"]
-	var rc: Color = GameData.RARITY_COLORS[rarity]
+	var rc: Color = GameData.RARITY_COLORS[u["rarity"]]
 	var n: int = c["n"]
-	var offsets: Array = [[Vector2(0, -6)], [Vector2(-12, -6), Vector2(12, -6)], [Vector2(-13, -1), Vector2(13, -1), Vector2(0, -15)]][n - 1]
 	var bob := sin(_anim * 3.0 + center.x * 0.1) * 1.5
-	for o in offsets:
-		_draw_unit_icon(center + o + Vector2(0, bob), u["color"], rc, rarity, 10.0 if n > 1 else 13.0)
-	_text(center + Vector2(0, 24), u["name"], 11, rc)
+	var p := center + Vector2(0, -4 + bob)
+	Glyphs.draw_unit_token(self, c["id"], p, CELL * 0.26, _anim)
+	# 마릿수: 하단 점 (1~3)
+	for k in n:
+		var x := (k - (n - 1) / 2.0) * 11.0
+		var q := center + Vector2(x, CELL * 0.36)
+		draw_colored_polygon(PackedVector2Array([q + Vector2(0, -4), q + Vector2(4, 0), q + Vector2(0, 4), q + Vector2(-4, 0)]), rc)
 	if u.has("skill"):
 		var ratio := clampf(c["skill_t"] / u["skill"]["cd"], 0.0, 1.0)
-		draw_arc(center + Vector2(0, -6), 26.0, -PI / 2, -PI / 2 + TAU * ratio, 24, Color(1, 1, 1, 0.5), 2.0)
+		draw_arc(p, CELL * 0.4, -PI / 2, -PI / 2 + TAU * ratio, 24, Color(1, 1, 1, 0.55), 2.5)
+	if Art.show_unit_labels:
+		_text(center + Vector2(0, CELL * 0.3), u["name"], 11, rc)
 
 
-func _draw_unit_icon(p: Vector2, col: Color, rc: Color, rarity: int, r: float) -> void:
-	match rarity:
-		0:
-			draw_circle(p, r, col)
-			draw_arc(p, r, 0, TAU, 20, rc.darkened(0.2), 2.0)
-		1:
-			var pts := PackedVector2Array([p + Vector2(0, -r * 1.15), p + Vector2(r * 1.15, 0), p + Vector2(0, r * 1.15), p + Vector2(-r * 1.15, 0)])
-			draw_colored_polygon(pts, col)
-			pts.append(pts[0])
-			draw_polyline(pts, rc, 2.0)
-		2:
-			var pts := PackedVector2Array()
-			for k in 6:
-				pts.append(p + Vector2.from_angle(TAU * k / 6.0 - PI / 2) * r * 1.1)
-			draw_colored_polygon(pts, col)
-			pts.append(pts[0])
-			draw_polyline(pts, rc, 2.0)
-		_:
-			var pts := PackedVector2Array()
-			var spikes := 5 if rarity == 3 else 8
-			for k in spikes * 2:
-				var rr := r * (1.35 if k % 2 == 0 else 0.7)
-				pts.append(p + Vector2.from_angle(TAU * k / (spikes * 2.0) - PI / 2 + (_anim if rarity == 4 else 0.0)) * rr)
-			if rarity == 4:
-				draw_circle(p, r * 1.5, Color(rc, 0.25 + 0.15 * sin(_anim * 5.0)))
-			draw_colored_polygon(pts, col)
-			pts.append(pts[0])
-			draw_polyline(pts, rc, 2.0)
-	draw_circle(p + Vector2(-r * 0.3, -r * 0.3), r * 0.22, Color(1, 1, 1, 0.5))
+func _draw_tag(i: int) -> void:
+	## 마우스 오버/선택한 칸 위 이름표 (평소엔 글자 없음)
+	if i < 0 or i >= cells.size() or cells[i]["id"] == "":
+		return
+	var u: Dictionary = GameData.UNITS[cells[i]["id"]]
+	var rc: Color = GameData.RARITY_COLORS[u["rarity"]]
+	var label := "%s  x%d" % [u["name"], cells[i]["n"]]
+	var fs := 14
+	var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 16
+	var c := cell_center(i) + Vector2(0, -CELL * 0.62)
+	c.x = clampf(c.x, w / 2 + 4, SIZE - w / 2 - 4)
+	var r := Rect2(c - Vector2(w / 2, 12), Vector2(w, 24))
+	draw_rect(r, Color(0.05, 0.06, 0.09, 0.92))
+	draw_rect(r, rc, false, 1.5)
+	draw_string(font, r.position + Vector2(8, 17), label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, rc.lightened(0.2))
 
 
 func _draw_enemies() -> void:
@@ -1470,6 +1535,18 @@ func _draw_enemies() -> void:
 				col = col.lerp(Color(1, 0, 0), 0.5 + 0.5 * sin(_anim * 10.0))
 			var s: float = e.size
 			var body := p + Vector2(0, sin(_anim * 8.0 + e.wobble) * 1.5)
+			var etex := Art.enemy(e.kind)
+			if etex != null:
+				var mod := Color(1, 1, 1)
+				if e.flash > 0.0:
+					mod = Color(2, 2, 2)
+				elif e.stun_t > 0.0:
+					mod = Color(1, 1, 0.6)
+				elif e.slow_t > 0.0 or e.aura_slow > 0.0:
+					mod = Color(0.7, 0.9, 1.2)
+				draw_texture_rect(etex, Rect2(body - Vector2(s, s) * 1.4, Vector2(s, s) * 2.8), false, mod)
+				_draw_enemy_bar(e, body, s)
+				continue
 			draw_circle(body + Vector2(2, 3), s, Color(0, 0, 0, 0.3))
 			if e.kind == "tank" or e.kind == "boss" or e.kind == "elite":
 				draw_rect(Rect2(body - Vector2(s, s), Vector2(s, s) * 2), col)
@@ -1499,11 +1576,15 @@ func _draw_enemies() -> void:
 			if e.stun_t > 0.0:
 				for k in 3:
 					draw_circle(body + Vector2.from_angle(_anim * 6.0 + k * TAU / 3) * (s + 2) + Vector2(0, -s), 2.0, Color(1, 1, 0.4))
-			var hr: float = e.hp_ratio()
-			if hr < 0.999 or e.is_boss:
-				var w := s * 2.2
-				draw_rect(Rect2(body + Vector2(-w / 2, -s - 8), Vector2(w, 3)), Color(0, 0, 0, 0.7))
-				draw_rect(Rect2(body + Vector2(-w / 2, -s - 8), Vector2(w * hr, 3)), Color(0.3, 1.0, 0.3).lerp(Color(1, 0.2, 0.2), 1.0 - hr))
+			_draw_enemy_bar(e, body, s)
+
+
+func _draw_enemy_bar(e: EnemyState, body: Vector2, s: float) -> void:
+	var hr: float = e.hp_ratio()
+	if hr < 0.999 or e.is_boss:
+		var w := s * 2.2
+		draw_rect(Rect2(body + Vector2(-w / 2, -s - 8), Vector2(w, 3)), Color(0, 0, 0, 0.7))
+		draw_rect(Rect2(body + Vector2(-w / 2, -s - 8), Vector2(w * hr, 3)), Color(0.3, 1.0, 0.3).lerp(Color(1, 0.2, 0.2), 1.0 - hr))
 
 
 func _draw_effects() -> void:
@@ -1544,10 +1625,8 @@ func _draw_chests() -> void:
 		var blink: bool = ch["t"] < 2.0 and fmod(_anim, 0.3) < 0.15
 		if blink:
 			continue
-		draw_circle(p, 18.0, Color(1, 0.85, 0.3, 0.25))
-		draw_rect(Rect2(p - Vector2(11, 8), Vector2(22, 16)), Color(0.65, 0.4, 0.15))
-		draw_rect(Rect2(p - Vector2(11, 8), Vector2(22, 6)), Color(0.85, 0.55, 0.2))
-		draw_rect(Rect2(p - Vector2(3, 3), Vector2(6, 6)), Color(1, 0.9, 0.3))
+		draw_circle(p, 20.0, Color(1, 0.85, 0.3, 0.25))
+		Glyphs.draw_icon(self, "chest", p, 14.0, Color.WHITE)
 
 
 func _draw_texts() -> void:

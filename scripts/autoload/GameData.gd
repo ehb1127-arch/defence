@@ -20,38 +20,38 @@ const RARITY_COLORS := [
 # ---------------------------------------------------------------------------
 const UNITS := {
 	# ---- 일반 ----
-	"sword":   {"name": "검사", "rarity": 0, "color": Color(0.8, 0.8, 0.85), "dmg": 12.0, "cd": 0.8, "range": 150.0, "fx": {}, "desc": "튼튼한 근접 전사"},
-	"archer":  {"name": "궁수", "rarity": 0, "color": Color(0.55, 0.85, 0.45), "dmg": 7.0, "cd": 0.55, "range": 250.0, "fx": {}, "desc": "빠른 원거리 공격"},
-	"mage":    {"name": "견습마법사", "rarity": 0, "color": Color(0.6, 0.6, 1.0), "dmg": 10.0, "cd": 1.0, "range": 210.0, "fx": {"splash": 40.0}, "desc": "작은 범위 공격"},
-	"spear":   {"name": "창병", "rarity": 0, "color": Color(0.85, 0.7, 0.45), "dmg": 9.0, "cd": 0.8, "range": 175.0, "fx": {"armor_break": 5.0}, "desc": "방어력 감소"},
-	"slinger": {"name": "투석병", "rarity": 0, "color": Color(0.7, 0.6, 0.55), "dmg": 8.0, "cd": 0.9, "range": 210.0, "fx": {"stun_chance": 0.06, "stun": 0.3}, "desc": "낮은 확률 기절"},
+	"sword":   {"glyph": "blade", "name": "검사", "rarity": 0, "color": Color(0.8, 0.8, 0.85), "dmg": 12.0, "cd": 0.8, "range": 150.0, "fx": {}, "desc": "튼튼한 근접 전사"},
+	"archer":  {"glyph": "bow", "name": "궁수", "rarity": 0, "color": Color(0.55, 0.85, 0.45), "dmg": 7.0, "cd": 0.55, "range": 250.0, "fx": {}, "desc": "빠른 원거리 공격"},
+	"mage":    {"glyph": "orb", "name": "견습마법사", "rarity": 0, "color": Color(0.6, 0.6, 1.0), "dmg": 10.0, "cd": 1.0, "range": 210.0, "fx": {"splash": 40.0}, "desc": "작은 범위 공격"},
+	"spear":   {"glyph": "spear", "name": "창병", "rarity": 0, "color": Color(0.85, 0.7, 0.45), "dmg": 9.0, "cd": 0.8, "range": 175.0, "fx": {"armor_break": 5.0}, "desc": "방어력 감소"},
+	"slinger": {"glyph": "rock", "name": "투석병", "rarity": 0, "color": Color(0.7, 0.6, 0.55), "dmg": 8.0, "cd": 0.9, "range": 210.0, "fx": {"stun_chance": 0.06, "stun": 0.3}, "desc": "낮은 확률 기절"},
 	# ---- 희귀 ----
-	"knight":  {"name": "기사", "rarity": 1, "color": Color(0.5, 0.7, 1.0), "dmg": 34.0, "cd": 0.9, "range": 160.0, "fx": {"stun_chance": 0.15, "stun": 0.6}, "desc": "기절 확률 15%"},
-	"sniper":  {"name": "저격수", "rarity": 1, "color": Color(0.3, 0.8, 0.6), "dmg": 45.0, "cd": 1.4, "range": 380.0, "fx": {"crit": 0.25, "crit_mult": 3.0}, "desc": "초장거리 치명타"},
-	"frost":   {"name": "얼음술사", "rarity": 1, "color": Color(0.55, 0.9, 1.0), "dmg": 18.0, "cd": 1.0, "range": 230.0, "fx": {"splash": 50.0, "slow": 0.35, "slow_time": 1.5}, "desc": "범위 둔화"},
-	"pyro":    {"name": "화염술사", "rarity": 1, "color": Color(1.0, 0.45, 0.2), "dmg": 22.0, "cd": 1.1, "range": 215.0, "fx": {"splash": 60.0, "burn": 0.5, "burn_time": 3.0}, "desc": "범위 화상"},
-	"rogue":   {"name": "도적", "rarity": 1, "color": Color(0.6, 0.6, 0.6), "dmg": 19.0, "cd": 0.45, "range": 160.0, "fx": {"gold_chance": 0.12, "gold": 2}, "desc": "공격 시 골드 강탈"},
+	"knight":  {"glyph": "shield", "name": "기사", "rarity": 1, "color": Color(0.5, 0.7, 1.0), "dmg": 34.0, "cd": 0.9, "range": 160.0, "fx": {"stun_chance": 0.15, "stun": 0.6}, "desc": "기절 확률 15%"},
+	"sniper":  {"glyph": "scope", "name": "저격수", "rarity": 1, "color": Color(0.3, 0.8, 0.6), "dmg": 45.0, "cd": 1.4, "range": 380.0, "fx": {"crit": 0.25, "crit_mult": 3.0}, "desc": "초장거리 치명타"},
+	"frost":   {"glyph": "snow", "name": "얼음술사", "rarity": 1, "color": Color(0.55, 0.9, 1.0), "dmg": 18.0, "cd": 1.0, "range": 230.0, "fx": {"splash": 50.0, "slow": 0.35, "slow_time": 1.5}, "desc": "범위 둔화"},
+	"pyro":    {"glyph": "flame", "name": "화염술사", "rarity": 1, "color": Color(1.0, 0.45, 0.2), "dmg": 22.0, "cd": 1.1, "range": 215.0, "fx": {"splash": 60.0, "burn": 0.5, "burn_time": 3.0}, "desc": "범위 화상"},
+	"rogue":   {"glyph": "coin", "name": "도적", "rarity": 1, "color": Color(0.6, 0.6, 0.6), "dmg": 19.0, "cd": 0.45, "range": 160.0, "fx": {"gold_chance": 0.12, "gold": 2}, "desc": "공격 시 골드 강탈"},
 	# ---- 영웅 ----
-	"storm":   {"name": "번개술사", "rarity": 2, "color": Color(1.0, 0.95, 0.35), "dmg": 60.0, "cd": 1.2, "range": 260.0, "fx": {"chain": 4}, "desc": "연쇄 번개 4회"},
-	"berserk": {"name": "광전사", "rarity": 2, "color": Color(0.9, 0.25, 0.25), "dmg": 68.0, "cd": 0.8, "range": 160.0, "fx": {"ramp": 0.15, "ramp_max": 6}, "desc": "같은 적 공격 시 가속"},
-	"alch":    {"name": "연금술사", "rarity": 2, "color": Color(0.45, 0.95, 0.3), "dmg": 40.0, "cd": 1.0, "range": 240.0, "fx": {"splash": 50.0, "poison": 0.8, "poison_time": 4.0, "armor_break": 10.0}, "desc": "독 + 방어력 감소"},
-	"bard":    {"name": "음유시인", "rarity": 2, "color": Color(1.0, 0.6, 0.85), "dmg": 30.0, "cd": 1.0, "range": 230.0, "fx": {"aura_speed": 0.12}, "desc": "주변 칸 공속 +12%"},
-	"ranger":  {"name": "사냥꾼", "rarity": 2, "color": Color(0.35, 0.7, 0.3), "dmg": 44.0, "cd": 0.9, "range": 290.0, "fx": {"multishot": 3}, "desc": "3연발 동시 사격"},
+	"storm":   {"glyph": "bolt", "name": "번개술사", "rarity": 2, "color": Color(1.0, 0.95, 0.35), "dmg": 60.0, "cd": 1.2, "range": 260.0, "fx": {"chain": 4}, "desc": "연쇄 번개 4회"},
+	"berserk": {"glyph": "axe", "name": "광전사", "rarity": 2, "color": Color(0.9, 0.25, 0.25), "dmg": 68.0, "cd": 0.8, "range": 160.0, "fx": {"ramp": 0.15, "ramp_max": 6}, "desc": "같은 적 공격 시 가속"},
+	"alch":    {"glyph": "flask", "name": "연금술사", "rarity": 2, "color": Color(0.45, 0.95, 0.3), "dmg": 40.0, "cd": 1.0, "range": 240.0, "fx": {"splash": 50.0, "poison": 0.8, "poison_time": 4.0, "armor_break": 10.0}, "desc": "독 + 방어력 감소"},
+	"bard":    {"glyph": "note", "name": "음유시인", "rarity": 2, "color": Color(1.0, 0.6, 0.85), "dmg": 30.0, "cd": 1.0, "range": 230.0, "fx": {"aura_speed": 0.12}, "desc": "주변 칸 공속 +12%"},
+	"ranger":  {"glyph": "arrows", "name": "사냥꾼", "rarity": 2, "color": Color(0.35, 0.7, 0.3), "dmg": 44.0, "cd": 0.9, "range": 290.0, "fx": {"multishot": 3}, "desc": "3연발 동시 사격"},
 	# ---- 전설 ----
-	"dragoon": {"name": "용기사", "rarity": 3, "color": Color(1.0, 0.55, 0.1), "dmg": 260.0, "cd": 1.3, "range": 210.0, "fx": {"splash": 90.0}, "desc": "거대한 범위 공격"},
-	"archmage": {"name": "대마법사", "rarity": 3, "color": Color(0.55, 0.45, 1.0), "dmg": 180.0, "cd": 1.2, "range": 290.0, "fx": {"meteor_every": 5, "meteor_mult": 6.0, "meteor_radius": 120.0}, "desc": "5회마다 메테오"},
-	"assassin": {"name": "암살자", "rarity": 3, "color": Color(0.35, 0.3, 0.45), "dmg": 220.0, "cd": 0.7, "range": 175.0, "fx": {"execute": 0.12, "crit": 0.3, "crit_mult": 2.5}, "desc": "체력 12% 이하 처형"},
-	"guardian": {"name": "수호천사", "rarity": 3, "color": Color(1.0, 0.95, 0.7), "dmg": 120.0, "cd": 1.0, "range": 250.0, "fx": {"slow_aura": 0.3, "stun_chance": 0.2, "stun": 0.8}, "desc": "사거리 내 적 둔화"},
+	"dragoon": {"glyph": "wing", "name": "용기사", "rarity": 3, "color": Color(1.0, 0.55, 0.1), "dmg": 260.0, "cd": 1.3, "range": 210.0, "fx": {"splash": 90.0}, "desc": "거대한 범위 공격"},
+	"archmage": {"glyph": "meteor", "name": "대마법사", "rarity": 3, "color": Color(0.55, 0.45, 1.0), "dmg": 180.0, "cd": 1.2, "range": 290.0, "fx": {"meteor_every": 5, "meteor_mult": 6.0, "meteor_radius": 120.0}, "desc": "5회마다 메테오"},
+	"assassin": {"glyph": "dagger", "name": "암살자", "rarity": 3, "color": Color(0.35, 0.3, 0.45), "dmg": 220.0, "cd": 0.7, "range": 175.0, "fx": {"execute": 0.12, "crit": 0.3, "crit_mult": 2.5}, "desc": "체력 12% 이하 처형"},
+	"guardian": {"glyph": "halo", "name": "수호천사", "rarity": 3, "color": Color(1.0, 0.95, 0.7), "dmg": 120.0, "cd": 1.0, "range": 250.0, "fx": {"slow_aura": 0.3, "stun_chance": 0.2, "stun": 0.8}, "desc": "사거리 내 적 둔화"},
 	# ---- 신화 ----
-	"phoenix": {"name": "불사조", "rarity": 4, "color": Color(1.0, 0.35, 0.1), "dmg": 700.0, "cd": 1.0, "range": 310.0, "fx": {"splash": 110.0, "burn": 0.8, "burn_time": 4.0},
+	"phoenix": {"glyph": "phoenix", "name": "불사조", "rarity": 4, "color": Color(1.0, 0.35, 0.1), "dmg": 700.0, "cd": 1.0, "range": 310.0, "fx": {"splash": 110.0, "burn": 0.8, "burn_time": 4.0},
 		"skill": {"id": "firestorm", "name": "화염 폭풍", "cd": 12.0}, "desc": "스킬: 사거리 내 전체 5배 피해"},
-	"thunder": {"name": "뇌신", "rarity": 4, "color": Color(0.9, 0.9, 0.2), "dmg": 450.0, "cd": 0.6, "range": 330.0, "fx": {"chain": 8},
+	"thunder": {"glyph": "bolt2", "name": "뇌신", "rarity": 4, "color": Color(0.9, 0.9, 0.2), "dmg": 450.0, "cd": 0.6, "range": 330.0, "fx": {"chain": 8},
 		"skill": {"id": "judgement", "name": "천둥 심판", "cd": 10.0}, "desc": "스킬: 필드 전체 번개 + 기절"},
-	"chrono":  {"name": "시간술사", "rarity": 4, "color": Color(0.4, 0.95, 0.95), "dmg": 300.0, "cd": 0.9, "range": 310.0, "fx": {"splash": 70.0, "slow": 0.5, "slow_time": 2.0},
+	"chrono":  {"glyph": "clock", "name": "시간술사", "rarity": 4, "color": Color(0.4, 0.95, 0.95), "dmg": 300.0, "cd": 0.9, "range": 310.0, "fx": {"splash": 70.0, "slow": 0.5, "slow_time": 2.0},
 		"skill": {"id": "timestop", "name": "시간 정지", "cd": 15.0}, "desc": "스킬: 모든 적 2.5초 정지"},
-	"midas":   {"name": "황금왕", "rarity": 4, "color": Color(1.0, 0.85, 0.2), "dmg": 380.0, "cd": 0.7, "range": 270.0, "fx": {"gold_chance": 0.5, "gold": 5},
+	"midas":   {"glyph": "crown", "name": "황금왕", "rarity": 4, "color": Color(1.0, 0.85, 0.2), "dmg": 380.0, "cd": 0.7, "range": 270.0, "fx": {"gold_chance": 0.5, "gold": 5},
 		"skill": {"id": "goldrain", "name": "황금비", "cd": 20.0}, "desc": "스킬: 보유 골드 10% 이자"},
-	"reaper":  {"name": "그림자군주", "rarity": 4, "color": Color(0.55, 0.2, 0.7), "dmg": 900.0, "cd": 1.1, "range": 230.0, "fx": {"execute": 0.25, "crit": 0.4, "crit_mult": 3.0},
+	"reaper":  {"glyph": "skull", "name": "그림자군주", "rarity": 4, "color": Color(0.55, 0.2, 0.7), "dmg": 900.0, "cd": 1.1, "range": 230.0, "fx": {"execute": 0.25, "crit": 0.4, "crit_mult": 3.0},
 		"skill": {"id": "reap", "name": "영혼 수확", "cd": 14.0}, "desc": "스킬: 체력 높은 적 3명 즉사"},
 }
 
@@ -329,7 +329,9 @@ func ui_theme() -> Theme:
 			sb.border_color = Color(1, 1, 1, 0.12 if s != "hover" else 0.3)
 			sb.set_border_width_all(1)
 			sb.border_width_bottom = 3 if s != "pressed" else 1
-		t.set_stylebox(s, "Button", sb)
+		# art/ui/button_<상태>.png 가 있으면 이미지 스킨 사용
+		var art_sb: StyleBox = Art.stylebox("button_" + s) if s != "focus" else null
+		t.set_stylebox(s, "Button", art_sb if art_sb != null else sb)
 	t.set_color("font_disabled_color", "Button", Color(0.45, 0.47, 0.52))
 	t.set_color("font_hover_color", "Button", Color(1, 1, 1))
 	var tab_sel := StyleBoxFlat.new()
@@ -350,3 +352,43 @@ func ui_theme() -> Theme:
 	t.set_stylebox("panel", "TabContainer", tab_panel)
 	_theme = t
 	return t
+
+
+# ---------------------------------------------------------------------------
+# 상점 / 광고 보상 (메타 진행). 대전(pvp)에서는 공정성을 위해 적용하지 않는다.
+# ---------------------------------------------------------------------------
+const SHOP_ITEMS := [
+	{"id": "start_gold", "name": "골드 주머니", "desc": "다음 판 시작 골드 +100", "price": 30, "icon": "gold"},
+	{"id": "start_gems", "name": "보석 상자", "desc": "다음 판 시작 보석 +3", "price": 45, "icon": "gem"},
+	{"id": "summon_ticket", "name": "소환권 묶음", "desc": "다음 판 무료 소환 5회", "price": 25, "icon": "summon"},
+	{"id": "lucky_charm", "name": "행운 부적", "desc": "다음 판 소환 행운 +1", "price": 50, "icon": "luck"},
+	{"id": "revive", "name": "부활 깃털", "desc": "패배했을 때 1회 부활 (보유 시 자동 제안)", "price": 90, "icon": "revive"},
+]
+
+const PERKS := [
+	{"id": "p_gold", "name": "넉넉한 시작", "desc": "시작 골드 +15", "max": 5, "base": 60, "step": 60, "icon": "gold"},
+	{"id": "p_chest", "name": "보물 감각", "desc": "보물상자 확률 +20%", "max": 5, "base": 80, "step": 80, "icon": "chest"},
+	{"id": "p_gamble", "name": "타짜의 손", "desc": "도박 성공률 +2%p", "max": 5, "base": 100, "step": 100, "icon": "gamble"},
+	{"id": "p_boss", "name": "보스 사냥꾼", "desc": "보스 제한시간 +3초", "max": 5, "base": 120, "step": 120, "icon": "attack"},
+]
+
+const AD_DAILY_LIMIT := 8
+const AD_COINS := 40
+
+## 판 보상 코인
+func match_coins(wave: int, kills: int, won: bool) -> int:
+	return wave * 3 + kills / 25 + (60 if won else 0)
+
+
+func shop_item(id: String) -> Dictionary:
+	for it in SHOP_ITEMS:
+		if it["id"] == id:
+			return it
+	return {}
+
+
+func perk(id: String) -> Dictionary:
+	for p in PERKS:
+		if p["id"] == id:
+			return p
+	return {}

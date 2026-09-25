@@ -4,7 +4,8 @@ extends Node
 
 const RATE := 22050
 
-var enabled := true
+var enabled := true      # 오디오 장치 사용 가능 (헤드리스/서버면 false)
+var muted := false       # 설정에서 끔
 var volume_db := -8.0
 var _streams := {}
 var _last := {}
@@ -34,7 +35,7 @@ func _ready() -> void:
 
 
 func play(sound: String) -> void:
-	if not enabled or not _streams.has(sound):
+	if not enabled or muted or not _streams.has(sound):
 		return
 	var now := Time.get_ticks_msec()
 	if now - int(_last.get(sound, -1000)) < 60:

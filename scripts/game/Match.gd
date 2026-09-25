@@ -31,6 +31,11 @@ var _time := 0.0
 
 var _lbl_center: Label
 var _lbl_left: Label
+var _btn_sound: ActionButton
+var _pending_coins := 0
+var _coins_given := false
+var _ad_revive_used := false
+var _ad_double_used := false
 var _lbl_round: Label
 var _coop_bar: ProgressBar
 var _btn_speed: Button
@@ -65,6 +70,7 @@ func _ready() -> void:
 		var other: Board = boards[1 - i] if n > 1 else null
 		bots.append(BotBrain.new(boards[i], other, Session.bot_level) if boards[i].is_bot else null)
 	_layout(ui)
+	_apply_loadout()
 	if Session.online:
 		Net.event_received.connect(_on_net_event)
 		Net.snapshot_received.connect(_on_net_snapshot)
@@ -88,6 +94,7 @@ func _layout(ui: CanvasLayer) -> void:
 		b.scale = Vector2(s, s)
 		b.position = Vector2(14, TOP_BAR + 6 + Board.HEADER * s)
 		var hud := _make_hud(0, human_count)
+		hud.sheet_rect = Rect2(b.position, Vector2(Board.SIZE, Board.SIZE) * s)
 		var x := 14 + Board.SIZE * s + 14
 		hud.position = Vector2(x, TOP_BAR + 8)
 		hud.size = Vector2(1600 - x - 14, 900 - TOP_BAR - 16)
@@ -101,6 +108,7 @@ func _layout(ui: CanvasLayer) -> void:
 			b.scale = Vector2(s, s)
 			b.position = Vector2(800 * i + (800 - bw) / 2.0, TOP_BAR + 6 + Board.HEADER * s)
 			var hud := _make_hud(i, human_count)
+			hud.sheet_rect = Rect2(b.position, Vector2(bw, bw))
 			hud.position = Vector2(800 * i + 8, board_bottom + 6)
 			hud.size = Vector2(784, 900 - board_bottom - 12)
 			ui.add_child(hud)
@@ -130,9 +138,52 @@ func _make_hud(i: int, human_count: int) -> BoardHUD:
 			hint = hint.replace(" / F ", "").replace(" / L ", "")
 		if human_count == 1 and not Session.online:
 			hint += "   (마우스 조작 가능)"
+	hud.sheet_parent = ui_layer()
+	hud.ad_available = interactive and not Session.online and mode != "pvp" and _ad_ok()
+	hud.ad_summon_requested.connect(_on_ad_summon)
 	hud.setup(b, interactive, hint, boards.size() == 1)
 	huds.append(hud)
 	return hud
+
+
+func ui_layer() -> CanvasLayer:
+	return get_node("UI")
+
+
+func _ad_ok() -> bool:
+	return true
+
+
+func _on_ad_summon(hud: BoardHUD) -> void:
+	if not hud.ad_available:
+		return
+	Ads.show_rewarded("match_summon", _grant_ad_summon.bind(hud))
+
+
+func _grant_ad_summon(hud: BoardHUD) -> void:
+	hud.ad_available = false
+	hud.board.free_summons += 3
+	hud.board.show_banner("광고 보상!", "무료 소환 3회", Color(0.5, 0.8, 1.0))
+
+
+func _apply_loadout() -> void:
+	## 상점 아이템/영구 강화 (대전·온라인 대전 제외, 로컬 첫 번째 사람 전장에만)
+	if mode == "pvp":
+		return
+	var target: Board = null
+	for b in boards:
+		if not b.is_bot and not b.is_remote:
+			target = b
+			break
+	if target == null:
+		return
+	var items := Profile.take_loadout(mode)
+	var notes := target.apply_loadout(items, Profile.perks)
+	if not notes.is_empty():
+		var names: Array = []
+		for id in notes:
+			names.append(GameData.shop_item(id)["name"])
+		target.show_banner("아이템 사용", ", ".join(names), Color(0.8, 0.6, 1.0))
 
 
 func _build_top_bar(ui: CanvasLayer) -> void:
@@ -172,21 +223,22 @@ func _build_top_bar(ui: CanvasLayer) -> void:
 	right.custom_minimum_size = Vector2(380, 0)
 	right.alignment = BoxContainer.ALIGNMENT_END
 	h.add_child(right)
+	right.add_theme_constant_override("separation", 6)
 	if not Session.online:
-		_btn_speed = _bar_btn("배속 x1", _cycle_speed)
+		_btn_speed = ActionButton.make("speed", Color(0.85, 0.9, 1.0), "배속", _cycle_speed, Vector2(64, 44))
+		_btn_speed.badge = "x1"
 		right.add_child(_btn_speed)
-		_btn_pause = _bar_btn("일시정지", _toggle_pause)
+		_btn_pause = ActionButton.make("pause", Color(0.85, 0.9, 1.0), "일시정지 (Esc)", _toggle_pause, Vector2(52, 44))
 		right.add_child(_btn_pause)
-	right.add_child(_bar_btn("메인 메뉴", _to_menu))
+	_btn_sound = ActionButton.make("sound" if Profile.settings["sound"] else "mute", Color(0.85, 0.9, 1.0), "소리 켜기/끄기", _toggle_sound, Vector2(52, 44))
+	right.add_child(_btn_sound)
+	right.add_child(ActionButton.make("home", Color(0.85, 0.9, 1.0), "메인 메뉴", _to_menu, Vector2(52, 44)))
 
 
-func _bar_btn(text: String, cb: Callable) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(112, 40)
-	b.pressed.connect(cb)
-	return b
+func _toggle_sound() -> void:
+	Profile.set_setting("sound", not Profile.settings["sound"])
+	_btn_sound.icon_name = "sound" if Profile.settings["sound"] else "mute"
+	_btn_sound.queue_redraw()
 
 
 func _build_center_column(ui: CanvasLayer, rect: Rect2) -> void:
@@ -440,6 +492,11 @@ func _on_net_disconnected() -> void:
 # 입력
 # ===========================================================================
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		for b in boards:
+			var local: Vector2 = b.get_global_transform().affine_inverse() * (event as InputEventMouseMotion).position
+			b.hover = Board.cell_at(local) if Rect2(0, 0, Board.SIZE, Board.SIZE).has_point(local) else -1
+		return
 	if event is InputEventMouseButton and event.pressed and not over:
 		var mb := event as InputEventMouseButton
 		if mb.button_index != MOUSE_BUTTON_LEFT and mb.button_index != MOUSE_BUTTON_RIGHT:
@@ -455,6 +512,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and not event.echo:
 		var key: int = (event as InputEventKey).keycode
 		if key == KEY_ESCAPE:
+			for h in huds:
+				if h._sheet != null:
+					h.close_sheet()
+					return
 			_toggle_pause()
 			return
 		if over or paused:
@@ -529,7 +590,8 @@ func _handle_key(b: Board, ks: Dictionary, key: int) -> bool:
 
 func _cycle_speed() -> void:
 	speed = {1.0: 2.0, 2.0: 3.0, 3.0: 1.0}[speed]
-	_btn_speed.text = "배속 x%d" % int(speed)
+	_btn_speed.badge = "x%d" % int(speed)
+	_btn_speed.queue_redraw()
 
 
 func _toggle_pause() -> void:
@@ -537,9 +599,12 @@ func _toggle_pause() -> void:
 		return
 	paused = not paused
 	_pause_label.visible = paused
+	_btn_pause.icon_name = "play" if paused else "pause"
+	_btn_pause.queue_redraw()
 
 
 func _to_menu() -> void:
+	_give_coins(1)
 	if Session.online:
 		# 매치 도중 나가면 방에서도 나가서 상대에게 알린다. 끝난 뒤라면 방에 남아 재대결 가능
 		if Net.in_match:
@@ -555,6 +620,8 @@ func _finish(winner: int, text: String, broadcast: bool) -> void:
 	if over:
 		return
 	over = true
+	for h in huds:
+		h.close_sheet()
 	if Session.online:
 		if broadcast:
 			Net.send_event("gameover", {"winner": winner, "text": text})
@@ -562,56 +629,169 @@ func _finish(winner: int, text: String, broadcast: bool) -> void:
 	var won := winner == -2 or (winner >= 0 and (not Session.online or winner == Session.local_index))
 	if mode == "solo":
 		won = winner == 0
+	_last_won = won
 	Sfx.play("win" if won else "lose")
+	var me := _local_board()
+	_pending_coins = GameData.match_coins(me.wave, me.kills, won)
+	_coins_given = false
+	var can_revive := not won and not Session.online and mode != "pvp"
+	_build_over_panel(text, won, can_revive)
+
+
+var _last_won := false
+
+
+func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
+	if _over_panel != null:
+		_over_panel.queue_free()
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.55)
+	dim.size = Vector2(1600, 900)
 	_over_panel = PanelContainer.new()
 	_over_panel.theme = GameData.ui_theme()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.07, 0.1, 0.96)
-	sb.border_color = Color(1, 0.85, 0.3) if won else Color(0.9, 0.3, 0.3)
-	sb.set_border_width_all(3)
-	sb.set_corner_radius_all(12)
-	sb.set_content_margin_all(24)
+	var sb: StyleBox = Art.stylebox("result_panel")
+	if sb == null:
+		var f := StyleBoxFlat.new()
+		f.bg_color = Color(0.06, 0.07, 0.1, 0.97)
+		f.border_color = Color(1, 0.85, 0.3) if won else Color(0.9, 0.3, 0.3)
+		f.set_border_width_all(3)
+		f.set_corner_radius_all(16)
+		f.set_content_margin_all(26)
+		f.shadow_color = Color(0, 0, 0, 0.6)
+		f.shadow_size = 16
+		sb = f
 	_over_panel.add_theme_stylebox_override("panel", sb)
-	_over_panel.position = Vector2(450, 230)
-	_over_panel.size = Vector2(700, 0)
-	get_node("UI").add_child(_over_panel)
+	_over_panel.position = Vector2(420, 170)
+	_over_panel.size = Vector2(760, 0)
+	var holder := Control.new()
+	holder.size = Vector2(1600, 900)
+	holder.mouse_filter = Control.MOUSE_FILTER_STOP
+	holder.add_child(dim)
+	holder.add_child(_over_panel)
+	ui_layer().add_child(holder)
+	_over_panel.set_meta("holder", holder)
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 12)
+	v.add_theme_constant_override("separation", 14)
 	_over_panel.add_child(v)
+	var top := HBoxContainer.new()
+	top.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_child(top)
+	top.add_child(UIIcon.make("star" if won else "skull", 54, Color(1, 0.85, 0.3) if won else Color(1, 0.4, 0.4)))
 	var title := Label.new()
 	title.text = text
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	title.add_theme_font_size_override("font_size", 30)
-	title.add_theme_color_override("font_color", Color(1, 0.85, 0.3) if won else Color(1, 0.45, 0.45))
-	v.add_child(title)
+	title.custom_minimum_size = Vector2(560, 0)
+	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_color_override("font_color", Color(1, 0.85, 0.3) if won else Color(1, 0.5, 0.5))
+	top.add_child(title)
 	for b in boards:
-		var l := Label.new()
-		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		l.add_theme_font_size_override("font_size", 16)
-		var s := "%s  -  ROUND %d / 처치 %d / 골드 %d / 과제 %d개" % [b.player_name, b.wave, b.kills, b.gold, b.missions.size()]
-		var mvp := _mvp(b)
-		if mvp != "":
-			s += "\n   MVP: " + mvp
-		l.text = s
-		v.add_child(l)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		var nm := Label.new()
+		nm.text = b.player_name
+		nm.custom_minimum_size = Vector2(150, 0)
+		nm.add_theme_color_override("font_color", b.accent.lightened(0.3))
+		nm.add_theme_font_size_override("font_size", 18)
+		row.add_child(nm)
+		var st := Label.new()
+		st.text = "ROUND %d   처치 %d" % [b.wave, b.kills]
+		st.custom_minimum_size = Vector2(190, 0)
+		st.add_theme_font_size_override("font_size", 18)
+		row.add_child(st)
+		# MVP 유닛 초상화 3개
+		for id in _mvp_ids(b):
+			var ic := UnitIcon.make(id, 46)
+			ic.tooltip_text = "%s  피해 %s" % [GameData.UNITS[id]["name"], _fmt(b.dmg_by_unit[id])]
+			row.add_child(ic)
+		v.add_child(row)
+	# 코인 보상
+	var coin_row := HBoxContainer.new()
+	coin_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	coin_row.add_theme_constant_override("separation", 8)
+	coin_row.add_child(UIIcon.make("coin", 40))
+	var coin_lbl := Label.new()
+	coin_lbl.text = "+%d" % _pending_coins
+	coin_lbl.add_theme_font_size_override("font_size", 32)
+	coin_lbl.add_theme_color_override("font_color", Color(0.85, 0.7, 1.0))
+	coin_row.add_child(coin_lbl)
+	v.add_child(coin_row)
 	var h := HBoxContainer.new()
 	h.alignment = BoxContainer.ALIGNMENT_CENTER
-	h.add_theme_constant_override("separation", 20)
+	h.add_theme_constant_override("separation", 14)
 	v.add_child(h)
+	var bsz := Vector2(120, 96)
+	if can_revive:
+		var feathers := Profile.item_count("revive")
+		if feathers > 0:
+			var use_feather := func():
+				if Profile.use_item("revive"):
+					_do_revive()
+			var bf := ActionButton.make("revive", Color(1, 0.45, 0.55), "부활 깃털 사용", use_feather, bsz)
+			bf.badge = "x%d" % feathers
+			bf.glow = true
+			h.add_child(bf)
+		if not _ad_revive_used:
+			var ad_revive := func():
+				Ads.show_rewarded("match_revive", _on_ad_revive)
+			var ba := ActionButton.make("revive", Color(0.35, 0.6, 1.0), "광고 보고 부활 (판당 1회)", ad_revive, bsz)
+			ba.badge_icon = "ad"
+			ba.badge = "부활"
+			ba.glow = true
+			h.add_child(ba)
+	if not _ad_double_used and _pending_coins > 0:
+		var bd := ActionButton.make("coin", Color.WHITE, "광고 보고 코인 2배", func(): pass, bsz)
+		bd.badge_icon = "ad"
+		bd.badge = "x2"
+		var on_double := func():
+			_ad_double_used = true
+			_pending_coins *= 2
+			coin_lbl.text = "+%d" % _pending_coins
+			bd.disabled = true
+		bd.pressed.connect(func(): Ads.show_rewarded("result_double", on_double))
+		h.add_child(bd)
 	if not Session.online:
-		var again := Button.new()
-		again.text = "다시 하기"
-		again.custom_minimum_size = Vector2(160, 48)
-		again.pressed.connect(func():
-			Session.seed_value = randi()
-			get_tree().reload_current_scene())
-		h.add_child(again)
-	var menu := Button.new()
-	menu.text = "방으로 (재대결)" if Session.online and Net.connected else "메인 메뉴"
-	menu.custom_minimum_size = Vector2(160, 48)
-	menu.pressed.connect(_to_menu)
-	h.add_child(menu)
+		h.add_child(ActionButton.make("play", Color(0.5, 1.0, 0.6), "다시 하기", _restart, bsz))
+	h.add_child(ActionButton.make("home", Color(0.85, 0.9, 1.0), "방으로 (재대결)" if Session.online and Net.connected else "메인 메뉴", _to_menu, bsz))
+	for c in h.get_children():
+		if c is ActionButton:
+			c.caption = c.tooltip_text.split("\n")[0]
+
+
+func _restart() -> void:
+	_give_coins(1)
+	Session.seed_value = randi()
+	get_tree().reload_current_scene()
+
+
+func _on_ad_revive() -> void:
+	_ad_revive_used = true
+	_do_revive()
+
+
+func _do_revive() -> void:
+	## 패배 → 부활. 보상은 아직 지급 전이므로 버린다.
+	var holder: Node = _over_panel.get_meta("holder")
+	holder.queue_free()
+	_over_panel = null
+	_pending_coins = 0
+	over = false
+	for b in boards:
+		if not b.is_remote:
+			b.revive()
+
+
+func _give_coins(_mult: int) -> void:
+	if _coins_given or not over:
+		return
+	_coins_given = true
+	Profile.add_coins(_pending_coins)
+	Profile.record_match(mode, _local_board().wave, _last_won)
+
+
+func _mvp_ids(b: Board) -> Array:
+	var ids: Array = b.dmg_by_unit.keys()
+	ids.sort_custom(func(x, y): return b.dmg_by_unit[x] > b.dmg_by_unit[y])
+	return ids.slice(0, 3)
 
 
 func _mvp(b: Board) -> String:

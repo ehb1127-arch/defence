@@ -15,6 +15,9 @@ GameData="*res://scripts/autoload/GameData.gd"
 Session="*res://scripts/autoload/Session.gd"
 Net="*res://scripts/autoload/Net.gd"
 Sfx="*res://scripts/autoload/Sfx.gd"
+Art="*res://scripts/autoload/Art.gd"
+Profile="*res://scripts/autoload/Profile.gd"
+Ads="*res://scripts/autoload/Ads.gd"
 
 [display]
 

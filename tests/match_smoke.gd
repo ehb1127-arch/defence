@@ -18,6 +18,11 @@ func _ready() -> void:
 	_dur = float(args[1]) if args.size() > 1 else 30.0
 	_shots = args[2] if args.size() > 2 else ""
 	Engine.time_scale = float(args[3]) if args.size() > 3 else 1.0
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	if mode == "shop":
+		_match = load("res://scenes/Shop.tscn").instantiate()
+		add_child(_match)
+		return
 	if mode == "menu":
 		_match = load("res://scenes/Main.tscn").instantiate()
 		add_child(_match)
@@ -39,6 +44,28 @@ func _process(delta: float) -> void:
 	if _done:
 		return
 	_t += delta / Engine.time_scale
+	if not "boards" in _match and _match.has_method("toast"):
+		# 상점: 탭별 캡처 + 광고 보상 흐름
+		if _t > 1.0 and _shot_i == 0:
+			_shot_i = 1
+			get_viewport().get_texture().get_image().save_png("%s/shop_items.png" % _shots)
+			_match._show("perks")
+		elif _t > 1.5 and _shot_i == 1:
+			_shot_i = 2
+			get_viewport().get_texture().get_image().save_png("%s/shop_perks.png" % _shots)
+			_match._show("free")
+			_match._watch_ad_coins()
+		elif _t > 2.5 and _shot_i == 2:
+			_shot_i = 3
+			get_viewport().get_texture().get_image().save_png("%s/shop_ad.png" % _shots)
+			Ads.auto_claim = true
+			_match._watch_ad_item()
+		elif _t > 3.5 and _shot_i == 3:
+			_done = true
+			get_viewport().get_texture().get_image().save_png("%s/shop_ad_done.png" % _shots)
+			print("SMOKE shop coins=", Profile.coins)
+			get_tree().quit()
+		return
 	if Session.mode == "menu" or not "boards" in _match:
 		# 메뉴: 1초 후 캡처 → 로컬 서버(24693)에 접속해 방 만들기 → 캡처 → 도움말 캡처
 		if _t > 1.0 and _shot_i == 0:
@@ -61,6 +88,9 @@ func _process(delta: float) -> void:
 		var img := get_viewport().get_texture().get_image()
 		img.save_png("%s/shot_%d.png" % [_shots, _shot_i])
 		_shot_i += 1
+		if _match.huds.size() > 0 and _match.huds[0].interactive:
+			var kinds := ["recipe", "upgrade", "gamble", "attack" if Session.mode == "pvp" else ("coop" if Session.mode == "coop" else "mission")]
+			_match.huds[0]._toggle_sheet(kinds[_shot_i % kinds.size()])
 		var b0: Board = _match.boards[0]
 		for i in b0.cells.size():
 			if b0.cells[i]["id"] != "":
@@ -73,6 +103,10 @@ func _process(delta: float) -> void:
 		ev.keycode = keys[(Engine.get_process_frames() / 20) % keys.size()]
 		ev.pressed = true
 		Input.parse_input_event(ev)
+	if _t >= _dur and not _match.over and OS.get_cmdline_user_args().has("defeat"):
+		# 결과 화면 확인용 강제 패배
+		_match.boards[0].boss_failed = true
+		return
 	if _t >= _dur or _match.over:
 		_done = true
 		var b: Board = _match.boards[0]

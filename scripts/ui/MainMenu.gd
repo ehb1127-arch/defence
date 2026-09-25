@@ -2,8 +2,11 @@ extends Control
 ## 메인 메뉴: 모드 선택, AI 난이도, 온라인 로비(서버 접속/방 목록/빠른 매칭), 게임 방법.
 
 var _name_edit: LineEdit
-var _diff: OptionButton
 var _help: PanelContainer
+var _online: PanelContainer
+var _settings: PanelContainer
+var _coin_lbl: Label
+var _diff_btns: Array = []
 # 온라인
 var _addr_edit: LineEdit
 var _btn_connect: Button
@@ -30,64 +33,16 @@ func _ready() -> void:
 		return
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	theme = GameData.ui_theme()
-	var bg := ColorRect.new()
-	bg.color = Color(0.07, 0.08, 0.11)
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
+	_build_background()
+	_build_top()
+	_build_mode_cards()
+	_build_bottom()
 
-	var title := Label.new()
-	title.text = "사각 디펜스"
-	title.add_theme_font_size_override("font_size", 72)
-	title.add_theme_color_override("font_color", Color(1, 0.85, 0.35))
-	title.position = Vector2(0, 50)
-	title.size = Vector2(1600, 90)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	add_child(title)
-	var sub := Label.new()
-	sub.text = "사각형 안에서 막아라!  소환 · 합성 · 신화 조합 · 협동 & 대전"
-	sub.add_theme_font_size_override("font_size", 20)
-	sub.add_theme_color_override("font_color", Color(0.75, 0.8, 0.9))
-	sub.position = Vector2(0, 145)
-	sub.size = Vector2(1600, 30)
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	add_child(sub)
+	# ---- 온라인 로비 (카드 누르면 열리는 창) ----
+	_online = _panel(Vector2(500, 100), Vector2(600, 720), "온라인")
+	_online.visible = false
+	var rv: VBoxContainer = _online.get_child(0)
 
-	# ---- 왼쪽: 로컬 플레이 ----
-	var left := _panel(Vector2(170, 190), Vector2(600, 680), "혼자 / 같은 화면에서")
-	var lv: VBoxContainer = left.get_child(0)
-	var name_row := HBoxContainer.new()
-	lv.add_child(name_row)
-	name_row.add_child(_label("닉네임"))
-	_name_edit = LineEdit.new()
-	_name_edit.text = Session.player_name
-	_name_edit.max_length = 10
-	_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_row.add_child(_name_edit)
-	var diff_row := HBoxContainer.new()
-	lv.add_child(diff_row)
-	diff_row.add_child(_label("AI 난이도"))
-	_diff = OptionButton.new()
-	for d in ["쉬움", "보통", "어려움"]:
-		_diff.add_item(d)
-	_diff.selected = Session.bot_level
-	_diff.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	diff_row.add_child(_diff)
-	lv.add_child(HSeparator.new())
-	lv.add_child(_big_btn("솔로 플레이", "40라운드를 혼자 막아내세요", func(): _start_local("solo", false)))
-	lv.add_child(_big_btn("협동 - AI 동료와", "AI와 함께 두 사각형을 지킵니다", func(): _start_local("coop", false)))
-	lv.add_child(_big_btn("대전 - AI 상대로", "먼저 무너지는 쪽이 패배!", func(): _start_local("pvp", false)))
-	lv.add_child(_big_btn("협동 - 로컬 2인", "한 화면에서 친구와 (WASD / 방향키)", func(): _start_local("coop", true)))
-	lv.add_child(_big_btn("대전 - 로컬 2인", "한 화면에서 친구와 대결", func(): _start_local("pvp", true)))
-
-	lv.add_child(HSeparator.new())
-	var misc := HBoxContainer.new()
-	lv.add_child(misc)
-	misc.add_child(_small_btn("게임 방법", _show_help))
-	misc.add_child(_small_btn("종료", func(): get_tree().quit()))
-
-	# ---- 오른쪽: 온라인 ----
-	var right := _panel(Vector2(830, 190), Vector2(600, 680), "온라인")
-	var rv: VBoxContainer = right.get_child(0)
 	rv.add_theme_constant_override("separation", 8)
 	var addr_row := HBoxContainer.new()
 	rv.add_child(addr_row)
@@ -156,6 +111,7 @@ func _ready() -> void:
 	room_row.add_child(_btn_start)
 	_btn_leave = _small_btn("방 나가기", func(): Net.leave_room())
 	room_row.add_child(_btn_leave)
+	rv.add_child(_small_btn("닫기", func(): _online.visible = false))
 
 	Net.status_changed.connect(_on_status)
 	Net.rooms_updated.connect(_on_rooms)
@@ -164,6 +120,10 @@ func _ready() -> void:
 	_on_rooms(Net.rooms)
 	_refresh_online()
 	_build_help()
+	_build_settings()
+	# 온라인 매치에서 돌아왔으면 로비를 바로 보여준다
+	if Net.connected:
+		_online.visible = true
 
 
 func _process(delta: float) -> void:
@@ -299,7 +259,6 @@ func _small_btn(t: String, cb: Callable) -> Button:
 func _apply_name() -> void:
 	var n := _name_edit.text.strip_edges()
 	Session.player_name = n if n != "" else "플레이어"
-	Session.bot_level = _diff.selected
 
 
 func _start_local(mode: String, two_humans: bool) -> void:
@@ -314,6 +273,206 @@ func _start_local(mode: String, two_humans: bool) -> void:
 			players.append({"name": ("동료 " if mode == "coop" else "상대 ") + bot_name, "kind": "bot", "keys": -1})
 	Session.setup_local(mode, players)
 	get_tree().change_scene_to_file("res://scenes/Match.tscn")
+
+
+# ===========================================================================
+# 메인 화면 구성 (이미지 교체: art/ui/menu_bg.png, art/ui/logo.png, art/icons/mode_*.png)
+# ===========================================================================
+func _build_background() -> void:
+	var bg_tex := Art.tex("ui/menu_bg")
+	if bg_tex != null:
+		var tr := TextureRect.new()
+		tr.texture = bg_tex
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.size = Vector2(1600, 900)
+		add_child(tr)
+		return
+	var bg := ColorRect.new()
+	bg.color = Color(0.06, 0.07, 0.1)
+	bg.size = Vector2(1600, 900)
+	add_child(bg)
+	var deco := _MenuDeco.new()
+	deco.size = Vector2(1600, 900)
+	deco.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(deco)
+
+
+class _MenuDeco:
+	extends Control
+	## 이미지 배경이 없을 때: 천천히 도는 사각 트랙과 적 점들
+	var t := 0.0
+
+	func _process(delta: float) -> void:
+		t += delta
+		queue_redraw()
+
+	func _draw() -> void:
+		for k in 3:
+			var s := 300.0 + k * 180.0
+			var r := Rect2(Vector2(800, 470) - Vector2(s, s) / 2, Vector2(s, s))
+			draw_rect(r, Color(0.3, 0.35, 0.5, 0.08 + 0.03 * k), false, 18.0 - k * 4)
+			var per := s * 4.0
+			for n in 10:
+				var d := fmod(t * (40.0 + k * 15.0) + n * per / 10.0, per)
+				var side := int(d / s)
+				var q := d - side * s
+				var p: Vector2 = [r.position + Vector2(q, 0), r.position + Vector2(s, q), r.position + Vector2(s - q, s), r.position + Vector2(0, s - q)][side]
+				draw_circle(p, 5.0, Color(0.85, 0.3, 0.3, 0.35))
+
+
+func _build_top() -> void:
+	var logo_tex := Art.tex("ui/logo")
+	if logo_tex != null:
+		var tr := TextureRect.new()
+		tr.texture = logo_tex
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
+		tr.position = Vector2(40, 24)
+		tr.size = Vector2(520, 130)
+		add_child(tr)
+	else:
+		var title := Label.new()
+		title.text = "사각 디펜스"
+		title.add_theme_font_size_override("font_size", 64)
+		title.add_theme_color_override("font_color", Color(1, 0.85, 0.35))
+		title.add_theme_color_override("font_outline_color", Color(0.25, 0.12, 0))
+		title.add_theme_constant_override("outline_size", 12)
+		title.position = Vector2(44, 28)
+		add_child(title)
+	var right := HBoxContainer.new()
+	right.add_theme_constant_override("separation", 10)
+	right.position = Vector2(1060, 30)
+	right.size = Vector2(510, 70)
+	right.alignment = BoxContainer.ALIGNMENT_END
+	add_child(right)
+	var chip := PanelContainer.new()
+	var csb := StyleBoxFlat.new()
+	csb.bg_color = Color(0, 0, 0, 0.45)
+	csb.set_corner_radius_all(30)
+	csb.content_margin_left = 12
+	csb.content_margin_right = 18
+	chip.add_theme_stylebox_override("panel", csb)
+	var ch := HBoxContainer.new()
+	ch.add_child(UIIcon.make("coin", 40))
+	_coin_lbl = Label.new()
+	_coin_lbl.add_theme_font_size_override("font_size", 28)
+	_coin_lbl.add_theme_color_override("font_color", Color(0.85, 0.72, 1.0))
+	ch.add_child(_coin_lbl)
+	chip.add_child(ch)
+	right.add_child(chip)
+	var shop := ActionButton.make("shop", Color(1, 0.8, 0.35), "상점", func(): get_tree().change_scene_to_file("res://scenes/Shop.tscn"), Vector2(70, 64))
+	shop.glow = true
+	right.add_child(shop)
+	right.add_child(ActionButton.make("recipe", Color(0.7, 0.8, 1.0), "게임 방법", _show_help, Vector2(64, 64)))
+	right.add_child(ActionButton.make("gear", Color(0.85, 0.9, 1.0), "설정", func(): _settings.visible = true, Vector2(64, 64)))
+	right.add_child(ActionButton.make("close", Color(1, 0.5, 0.5), "종료", func(): get_tree().quit(), Vector2(64, 64)))
+	Profile.changed.connect(_refresh_coins)
+	_refresh_coins()
+
+
+func _refresh_coins() -> void:
+	if is_instance_valid(_coin_lbl):
+		_coin_lbl.text = str(Profile.coins)
+
+
+func _build_mode_cards() -> void:
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 22)
+	grid.add_theme_constant_override("v_separation", 22)
+	grid.position = Vector2(230, 180)
+	add_child(grid)
+	var cards := [
+		["mode_solo", "star", Color(1, 0.85, 0.35), "솔로", "40라운드 생존", func(): _start_local("solo", false)],
+		["mode_coop_ai", "gift", Color(0.5, 0.95, 0.8), "협동 · AI", "AI 동료와 함께", func(): _start_local("coop", false)],
+		["mode_pvp_ai", "attack", Color(1, 0.5, 0.4), "대전 · AI", "먼저 무너지면 패배", func(): _start_local("pvp", false)],
+		["mode_coop_2p", "heart", Color(0.5, 0.95, 0.8), "협동 · 2인", "한 화면에서 친구와", func(): _start_local("coop", true)],
+		["mode_pvp_2p", "elite", Color(1, 0.5, 0.4), "대전 · 2인", "한 화면 대결", func(): _start_local("pvp", true)],
+		["mode_online", "ad", Color(0.45, 0.7, 1.0), "온라인", "서버 · 빠른 매칭", func(): _online.visible = true],
+	]
+	for c in cards:
+		var card := VBoxContainer.new()
+		card.add_theme_constant_override("separation", 6)
+		var icon_name: String = c[0] if Art.icon(c[0]) != null else c[1]
+		var b := ActionButton.make(icon_name, c[2], c[3] + "\n" + c[4], c[5], Vector2(360, 200))
+		card.add_child(b)
+		var t := Label.new()
+		t.text = c[3]
+		t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		t.add_theme_font_size_override("font_size", 24)
+		t.add_theme_color_override("font_color", c[2].lightened(0.2))
+		card.add_child(t)
+		var sub := Label.new()
+		sub.text = c[4]
+		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		sub.add_theme_font_size_override("font_size", 15)
+		sub.add_theme_color_override("font_color", Color(0.65, 0.7, 0.8))
+		card.add_child(sub)
+		grid.add_child(card)
+
+
+func _build_bottom() -> void:
+	var bar := HBoxContainer.new()
+	bar.add_theme_constant_override("separation", 12)
+	bar.position = Vector2(230, 812)
+	bar.size = Vector2(1140, 60)
+	add_child(bar)
+	bar.add_child(UIIcon.make("mission", 34, Color(0.6, 0.9, 1.0)))
+	_name_edit = LineEdit.new()
+	_name_edit.text = Session.player_name
+	_name_edit.max_length = 10
+	_name_edit.placeholder_text = "닉네임"
+	_name_edit.custom_minimum_size = Vector2(220, 48)
+	_name_edit.add_theme_font_size_override("font_size", 20)
+	bar.add_child(_name_edit)
+	var sp := Control.new()
+	sp.custom_minimum_size = Vector2(20, 0)
+	bar.add_child(sp)
+	bar.add_child(UIIcon.make("elite", 34, Color(1, 0.55, 0.45)))
+	for lvl in 3:
+		var lv := lvl
+		var b := ActionButton.make("star", [Color(0.6, 0.9, 0.6), Color(1, 0.85, 0.35), Color(1, 0.4, 0.4)][lvl],
+			"AI 난이도: " + ["쉬움", "보통", "어려움"][lvl], func(): _set_diff(lv), Vector2(64, 52))
+		b.badge = ["1", "2", "3"][lvl]
+		bar.add_child(b)
+		_diff_btns.append(b)
+	_set_diff(Session.bot_level)
+	var sp2 := Control.new()
+	sp2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.add_child(sp2)
+	var st := Label.new()
+	st.text = "최고 ROUND %d   ·   승리 %d / %d판" % [int(Profile.stats["best_round"]), int(Profile.stats["wins"]), int(Profile.stats["games"])]
+	st.add_theme_color_override("font_color", Color(0.65, 0.7, 0.8))
+	st.add_theme_font_size_override("font_size", 16)
+	bar.add_child(st)
+
+
+func _set_diff(lvl: int) -> void:
+	Session.bot_level = lvl
+	for i in _diff_btns.size():
+		_diff_btns[i].selected = i == lvl
+		_diff_btns[i].queue_redraw()
+
+
+func _build_settings() -> void:
+	_settings = _panel(Vector2(560, 250), Vector2(480, 330), "설정")
+	_settings.visible = false
+	var v: VBoxContainer = _settings.get_child(0)
+	for spec in [["sound", "효과음"], ["captions", "버튼 이름 표시 (이미지 적용 전 도움)"]]:
+		var cb := CheckButton.new()
+		cb.text = spec[1]
+		cb.button_pressed = Profile.settings[spec[0]]
+		var key: String = spec[0]
+		cb.toggled.connect(func(on): Profile.set_setting(key, on))
+		v.add_child(cb)
+	var lab := CheckButton.new()
+	lab.text = "전장 유닛 이름 항상 표시"
+	lab.button_pressed = Art.show_unit_labels
+	lab.toggled.connect(func(on): Art.show_unit_labels = on)
+	v.add_child(lab)
+	var close := _small_btn("닫기", func(): _settings.visible = false)
+	v.add_child(close)
 
 
 func _show_help() -> void:
