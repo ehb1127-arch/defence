@@ -175,6 +175,19 @@ static func draw(ci: CanvasItem, name: String, c: Vector2, s: float, col: Color)
 				ci.draw_colored_polygon(pts, col if k % 2 == 0 else col.lightened(0.35))
 			ci.draw_circle(c, s * 0.18, Color.WHITE)
 			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-s * 0.15, -s * 1.0), c + Vector2(s * 0.15, -s * 1.0), c + Vector2(0, -s * 0.7)]), Color.WHITE)
+		"hammer":
+			ci.draw_line(c + Vector2(-s * 0.7, s * 0.8), c + Vector2(s * 0.2, -s * 0.1), col.darkened(0.3), w * 1.3)
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-s * 0.1, -s * 0.8), c + Vector2(s * 0.9, s * 0.2), c + Vector2(s * 0.55, s * 0.55), c + Vector2(-s * 0.45, -s * 0.45)]), col)
+		"synergy":
+			for k in 3:
+				ci.draw_circle(c + Vector2.from_angle(-PI / 2 + k * TAU / 3) * s * 0.45, s * 0.35, col)
+		"trophy":
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-s * 0.6, -s * 0.8), c + Vector2(s * 0.6, -s * 0.8), c + Vector2(s * 0.45, -s * 0.05), c + Vector2(0, s * 0.2), c + Vector2(-s * 0.45, -s * 0.05)]), col)
+			ci.draw_arc(c + Vector2(-s * 0.6, -s * 0.45), s * 0.28, PI * 0.5, PI * 1.5, 10, col, w)
+			ci.draw_arc(c + Vector2(s * 0.6, -s * 0.45), s * 0.28, -PI * 0.5, PI * 0.5, 10, col, w)
+			ci.draw_rect(Rect2(c + Vector2(-s * 0.1, s * 0.15), Vector2(s * 0.2, s * 0.45)), col)
+			ci.draw_rect(Rect2(c + Vector2(-s * 0.5, s * 0.6), Vector2(s * 1.0, s * 0.25)), col.darkened(0.2))
+			_star(ci, c + Vector2(0, -s * 0.42), s * 0.22, Color(1, 1, 1, 0.8))
 		"gear":
 			for k in 8:
 				var d := Vector2.from_angle(k * PI / 4)

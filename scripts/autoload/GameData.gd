@@ -23,12 +23,12 @@ const UNITS := {
 	"sword":   {"glyph": "blade", "name": "검사", "rarity": 0, "color": Color(0.8, 0.8, 0.85), "dmg": 12.0, "cd": 0.8, "range": 150.0, "fx": {}, "desc": "튼튼한 근접 전사"},
 	"archer":  {"glyph": "bow", "name": "궁수", "rarity": 0, "color": Color(0.55, 0.85, 0.45), "dmg": 7.0, "cd": 0.55, "range": 250.0, "fx": {}, "desc": "빠른 원거리 공격"},
 	"mage":    {"glyph": "orb", "name": "견습마법사", "rarity": 0, "color": Color(0.6, 0.6, 1.0), "dmg": 10.0, "cd": 1.0, "range": 210.0, "fx": {"splash": 40.0}, "desc": "작은 범위 공격"},
-	"spear":   {"glyph": "spear", "name": "창병", "rarity": 0, "color": Color(0.85, 0.7, 0.45), "dmg": 9.0, "cd": 0.8, "range": 175.0, "fx": {"armor_break": 5.0}, "desc": "방어력 감소"},
+	"spear":   {"glyph": "spear", "name": "창병", "rarity": 0, "color": Color(0.85, 0.7, 0.45), "dmg": 9.0, "cd": 0.8, "range": 175.0, "fx": {"armor_break": 5.0, "knockback": 8.0}, "desc": "방어력 감소 + 약한 넉백"},
 	"slinger": {"glyph": "rock", "name": "투석병", "rarity": 0, "color": Color(0.7, 0.6, 0.55), "dmg": 8.0, "cd": 0.9, "range": 210.0, "fx": {"stun_chance": 0.06, "stun": 0.3}, "desc": "낮은 확률 기절"},
 	# ---- 희귀 ----
-	"knight":  {"glyph": "shield", "name": "기사", "rarity": 1, "color": Color(0.5, 0.7, 1.0), "dmg": 34.0, "cd": 0.9, "range": 160.0, "fx": {"stun_chance": 0.15, "stun": 0.6}, "desc": "기절 확률 15%"},
-	"sniper":  {"glyph": "scope", "name": "저격수", "rarity": 1, "color": Color(0.3, 0.8, 0.6), "dmg": 45.0, "cd": 1.4, "range": 380.0, "fx": {"crit": 0.25, "crit_mult": 3.0}, "desc": "초장거리 치명타"},
-	"frost":   {"glyph": "snow", "name": "얼음술사", "rarity": 1, "color": Color(0.55, 0.9, 1.0), "dmg": 18.0, "cd": 1.0, "range": 230.0, "fx": {"splash": 50.0, "slow": 0.35, "slow_time": 1.5}, "desc": "범위 둔화"},
+	"knight":  {"glyph": "shield", "name": "기사", "rarity": 1, "color": Color(0.5, 0.7, 1.0), "dmg": 34.0, "cd": 0.9, "range": 160.0, "fx": {"stun_chance": 0.15, "stun": 0.6, "knockback": 22.0}, "desc": "기절 15% + 넉백"},
+	"sniper":  {"glyph": "scope", "name": "저격수", "rarity": 1, "color": Color(0.3, 0.8, 0.6), "dmg": 45.0, "cd": 1.4, "range": 380.0, "fx": {"crit": 0.25, "crit_mult": 3.0, "pierce": 1}, "desc": "초장거리 관통 치명타"},
+	"frost":   {"glyph": "snow", "name": "얼음술사", "rarity": 1, "color": Color(0.55, 0.9, 1.0), "dmg": 18.0, "cd": 1.0, "range": 230.0, "fx": {"splash": 50.0, "slow": 0.35, "slow_time": 1.5, "freeze_chance": 0.08}, "desc": "범위 둔화 + 빙결"},
 	"pyro":    {"glyph": "flame", "name": "화염술사", "rarity": 1, "color": Color(1.0, 0.45, 0.2), "dmg": 22.0, "cd": 1.1, "range": 215.0, "fx": {"splash": 60.0, "burn": 0.5, "burn_time": 3.0}, "desc": "범위 화상"},
 	"rogue":   {"glyph": "coin", "name": "도적", "rarity": 1, "color": Color(0.6, 0.6, 0.6), "dmg": 19.0, "cd": 0.45, "range": 160.0, "fx": {"gold_chance": 0.12, "gold": 2}, "desc": "공격 시 골드 강탈"},
 	# ---- 영웅 ----
@@ -41,7 +41,7 @@ const UNITS := {
 	"dragoon": {"glyph": "wing", "name": "용기사", "rarity": 3, "color": Color(1.0, 0.55, 0.1), "dmg": 260.0, "cd": 1.3, "range": 210.0, "fx": {"splash": 90.0}, "desc": "거대한 범위 공격"},
 	"archmage": {"glyph": "meteor", "name": "대마법사", "rarity": 3, "color": Color(0.55, 0.45, 1.0), "dmg": 180.0, "cd": 1.2, "range": 290.0, "fx": {"meteor_every": 5, "meteor_mult": 6.0, "meteor_radius": 120.0}, "desc": "5회마다 메테오"},
 	"assassin": {"glyph": "dagger", "name": "암살자", "rarity": 3, "color": Color(0.35, 0.3, 0.45), "dmg": 220.0, "cd": 0.7, "range": 175.0, "fx": {"execute": 0.12, "crit": 0.3, "crit_mult": 2.5}, "desc": "체력 12% 이하 처형"},
-	"guardian": {"glyph": "halo", "name": "수호천사", "rarity": 3, "color": Color(1.0, 0.95, 0.7), "dmg": 120.0, "cd": 1.0, "range": 250.0, "fx": {"slow_aura": 0.3, "stun_chance": 0.2, "stun": 0.8}, "desc": "사거리 내 적 둔화"},
+	"guardian": {"glyph": "halo", "name": "수호천사", "rarity": 3, "color": Color(1.0, 0.95, 0.7), "dmg": 120.0, "cd": 1.0, "range": 250.0, "fx": {"slow_aura": 0.3, "stun_chance": 0.2, "stun": 0.8, "knockback": 30.0}, "desc": "둔화 오라 + 넉백"},
 	# ---- 신화 ----
 	"phoenix": {"glyph": "phoenix", "name": "불사조", "rarity": 4, "color": Color(1.0, 0.35, 0.1), "dmg": 700.0, "cd": 1.0, "range": 310.0, "fx": {"splash": 110.0, "burn": 0.8, "burn_time": 4.0},
 		"skill": {"id": "firestorm", "name": "화염 폭풍", "cd": 12.0}, "desc": "스킬: 사거리 내 전체 5배 피해"},
@@ -112,7 +112,7 @@ const SPAWN_INTERVAL := 0.6
 const ENEMY_LIMIT := 100
 const COOP_ENEMY_LIMIT := 180
 const BASE_HP := 22.0
-const HP_GROWTH := 1.194
+const HP_GROWTH := 1.218
 const START_GOLD := 100
 const START_GEMS := 2
 const SUMMON_BASE_COST := 20
@@ -454,3 +454,87 @@ const ROULETTE := [
 	{"coins": 500, "w": 2, "color": Color(0.9, 0.2, 0.3), "jackpot": true},
 ]
 const ROULETTE_AD_SPINS := 3
+
+
+# ---------------------------------------------------------------------------
+# 시너지: 서로 다른 유닛 종류 수로 발동 (같은 유닛 여러 마리는 1종)
+# ---------------------------------------------------------------------------
+const UNIT_TAGS := {
+	"sword": ["warrior"], "archer": ["archer"], "mage": ["mage", "fire"], "spear": ["warrior"], "slinger": ["archer", "lightning"],
+	"knight": ["warrior"], "sniper": ["archer"], "frost": ["mage", "ice"], "pyro": ["mage", "fire"], "rogue": ["assassin"],
+	"storm": ["mage", "lightning"], "berserk": ["warrior"], "alch": ["support"], "bard": ["support"], "ranger": ["archer"],
+	"dragoon": ["warrior", "fire"], "archmage": ["mage"], "assassin": ["assassin"], "guardian": ["support", "ice"],
+	"phoenix": ["mage", "fire"], "thunder": ["archer", "lightning"], "chrono": ["support", "ice"], "midas": ["assassin"], "reaper": ["assassin", "warrior"],
+}
+
+## tiers: [필요 종류 수, 수치]
+const SYNERGIES := {
+	"warrior":   {"name": "전사", "icon": "blade", "color": Color(0.9, 0.55, 0.4), "tiers": [[2, 0.15], [4, 0.35]], "desc": "전사 공격력 +%d%%"},
+	"archer":    {"name": "궁수", "icon": "bow", "color": Color(0.5, 0.9, 0.45), "tiers": [[2, 0.12], [4, 0.28]], "desc": "궁수 사거리·공속 +%d%%"},
+	"mage":      {"name": "마법사", "icon": "orb", "color": Color(0.6, 0.6, 1.0), "tiers": [[2, 0.2], [4, 0.45]], "desc": "마법사 범위 +%d%%, 스킬 쿨 감소"},
+	"assassin":  {"name": "암살", "icon": "dagger", "color": Color(0.7, 0.5, 0.9), "tiers": [[2, 0.1], [3, 0.2]], "desc": "전체 치명타 확률 +%d%%p"},
+	"support":   {"name": "지원", "icon": "note", "color": Color(1, 0.6, 0.85), "tiers": [[2, 0.08], [3, 0.15]], "desc": "전체 공속 +%d%%"},
+	"fire":      {"name": "불", "icon": "flame", "color": Color(1, 0.45, 0.2), "tiers": [[2, 0.4], [3, 1.0]], "desc": "화상 피해 +%d%%"},
+	"ice":       {"name": "얼음", "icon": "snow", "color": Color(0.55, 0.9, 1.0), "tiers": [[2, 0.1], [3, 0.2]], "desc": "공격 시 %d%% 확률 빙결"},
+	"lightning": {"name": "번개", "icon": "bolt", "color": Color(1, 0.95, 0.35), "tiers": [[2, 1.0], [3, 3.0]], "desc": "연쇄 +%d, 기절 확률 증가"},
+}
+const SYNERGY_ORDER := ["warrior", "archer", "mage", "assassin", "support", "fire", "ice", "lightning"]
+
+# ---------------------------------------------------------------------------
+# ★ 강화 시도 (칸 단위). 성공률은 점점 낮아지고, ★3 이상 실패 시 하락 위험
+# ---------------------------------------------------------------------------
+const STAR_MAX := 5
+const STAR_CHANCE := [0.85, 0.65, 0.45, 0.3, 0.2]      # ★0→1 ... ★4→5
+const STAR_DOWN_CHANCE := [0.0, 0.0, 0.0, 0.35, 0.5]   # 실패 시 한 단계 하락 확률
+const STAR_DMG := 0.25            # ★당 공격력 +25%
+const STAR_SPEED := 0.10          # ★당 공속 +10%
+const AWAKEN_STAR := 3            # ★3 각성: 특성 수치 x1.35, 연쇄/다중 +1
+const ENHANCE_TIME := 0.9
+const MERGE_GREAT_CHANCE := 0.08  # 합성 대성공 확률
+
+
+func enhance_cost(rarity: int, star: int) -> int:
+	return int((30 + rarity * 40) * pow(1.7, star))
+
+
+# ---------------------------------------------------------------------------
+# 보스 스킬: [스킬 id, 쿨타임]. 시전 준비(cast) 동안 기절시키면 끊긴다.
+# ---------------------------------------------------------------------------
+const BOSS_SKILLS := [
+	[["dash", 9.0], ["roar", 13.0]],          # 10: 오우거 대장
+	[["summon", 10.0], ["regen", 14.0]],      # 20: 해골 군주
+	[["shield", 12.0], ["blast", 11.0]],      # 30: 화염 골렘
+	[["blink", 10.0], ["roar", 12.0]],        # 40+: 심연의 눈 / 최종
+]
+const BOSS_SKILL_NAMES := {"dash": "돌진", "roar": "포효", "summon": "부하 소환", "regen": "재생", "shield": "용암 방패", "blast": "화염 폭발", "blink": "순간이동"}
+const BOSS_CAST_TIME := 1.0
+
+
+const UPGRADE_SPD_PER_LEVEL := 0.03    # 등급 강화 1레벨당 공속 +3%
+const TRANSCEND_STAR := 5              # ★5 초월: 한 번에 두 번 공격
+
+# ---------------------------------------------------------------------------
+# 계정 레벨 / 업적 (영구 성취)
+# ---------------------------------------------------------------------------
+func xp_to_next(level: int) -> int:
+	return 100 + level * 60
+
+
+func match_xp(wave: int, kills: int, won: bool) -> int:
+	return wave * 6 + kills / 8 + (120 if won else 0)
+
+
+## stat: Profile.life 의 키, goals: 단계별 목표, coins: 단계별 보상
+const ACHIEVEMENTS := [
+	{"id": "a_kills", "name": "학살자", "icon": "attack", "stat": "kills", "goals": [1000, 10000, 50000], "coins": [50, 200, 600], "desc": "적 %d마리 처치"},
+	{"id": "a_mythic", "name": "신화 수집가", "icon": "recipe", "stat": "mythics", "goals": [1, 10, 50], "coins": [80, 250, 800], "desc": "신화 %d회 조합"},
+	{"id": "a_star", "name": "장인", "icon": "hammer", "stat": "max_star", "goals": [3, 4, 5], "coins": [60, 150, 400], "desc": "★%d 달성"},
+	{"id": "a_round", "name": "생존자", "icon": "heart", "stat": "best_round", "goals": [20, 30, 40], "coins": [50, 120, 300], "desc": "%d라운드 도달"},
+	{"id": "a_boss", "name": "보스 사냥꾼", "icon": "skull", "stat": "bosses", "goals": [5, 30, 100], "coins": [60, 200, 500], "desc": "보스 %d마리 처치"},
+	{"id": "a_combo", "name": "콤보 마스터", "icon": "bolt", "stat": "max_combo", "goals": [50, 120, 250], "coins": [50, 150, 400], "desc": "%d 콤보 달성"},
+	{"id": "a_interrupt", "name": "차단 전문가", "icon": "shield", "stat": "interrupts", "goals": [3, 20, 60], "coins": [60, 180, 450], "desc": "보스 시전 %d회 차단"},
+	{"id": "a_jackpot", "name": "잭팟!", "icon": "slot", "stat": "jackpots", "goals": [1, 5, 20], "coins": [80, 200, 500], "desc": "슬롯 잭팟 %d회"},
+	{"id": "a_merge", "name": "합성 달인", "icon": "merge", "stat": "merges", "goals": [100, 1000, 5000], "coins": [40, 150, 500], "desc": "합성 %d회"},
+	{"id": "a_win", "name": "정복자", "icon": "star", "stat": "wins", "goals": [1, 10, 50], "coins": [100, 300, 1000], "desc": "승리 %d회"},
+	{"id": "a_dex", "name": "도감 완성", "icon": "book", "stat": "discovered", "goals": [8, 16, 24], "coins": [50, 150, 500], "desc": "유닛 %d종 수집"},
+]

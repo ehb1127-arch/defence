@@ -109,6 +109,9 @@ func _process(delta: float) -> void:
 			get_viewport().get_texture().get_image().save_png("%s/help.png" % _shots)
 			get_tree().quit()
 		return
+	if OS.get_cmdline_user_args().has("fx2"):
+		_fx2_capture()
+		return
 	if OS.get_cmdline_user_args().has("fx"):
 		_fx_capture()
 		return
@@ -181,5 +184,48 @@ func _fx_capture() -> void:
 	elif _fx_step == 4 and _t > 4.2:
 		_fx_step = 5
 		shot.call("combo")
+		_done = true
+		get_tree().quit()
+
+
+var _fx2_step := 0
+
+
+func _fx2_capture() -> void:
+	## ★/각성/시너지 + 보스 시전 + 업적 토스트 + 결과 화면
+	var b0: Board = _match.boards[0]
+	var shot := func(name: String):
+		get_viewport().get_texture().get_image().save_png("%s/%s.png" % [_shots, name])
+	if _fx2_step == 0 and _t > 6.0:
+		_fx2_step = 1
+		_match.speed = 1.0
+		Engine.time_scale = 1.0
+		_match.bots[0] = null
+		var ids := ["knight", "sniper", "storm", "pyro", "frost", "archmage", "ranger", "bard"]
+		for k in ids.size():
+			var c := b0._empty_cell()
+			c["id"] = ids[k]
+			c["n"] = 2
+			c["star"] = [1, 2, 3, 5, 0, 4, 3, 0][k]
+			b0.cells[7 + k + (2 if k >= 4 else 0)] = c
+		b0.selected = 10
+		b0._start_wave(10)
+		for e in b0.enemies:
+			if e.is_boss:
+				e.skill_cd[0] = 0.1
+				e.skill_cd[1] = 99.0
+	elif _fx2_step == 1 and _t > 6.6:
+		_fx2_step = 2
+		shot.call("boss_cast")
+		_match._toast_achievement({"a": GameData.ACHIEVEMENTS[2], "tier": 1})
+		b0.gold += 500
+		b0.upgrade(0)
+	elif _fx2_step == 2 and _t > 7.4:
+		_fx2_step = 3
+		shot.call("stars_toast")
+		b0.boss_failed = true
+	elif _fx2_step == 3 and _t > 9.5:
+		_fx2_step = 4
+		shot.call("result")
 		_done = true
 		get_tree().quit()

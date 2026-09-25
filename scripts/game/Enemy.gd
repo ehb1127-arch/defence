@@ -33,6 +33,15 @@ var is_boss := false
 var boss_name := ""
 var enraged := false
 var wobble := 0.0
+# 보스 스킬
+var skills: Array = []          # [[id, 쿨타임], ...]
+var skill_cd: Array = []
+var casting := ""
+var cast_t := 0.0
+var buff_t := 0.0               # 돌진 (이동속도 증가)
+var shield_t := 0.0             # 용암 방패 (피해 감소)
+var phase2 := false
+var freeze_t := 0.0             # 빙결 (표시용)
 
 
 func setup(k: String, base_hp: float) -> void:
@@ -73,4 +82,8 @@ func status_flags() -> int:
 		f |= 8
 	if enraged:
 		f |= 16
+	if casting != "":
+		f |= 32
+	if shield_t > 0.0:
+		f |= 64
 	return f

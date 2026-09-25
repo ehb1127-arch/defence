@@ -36,6 +36,10 @@ var _pending_coins := 0
 var _coins_given := false
 var _ad_revive_used := false
 var _ad_double_used := false
+var _ach_t := 1.0
+var _match_achs: Array = []       # 이번 판에 달성한 업적
+var _toasts: Array = []
+var _toast_box: VBoxContainer
 var _lbl_round: Label
 var _coop_bar: ProgressBar
 var _btn_speed: Button
@@ -211,6 +215,51 @@ func _start_tutorial(ui: CanvasLayer) -> void:
 	ui.add_child(tut)
 
 
+func _toast_achievement(e: Dictionary) -> void:
+	## 화면 위쪽 업적 달성 알림 (차례로 쌓였다 사라짐)
+	if _toast_box == null:
+		_toast_box = VBoxContainer.new()
+		_toast_box.position = Vector2(560, TOP_BAR + 60)
+		_toast_box.size = Vector2(480, 0)
+		_toast_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_toast_box.add_theme_constant_override("separation", 6)
+		ui_layer().add_child(_toast_box)
+	var a: Dictionary = e["a"]
+	var p := PanelContainer.new()
+	p.theme = GameData.ui_theme()
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.1, 0.08, 0.02, 0.95)
+	sb.border_color = Color(1, 0.8, 0.3)
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(12)
+	sb.set_content_margin_all(10)
+	p.add_theme_stylebox_override("panel", sb)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 10)
+	p.add_child(h)
+	h.add_child(UIIcon.make("trophy", 40, Color(1, 0.8, 0.3)))
+	var v := VBoxContainer.new()
+	var t1 := Label.new()
+	t1.text = "업적 달성!  %s %s" % [a["name"], ["I", "II", "III", "IV"][e["tier"]]]
+	t1.add_theme_color_override("font_color", Color(1, 0.85, 0.35))
+	t1.add_theme_font_size_override("font_size", 18)
+	v.add_child(t1)
+	var t2 := Label.new()
+	t2.text = "%s  ·  코인 +%d" % [a["desc"] % a["goals"][e["tier"]], a["coins"][e["tier"]]]
+	t2.add_theme_font_size_override("font_size", 14)
+	v.add_child(t2)
+	h.add_child(v)
+	_toast_box.add_child(p)
+	Sfx.play("win")
+	var tw := create_tween()
+	p.modulate.a = 0.0
+	tw.tween_property(p, "modulate:a", 1.0, 0.25)
+	tw.tween_interval(3.0)
+	tw.tween_property(p, "modulate:a", 0.0, 0.5)
+	tw.tween_callback(p.queue_free)
+
+
 func _grant_ad_summon(hud: BoardHUD) -> void:
 	hud.ad_available = false
 	hud.board.free_summons += 3
@@ -353,6 +402,15 @@ func _process(delta: float) -> void:
 			_snap_t = 0.1
 			Net.send_snapshot(boards[Session.local_index].snapshot())
 	_update_center_label()
+	if not over and not paused:
+		_ach_t -= delta
+		if _ach_t <= 0.0:
+			_ach_t = 1.0
+			var me := _local_board()
+			if not me.is_bot and not me.is_remote:
+				for e in Profile.check_achievements(me):
+					_match_achs.append(e)
+					_toast_achievement(e)
 
 
 func _update_center_label() -> void:
@@ -760,6 +818,63 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 			ic.tooltip_text = "%s  피해 %s" % [GameData.UNITS[id]["name"], _fmt(b.dmg_by_unit[id])]
 			row.add_child(ic)
 		v.add_child(row)
+	# 성취: 경험치 / 레벨 / 최고 기록 / 이번 판 업적
+	var me := _local_board()
+	var gained := GameData.match_xp(me.wave, me.kills, won)
+	var lv := Profile.level
+	var cur := Profile.xp + gained
+	var ups := 0
+	while cur >= GameData.xp_to_next(lv):
+		cur -= GameData.xp_to_next(lv)
+		lv += 1
+		ups += 1
+	var xp_row := HBoxContainer.new()
+	xp_row.add_theme_constant_override("separation", 10)
+	var lvl_lbl := Label.new()
+	lvl_lbl.text = "Lv.%d" % lv
+	lvl_lbl.add_theme_font_size_override("font_size", 22)
+	lvl_lbl.add_theme_color_override("font_color", Color(0.5, 0.85, 1.0))
+	xp_row.add_child(lvl_lbl)
+	var bar := ProgressBar.new()
+	bar.max_value = GameData.xp_to_next(lv)
+	bar.value = 0
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(360, 18)
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	xp_row.add_child(bar)
+	var xp_lbl := Label.new()
+	xp_lbl.text = "EXP +%d" % gained
+	xp_row.add_child(xp_lbl)
+	v.add_child(xp_row)
+	create_tween().tween_property(bar, "value", float(cur), 1.2).set_ease(Tween.EASE_OUT)
+	if ups > 0:
+		var up := Label.new()
+		up.text = "레벨 업! Lv.%d  (코인 보상)" % lv
+		up.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		up.add_theme_font_size_override("font_size", 24)
+		up.add_theme_color_override("font_color", Color(0.5, 0.9, 1.0))
+		v.add_child(up)
+	if mode != "pvp" and me.wave > int(Profile.stats.get("best_round", 0)):
+		var best := Label.new()
+		best.text = "최고 기록 갱신!  ROUND %d" % me.wave
+		best.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		best.add_theme_font_size_override("font_size", 22)
+		best.add_theme_color_override("font_color", Color(1, 0.6, 0.3))
+		v.add_child(best)
+	if not _match_achs.is_empty():
+		var ah := HBoxContainer.new()
+		ah.alignment = BoxContainer.ALIGNMENT_CENTER
+		ah.add_theme_constant_override("separation", 8)
+		for e in _match_achs.slice(0, 6):
+			var ic := UIIcon.make("trophy", 40, Color(1, 0.8, 0.3))
+			ic.tooltip_text = "%s %s" % [e["a"]["name"], ["I", "II", "III"][e["tier"]]]
+			ic.mouse_filter = Control.MOUSE_FILTER_PASS
+			ah.add_child(ic)
+		var al := Label.new()
+		al.text = "업적 %d개 달성" % _match_achs.size()
+		al.add_theme_color_override("font_color", Color(1, 0.85, 0.4))
+		ah.add_child(al)
+		v.add_child(ah)
 	# 코인 보상
 	var coin_row := HBoxContainer.new()
 	coin_row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -863,6 +978,7 @@ func _give_coins(_mult: int) -> void:
 	Profile.add_progress("merge", me.merges_done)
 	Profile.add_progress("mythic", me.mythics_done)
 	Profile.add_progress("boss", me.bosses_killed)
+	Profile.finish_match(me, _last_won)
 
 
 func _mvp_ids(b: Board) -> Array:

@@ -7,6 +7,7 @@ var _online: PanelContainer
 var _settings: PanelContainer
 var _coin_lbl: Label
 var _rewards_btn: ActionButton
+var _achieve: PanelContainer
 var _record_lbl: Label
 var _rank_panel: PanelContainer
 var _rank_list: ItemList
@@ -139,6 +140,7 @@ func _ready() -> void:
 	_refresh_online()
 	_build_help()
 	_build_settings()
+	_build_achievements()
 	# 온라인 매치에서 돌아왔으면 로비를 바로 보여준다
 	if Net.connected:
 		_online.visible = true
@@ -360,9 +362,31 @@ func _build_top() -> void:
 		title.add_theme_constant_override("outline_size", 12)
 		title.position = Vector2(44, 28)
 		add_child(title)
+	# 계정 레벨 + 경험치
+	var lvbox := HBoxContainer.new()
+	lvbox.position = Vector2(48, 112)
+	lvbox.add_theme_constant_override("separation", 10)
+	add_child(lvbox)
+	var lv := Label.new()
+	lv.text = "Lv.%d" % Profile.level
+	lv.add_theme_font_size_override("font_size", 22)
+	lv.add_theme_color_override("font_color", Color(0.5, 0.85, 1.0))
+	lvbox.add_child(lv)
+	var xb := ProgressBar.new()
+	xb.max_value = GameData.xp_to_next(Profile.level)
+	xb.value = Profile.xp
+	xb.show_percentage = false
+	xb.custom_minimum_size = Vector2(220, 14)
+	xb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	lvbox.add_child(xb)
+	var xl := Label.new()
+	xl.text = "%d / %d" % [Profile.xp, GameData.xp_to_next(Profile.level)]
+	xl.add_theme_font_size_override("font_size", 14)
+	xl.add_theme_color_override("font_color", Color(0.6, 0.65, 0.75))
+	lvbox.add_child(xl)
 	var right := HBoxContainer.new()
 	right.add_theme_constant_override("separation", 10)
-	right.position = Vector2(840, 30)
+	right.position = Vector2(770, 30)
 	right.size = Vector2(730, 70)
 	right.alignment = BoxContainer.ALIGNMENT_END
 	add_child(right)
@@ -383,6 +407,7 @@ func _build_top() -> void:
 	right.add_child(chip)
 	_rewards_btn = ActionButton.make("gift", Color(1, 0.75, 0.4), "보상 (출석 · 미션 · 룰렛)", func(): get_tree().change_scene_to_file("res://scenes/Rewards.tscn"), Vector2(70, 64))
 	right.add_child(_rewards_btn)
+	right.add_child(ActionButton.make("trophy", Color(1, 0.8, 0.3), "업적", func(): _achieve.visible = true, Vector2(70, 64)))
 	right.add_child(ActionButton.make("book", Color(0.6, 0.8, 1.0), "도감 (유닛 레벨업)", func(): get_tree().change_scene_to_file("res://scenes/Collection.tscn"), Vector2(70, 64)))
 	var shop := ActionButton.make("shop", Color(1, 0.8, 0.35), "상점", func(): get_tree().change_scene_to_file("res://scenes/Shop.tscn"), Vector2(70, 64))
 	right.add_child(shop)
@@ -511,6 +536,52 @@ func _on_leaderboard(list: Array, my_rank: int) -> void:
 	_rank_panel.visible = true
 
 
+func _build_achievements() -> void:
+	_achieve = _panel(Vector2(360, 90), Vector2(880, 740), "업적")
+	_achieve.visible = false
+	var v: VBoxContainer = _achieve.get_child(0)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(scroll)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 10)
+	scroll.add_child(list)
+	for a in GameData.ACHIEVEMENTS:
+		var tier := Profile.ach_tier(a["id"])
+		var goals: Array = a["goals"]
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		row.add_child(UIIcon.make(a["icon"], 44, Color(1, 0.8, 0.3) if tier > 0 else Color(0.45, 0.47, 0.55)))
+		var col := VBoxContainer.new()
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var t := Label.new()
+		var next_i := mini(tier, goals.size() - 1)
+		t.text = "%s  %s" % [a["name"], "★".repeat(tier) + "☆".repeat(goals.size() - tier)]
+		t.add_theme_font_size_override("font_size", 18)
+		col.add_child(t)
+		var d := Label.new()
+		d.text = ("완료!" if tier >= goals.size() else a["desc"] % goals[next_i]) + ("" if tier >= goals.size() else "   보상 코인 %d" % a["coins"][next_i])
+		d.add_theme_font_size_override("font_size", 14)
+		d.add_theme_color_override("font_color", Color(0.65, 0.7, 0.8))
+		col.add_child(d)
+		var bar := ProgressBar.new()
+		bar.max_value = goals[next_i]
+		bar.value = mini(Profile.ach_value(a["stat"]), goals[next_i])
+		bar.show_percentage = false
+		bar.custom_minimum_size = Vector2(0, 10)
+		col.add_child(bar)
+		row.add_child(col)
+		var num := Label.new()
+		num.text = "%d / %d" % [mini(Profile.ach_value(a["stat"]), goals[next_i]), goals[next_i]]
+		num.custom_minimum_size = Vector2(130, 0)
+		num.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(num)
+		list.add_child(row)
+	v.add_child(_small_btn("닫기", func(): _achieve.visible = false))
+
+
 func _set_diff(lvl: int) -> void:
 	Session.bot_level = lvl
 	for i in _diff_btns.size():
@@ -600,6 +671,23 @@ func _help_text() -> String:
 	s += "• [b][color=#ff4050]신화 조합[/color][/b]: 특정 유닛들을 모으면 강력한 신화 유닛으로 조합! 신화는 자동 발동 스킬을 가집니다.\n"
 	for m in GameData.RECIPES:
 		s += "    - [color=#ff6070]%s[/color] = %s  ([i]%s[/i])\n" % [GameData.UNITS[m]["name"], GameData.recipe_text(m), GameData.UNITS[m]["desc"]]
+	s += "\n[b][color=#ffd84d]★ 강화 시도 · 합성 대성공[/color][/b]\n"
+	s += "• 칸을 선택하고 망치 버튼: 골드로 ★ 강화 시도. ★당 공격력 +25%%, 공속 +10%%\n"
+	s += "• 성공률 85%% → 65%% → 45%% → 30%% → 20%%. ★3 이상에서 실패하면 한 단계 하락할 수 있어요\n"
+	s += "• [color=#ffb050]★3 각성[/color]: 특성 수치 1.35배, 연쇄/다중사격 +1   ·   [color=#ff80ff]★5 초월[/color]: 한 번에 두 번 공격\n"
+	s += "• 합성하면 8%% 확률로 [b]대성공[/b] - 한 단계를 더 건너뜁니다\n"
+	s += "• 등급 강화도 레벨마다 공격력 +12%%, 공속 +3%%\n"
+	s += "\n[b][color=#ffd84d]시너지[/color][/b] (서로 다른 유닛 종류 수)\n"
+	for tag in GameData.SYNERGY_ORDER:
+		var d: Dictionary = GameData.SYNERGIES[tag]
+		var tiers: Array = []
+		for t in d["tiers"]:
+			tiers.append("%d종 %s" % [t[0], d["desc"] % int(t[1] * 100 if tag != "lightning" else t[1])])
+		s += "• [color=#%s]%s[/color]: %s\n" % [d["color"].to_html(false), d["name"], " / ".join(tiers)]
+	s += "\n[b][color=#ffd84d]보스 스킬[/color][/b]\n"
+	s += "• 보스는 돌진·포효(유닛 침묵)·부하 소환·재생·용암 방패·화염 폭발·순간이동을 씁니다\n"
+	s += "• 시전 중(빨간 원)에 [b]기절시키면 스킬이 끊깁니다[/b] - 기사·투석병·수호천사·뇌신이 핵심!\n"
+	s += "• 최종 보스는 체력 50%%에서 2페이즈로 광폭화\n"
 	s += "\n[b][color=#ffd84d]유닛 도감[/color][/b]\n"
 	for r in 4:
 		var names: Array = []

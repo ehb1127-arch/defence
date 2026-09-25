@@ -12,7 +12,11 @@ var equipped := {}       # id -> 다음 판에 사용할지
 var perks := {}          # id -> 레벨
 var ad_date := ""
 var ad_count := 0
-var stats := {"games": 0, "wins": 0, "best_round": 0}
+var stats := {"games": 0, "wins": 0, "best_round": 0, "kills": 0, "mythics": 0, "max_star": 0, "bosses": 0,
+	"max_combo": 0, "interrupts": 0, "jackpots": 0, "merges": 0}
+var level := 1
+var xp := 0
+var achievements := {}   # 업적 id -> 달성한 단계 수
 var settings := {"sound": true, "captions": false}
 var device_id := ""
 var unit_levels := {}    # 유닛 id -> 영구 레벨
@@ -52,6 +56,9 @@ func load_profile() -> void:
 	attendance = cfg.get_value("p", "attendance", attendance)
 	tutorial_done = cfg.get_value("p", "tutorial_done", false)
 	rating = cfg.get_value("p", "rating", 1000)
+	level = cfg.get_value("p", "level", 1)
+	xp = cfg.get_value("p", "xp", 0)
+	achievements = cfg.get_value("p", "achievements", {})
 	roulette = cfg.get_value("p", "roulette", roulette)
 
 
@@ -72,6 +79,9 @@ func save() -> void:
 	cfg.set_value("p", "attendance", attendance)
 	cfg.set_value("p", "tutorial_done", tutorial_done)
 	cfg.set_value("p", "rating", rating)
+	cfg.set_value("p", "level", level)
+	cfg.set_value("p", "xp", xp)
+	cfg.set_value("p", "achievements", achievements)
 	cfg.set_value("p", "roulette", roulette)
 	cfg.save(PATH)
 	changed.emit()
@@ -186,8 +196,6 @@ func record_match(mode: String, wave: int, won: bool) -> void:
 	stats["games"] = int(stats["games"]) + 1
 	if won:
 		stats["wins"] = int(stats["wins"]) + 1
-	if mode != "pvp":
-		stats["best_round"] = maxi(int(stats["best_round"]), wave)
 	save()
 
 
@@ -348,3 +356,69 @@ func reward_badge() -> int:
 	if roulette_free_left():
 		n += 1
 	return n
+
+
+
+# ---- 업적 / 계정 레벨 ----
+const _SUM_STATS := {"kills": "kills", "mythics": "mythics_done", "bosses": "bosses_killed", "interrupts": "interrupts", "jackpots": "slot_jackpots", "merges": "merges_done"}
+const _MAX_STATS := {"max_star": "max_star", "max_combo": "best_combo", "best_round": "wave"}
+
+
+func ach_value(stat: String, b: Board = null) -> int:
+	## 누적 기록 + (진행 중인 판의 기록)
+	if stat == "discovered":
+		var n := discovered.size()
+		if b != null:
+			for id in b.obtained:
+				if not discovered.has(id):
+					n += 1
+		return n
+	var v := int(stats.get(stat, 0))
+	if b != null:
+		if _SUM_STATS.has(stat):
+			v += int(b.get(_SUM_STATS[stat]))
+		elif _MAX_STATS.has(stat):
+			v = maxi(v, int(b.get(_MAX_STATS[stat])))
+	return v
+
+
+func ach_tier(id: String) -> int:
+	return int(achievements.get(id, 0))
+
+
+func check_achievements(b: Board = null) -> Array:
+	## 새로 달성한 업적 단계 목록 [{a, tier}] (보상 코인 즉시 지급)
+	var out: Array = []
+	for a in GameData.ACHIEVEMENTS:
+		var tier := ach_tier(a["id"])
+		var v := ach_value(a["stat"], b)
+		while tier < a["goals"].size() and v >= a["goals"][tier]:
+			coins += a["coins"][tier]
+			out.append({"a": a, "tier": tier})
+			tier += 1
+		achievements[a["id"]] = tier
+	if not out.is_empty():
+		save()
+	return out
+
+
+func finish_match(b: Board, won: bool) -> Dictionary:
+	## 판 종료: 누적 기록 반영 → 경험치/레벨업 → 업적. 결과 화면용 요약을 돌려준다
+	var best := b.wave > int(stats.get("best_round", 0))
+	for k in _SUM_STATS:
+		stats[k] = int(stats.get(k, 0)) + int(b.get(_SUM_STATS[k]))
+	for k in _MAX_STATS:
+		stats[k] = maxi(int(stats.get(k, 0)), int(b.get(_MAX_STATS[k])))
+	var gained := GameData.match_xp(b.wave, b.kills, won)
+	xp += gained
+	var levels := 0
+	var level_coins := 0
+	while xp >= GameData.xp_to_next(level):
+		xp -= GameData.xp_to_next(level)
+		level += 1
+		levels += 1
+		level_coins += 50 + level * 10
+	coins += level_coins
+	save()
+	var achs := check_achievements()
+	return {"xp": gained, "levels": levels, "level": level, "level_coins": level_coins, "achievements": achs, "best": best}

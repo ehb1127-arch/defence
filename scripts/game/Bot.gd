@@ -65,6 +65,18 @@ func _think() -> void:
 		elif b.gems >= 2 and b.wave < 6:
 			if b.gamble(0):
 				return
+	# ★ 강화 시도: 여유 골드로 가장 강한 칸을 ★3 까지
+	if level >= 1 and b.pending_enhance.is_empty() and b.wave >= 8:
+		var best := -1
+		for i in b.cells.size():
+			var c: Dictionary = b.cells[i]
+			if c["id"] == "" or c["star"] >= 3:
+				continue
+			if best < 0 or GameData.UNITS[c["id"]]["rarity"] > GameData.UNITS[b.cells[best]["id"]]["rarity"]:
+				best = i
+		if best >= 0 and GameData.UNITS[b.cells[best]["id"]]["rarity"] >= 2 and b.gold > b.enhance_cost_of(best) + b.summon_cost() * 3:
+			b.enhance_try(best)
+			return
 	# 강화
 	var track := _pick_upgrade()
 	if track >= 0 and _should_upgrade(track):

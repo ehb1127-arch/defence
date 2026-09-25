@@ -78,6 +78,15 @@ var pending_slot := {}            # 돌아가는 중인 슬롯 {reels, bet, t}
 var last_slot := {}               # 마지막 결과 (UI 표시용)
 var slot_spins := 0
 var emote := ""
+var syn := {}                     # 시너지 태그 -> 수치 (0 = 비활성)
+var syn_counts := {}              # 시너지 태그 -> 서로 다른 유닛 종류 수
+var syn_version := 0
+var _syn_t := 0.0
+var max_star := 0
+var interrupts := 0
+var slot_jackpots := 0
+var pending_enhance := {}         # ★ 강화 시도 진행 중 {cell, t}
+var last_enhance := {}
 var emote_t := 0.0
 var _alarm_t := 0.0
 var missions := {}
@@ -133,7 +142,7 @@ func _reset_cells() -> void:
 
 
 func _empty_cell() -> Dictionary:
-	return {"id": "", "n": 0, "timers": [0.0, 0.0, 0.0], "ramp": 0, "last": null, "hits": 0, "skill_t": 0.0, "kick": 0.0}
+	return {"id": "", "n": 0, "timers": [0.0, 0.0, 0.0], "ramp": 0, "last": null, "hits": 0, "skill_t": 0.0, "kick": 0.0, "star": 0, "silence": 0.0}
 
 
 # ===========================================================================
@@ -209,7 +218,7 @@ func used_cells() -> int:
 
 func has_space_for(id: String) -> bool:
 	for c in cells:
-		if c["id"] == "" or (c["id"] == id and c["n"] < GameData.MAX_STACK):
+		if c["id"] == "" or (c["id"] == id and c["n"] < GameData.MAX_STACK and c["star"] == 0):
 			return true
 	return false
 
@@ -258,6 +267,14 @@ func dmg_mult(rarity: int) -> float:
 	return 1.0 + GameData.UPGRADE_DMG_PER_LEVEL * lvl
 
 
+func upgrade_speed(rarity: int) -> float:
+	var lvl := 0
+	for t in 3:
+		if rarity in GameData.UPGRADES[t]["rarities"]:
+			lvl = upgrades[t]
+	return 1.0 + GameData.UPGRADE_SPD_PER_LEVEL * lvl
+
+
 func can_afford_upgrade(track: int) -> bool:
 	if upgrades[track] >= (GameData.MAX_LUCK if track == 3 else GameData.MAX_UPGRADE):
 		return false
@@ -300,7 +317,7 @@ func add_unit(id: String) -> int:
 	## 같은 유닛 스택(3 미만) 우선, 없으면 빈칸. 실패 시 -1
 	var target := -1
 	for i in cells.size():
-		if cells[i]["id"] == id and cells[i]["n"] < GameData.MAX_STACK:
+		if cells[i]["id"] == id and cells[i]["n"] < GameData.MAX_STACK and cells[i]["star"] == 0:
 			target = i
 			break
 	if target < 0:
@@ -346,8 +363,20 @@ func merge_cell(i: int) -> bool:
 		return false
 	var rarity: int = GameData.UNITS[cells[i]["id"]]["rarity"]
 	cells[i] = _empty_cell()
-	var id := GameData.random_unit_of(rng, rarity + 1)
-	var idx := add_unit(id)
+	var new_r := rarity + 1
+	var great_star := 0
+	if rng.randf() < GameData.MERGE_GREAT_CHANCE:
+		# 합성 대성공: 두 단계 점프 (전설 이상은 ★1 로)
+		if new_r + 1 <= GameData.Rarity.LEGEND:
+			new_r += 1
+		else:
+			great_star = 1
+		show_banner("합성 대성공!", "", Color(1, 0.85, 0.3))
+		_coin_burst(cell_center(i), 16)
+		_sfx("win")
+	var id := GameData.random_unit_of(rng, new_r)
+	var idx := _place_unit(id, great_star, i)
+	rarity = new_r - 1
 	if selected == i and cells[i]["id"] == "":
 		selected = idx
 	merges_done += 1
@@ -357,6 +386,28 @@ func merge_cell(i: int) -> bool:
 	else:
 		float_text(cell_center(idx), "합성!", GameData.RARITY_COLORS[rarity + 1])
 	return true
+
+
+func _place_unit(id: String, star: int, prefer := -1) -> int:
+	## ★ 가 붙은 유닛은 따로 빈 칸에 (가능하면 prefer 칸)
+	if star <= 0:
+		return add_unit(id)
+	var target := -1
+	if prefer >= 0 and cells[prefer]["id"] == "":
+		target = prefer
+	else:
+		for k in cells.size():
+			if cells[k]["id"] == "":
+				target = k
+				break
+	if target < 0:
+		return add_unit(id)
+	cells[target] = _empty_cell()
+	cells[target]["id"] = id
+	cells[target]["star"] = star
+	cells[target]["n"] = 1
+	obtained[id] = true
+	return target
 
 
 func auto_merge() -> bool:
@@ -437,7 +488,13 @@ func upgrade(track: int) -> bool:
 	else:
 		gold -= cost
 	upgrades[track] += 1
-	float_text(Vector2(SIZE / 2, 150), "%s 강화 Lv.%d" % [GameData.UPGRADES[track]["name"], upgrades[track]], Color(0.6, 1.0, 0.6))
+	var what := "소환 확률 UP" if track == 3 else "공격력 +%d%% · 공속 +%d%%" % [int(GameData.UPGRADE_DMG_PER_LEVEL * 100), int(GameData.UPGRADE_SPD_PER_LEVEL * 100)]
+	float_text(Vector2(SIZE / 2, 150), "%s Lv.%d  %s" % [GameData.UPGRADES[track]["name"], upgrades[track], what], Color(0.6, 1.0, 0.6), 16)
+	# 강화된 유닛 칸마다 ▲ 표시
+	for k in cells.size():
+		if cells[k]["id"] != "" and track < 3 and GameData.UNITS[cells[k]["id"]]["rarity"] in GameData.UPGRADES[track]["rarities"]:
+			_add_effect({"type": "up", "pos": cell_center(k), "t": 0.0, "dur": 0.8, "color": Color(0.5, 1.0, 0.6)})
+	_sfx("merge")
 	return true
 
 
@@ -635,6 +692,7 @@ func step(dt: float) -> void:
 	_update_units(dt)
 	_update_chests(dt)
 	_update_slot(dt)
+	_update_enhance(dt)
 	_cleanup()
 	_mission_t -= dt
 	if _mission_t <= 0.0:
@@ -706,6 +764,7 @@ func _start_wave(w: int) -> void:
 			b.boss_name = "최종 보스 · 사각의 군주"
 			b.size *= 1.3
 		boss_warn_t = 2.5
+		_setup_boss_skills(b, w)
 		show_banner("ROUND %d - 보스!" % w, "%s 등장! %d초 안에 못 잡으면 패배" % [b.boss_name, int(GameData.boss_time(w))], Color(1, 0.3, 0.5))
 		_sfx("boss")
 	elif GameData.is_bonus_wave(w):
@@ -782,7 +841,13 @@ func _update_enemies(dt: float) -> void:
 			e.slow_t -= dt
 			if e.slow_t <= 0.0:
 				e.slow = 0.0
+		if e.is_boss:
+			_update_boss(e, dt)
+		e.freeze_t = maxf(0.0, e.freeze_t - dt)
 		var spd: float = e.speed * (1.0 - maxf(e.slow, e.aura_slow))
+		if e.buff_t > 0.0:
+			e.buff_t -= dt
+			spd *= 2.6
 		if frenzy:
 			spd *= 1.3
 		e.aura_slow = 0.0
@@ -818,28 +883,138 @@ func _aura_speed(i: int) -> float:
 	return minf(bonus, 0.6)
 
 
+# ===========================================================================
+# 시너지 / ★ / 각성
+# ===========================================================================
+func _recalc_synergy() -> void:
+	var kinds := {}
+	for c in cells:
+		if c["id"] != "":
+			for tag in GameData.UNIT_TAGS.get(c["id"], []):
+				if not kinds.has(tag):
+					kinds[tag] = {}
+				kinds[tag][c["id"]] = true
+	var new_syn := {}
+	var counts := {}
+	for tag in GameData.SYNERGY_ORDER:
+		var n: int = kinds.get(tag, {}).size()
+		counts[tag] = n
+		var val := 0.0
+		for tier in GameData.SYNERGIES[tag]["tiers"]:
+			if n >= tier[0]:
+				val = tier[1]
+		new_syn[tag] = val
+	if new_syn != syn:
+		# 새 시너지 발동 알림
+		for tag in new_syn:
+			if new_syn[tag] > syn.get(tag, 0.0) and not is_remote:
+				float_text(Vector2(SIZE / 2, SIZE - 110), "시너지 발동: %s" % GameData.SYNERGIES[tag]["name"], GameData.SYNERGIES[tag]["color"], 16)
+		syn = new_syn
+		syn_version += 1
+	syn_counts = counts
+
+
+func has_tag(id: String, tag: String) -> bool:
+	return tag in GameData.UNIT_TAGS.get(id, [])
+
+
+func cell_damage(c: Dictionary) -> float:
+	var id: String = c["id"]
+	var m: float = unit_power(id) * (1.0 + GameData.STAR_DMG * c.get("star", 0))
+	if has_tag(id, "warrior"):
+		m *= 1.0 + syn.get("warrior", 0.0)
+	return GameData.UNITS[id]["dmg"] * m
+
+
+func cell_range(c: Dictionary) -> float:
+	var id: String = c["id"]
+	var r: float = GameData.UNITS[id]["range"]
+	if has_tag(id, "archer"):
+		r *= 1.0 + syn.get("archer", 0.0) * 0.8
+	return r
+
+
+func cell_speed(c: Dictionary) -> float:
+	var id: String = c["id"]
+	var s: float = (1.0 + GameData.STAR_SPEED * c.get("star", 0)) * (1.0 + syn.get("support", 0.0)) * upgrade_speed(GameData.UNITS[id]["rarity"])
+	if has_tag(id, "archer"):
+		s *= 1.0 + syn.get("archer", 0.0)
+	return s
+
+
+func cell_fx(c: Dictionary) -> Dictionary:
+	## 기본 특성 + 각성(★3) + 시너지를 합친 실제 특성 (칸별 캐시)
+	var key := "%s_%d_%d" % [c["id"], c.get("star", 0), syn_version]
+	if c.get("fx_key", "") == key:
+		return c["fx_cache"]
+	var id: String = c["id"]
+	var fx: Dictionary = GameData.UNITS[id]["fx"].duplicate()
+	var awake: bool = c.get("star", 0) >= GameData.AWAKEN_STAR
+	var k := 1.35 if awake else 1.0
+	for f in ["splash", "slow", "burn", "poison", "armor_break", "knockback", "freeze_chance", "meteor_mult", "gold_chance"]:
+		if fx.has(f):
+			fx[f] = fx[f] * k
+	if fx.has("stun_chance"):
+		fx["stun_chance"] = minf(0.6, fx["stun_chance"] * k + (0.05 if syn.get("lightning", 0.0) > 0.0 and has_tag(id, "lightning") else 0.0))
+	if fx.has("slow"):
+		fx["slow"] = minf(0.7, fx["slow"])
+	if awake:
+		if fx.has("chain"):
+			fx["chain"] += 1
+		if fx.has("multishot"):
+			fx["multishot"] += 1
+		if fx.has("crit"):
+			fx["crit"] += 0.1
+	if has_tag(id, "mage") and fx.has("splash"):
+		fx["splash"] *= 1.0 + syn.get("mage", 0.0)
+	if has_tag(id, "lightning") and fx.has("chain"):
+		fx["chain"] += int(syn.get("lightning", 0.0))
+	if has_tag(id, "ice"):
+		fx["freeze_chance"] = fx.get("freeze_chance", 0.0) + syn.get("ice", 0.0)
+	var asn: float = syn.get("assassin", 0.0)
+	if asn > 0.0:
+		fx["crit"] = fx.get("crit", 0.0) + asn
+		fx["crit_mult"] = fx.get("crit_mult", 2.0)
+	if syn.get("fire", 0.0) > 0.0:
+		for f in ["burn", "poison"]:
+			if fx.has(f):
+				fx[f] *= 1.0 + syn["fire"]
+	c["fx_key"] = key
+	c["fx_cache"] = fx
+	return fx
+
+
 func _update_units(dt: float) -> void:
 	var speed_mult := 0.7 if curse_t > 0.0 else 1.0
+	_syn_t -= dt
+	if _syn_t <= 0.0:
+		_syn_t = 0.4
+		_recalc_synergy()
 	for i in cells.size():
 		var c: Dictionary = cells[i]
 		if c["id"] == "":
 			continue
 		var u: Dictionary = GameData.UNITS[c["id"]]
-		var fx: Dictionary = u["fx"]
+		var fx := cell_fx(c)
 		var center := cell_center(i)
-		var rng_sq: float = u["range"] * u["range"]
+		var rr := cell_range(c)
+		var rng_sq: float = rr * rr
+		# 보스 포효/화염 폭발: 침묵 중에는 공격 불가
+		if c.get("silence", 0.0) > 0.0:
+			c["silence"] -= dt
+			continue
 		# 수호천사: 사거리 내 적 둔화 오라
 		if fx.has("slow_aura"):
 			for e in enemies:
 				if e.alive and e.pos.distance_squared_to(center) <= rng_sq:
 					e.aura_slow = maxf(e.aura_slow, fx["slow_aura"])
-		# 신화 스킬
+		# 신화 스킬 (마법사 시너지로 쿨 감소)
 		if u.has("skill"):
-			c["skill_t"] += dt
+			c["skill_t"] += dt * (1.0 + (syn.get("mage", 0.0) * 0.5 if has_tag(c["id"], "mage") else 0.0))
 			if c["skill_t"] >= u["skill"]["cd"] and _has_target_near(center, INF):
 				c["skill_t"] = 0.0
 				_cast_skill(i, c, u)
-		var spd := speed_mult * (1.0 + _aura_speed(i))
+		var spd := speed_mult * (1.0 + _aura_speed(i)) * cell_speed(c)
 		if fx.has("ramp"):
 			spd *= 1.0 + fx["ramp"] * c["ramp"]
 		for k in c["n"]:
@@ -853,7 +1028,10 @@ func _update_units(dt: float) -> void:
 				continue
 			c["timers"][k] = u["cd"]
 			c["kick"] = 0.12
-			_attack(i, c, u, target)
+			_attack(i, c, u, target, fx, rr)
+			if c.get("star", 0) >= GameData.TRANSCEND_STAR and target.alive:
+				# ★5 초월: 한 번에 두 번 공격
+				_attack(i, c, u, target, fx, rr)
 
 
 func _has_target_near(center: Vector2, r: float) -> bool:
@@ -881,12 +1059,12 @@ func _targets_in_range(center: Vector2, rng_sq: float, count: int) -> Array:
 	return list.slice(0, count)
 
 
-func _attack(i: int, c: Dictionary, u: Dictionary, target: EnemyState) -> void:
-	var fx: Dictionary = u["fx"]
+func _attack(i: int, c: Dictionary, u: Dictionary, target: EnemyState, fx: Dictionary, rr: float) -> void:
 	var center := cell_center(i)
 	var id: String = c["id"]
-	var base: float = u["dmg"] * unit_power(c["id"])
+	var base: float = cell_damage(c)
 	var col: Color = u["color"]
+	var awake: bool = c.get("star", 0) >= GameData.AWAKEN_STAR
 	# 광전사 가속
 	if fx.has("ramp"):
 		if c["last"] == target:
@@ -896,15 +1074,23 @@ func _attack(i: int, c: Dictionary, u: Dictionary, target: EnemyState) -> void:
 		c["last"] = target
 	var targets: Array = [target]
 	if fx.has("multishot"):
-		targets = _targets_in_range(center, u["range"] * u["range"], fx["multishot"])
+		targets = _targets_in_range(center, rr * rr, fx["multishot"])
 	for t in targets:
 		var dmg := base
 		var crit := false
 		if fx.has("crit") and rng.randf() < fx["crit"]:
 			dmg *= fx["crit_mult"]
 			crit = true
-		_add_effect({"type": "shot", "from": center, "to": t.pos, "t": 0.0, "dur": 0.12, "color": col, "big": u["rarity"] >= 3})
+		_add_effect({"type": "shot", "from": center, "to": t.pos, "t": 0.0, "dur": 0.12, "color": col.lightened(0.3) if awake else col, "big": u["rarity"] >= 3 or awake})
 		_hit(t, dmg, id, fx, crit)
+		# 관통: 대상 뒤 일직선의 적도 관통
+		if fx.has("pierce"):
+			var dir: Vector2 = (t.pos - center).normalized()
+			var end: Vector2 = center + dir * rr * 1.4
+			_add_effect({"type": "pierce", "from": center, "to": end, "t": 0.0, "dur": 0.15, "color": col})
+			for e in enemies:
+				if e.alive and e != t and Geometry2D.get_closest_point_to_segment(e.pos, center, end).distance_to(e.pos) < 14.0:
+					_hit(e, dmg * 0.7, id, {}, false)
 		# 연쇄 번개
 		if fx.has("chain"):
 			var hit_list: Array = [t]
@@ -916,13 +1102,13 @@ func _attack(i: int, c: Dictionary, u: Dictionary, target: EnemyState) -> void:
 					break
 				cdmg *= 0.85
 				_add_effect({"type": "bolt", "from": prev.pos, "to": nxt.pos, "t": 0.0, "dur": 0.18, "color": Color(1, 1, 0.5)})
-				_hit(nxt, cdmg, id, {}, false)
+				_hit(nxt, cdmg, id, {"stun_chance": 0.05, "stun": 0.3} if syn.get("lightning", 0.0) > 0.0 else {}, false)
 				hit_list.append(nxt)
 				prev = nxt
 	# 메테오
 	if fx.has("meteor_every"):
 		c["hits"] += 1
-		if c["hits"] >= fx["meteor_every"]:
+		if c["hits"] >= fx["meteor_every"] - (1 if awake else 0):
 			c["hits"] = 0
 			var p: Vector2 = target.pos
 			var r: float = fx["meteor_radius"]
@@ -963,6 +1149,16 @@ func _hit(t: EnemyState, dmg: float, id: String, fx: Dictionary, crit: bool) -> 
 		_damage(v, dmg, id, v == t and (crit or dmg >= 150.0))
 	if fx.has("stun_chance") and t.alive and rng.randf() < fx["stun_chance"]:
 		t.stun_t = maxf(t.stun_t, fx["stun"] * (0.4 if t.is_boss else 1.0))
+	# 빙결: 짧게 완전히 멈춤 (보스는 짧게)
+	if fx.get("freeze_chance", 0.0) > 0.0 and t.alive and rng.randf() < fx["freeze_chance"]:
+		var ft := 0.4 if t.is_boss else 1.1
+		t.stun_t = maxf(t.stun_t, ft)
+		t.freeze_t = ft
+	# 넉백: 적을 트랙 뒤로 밀어냄 (보스는 25%)
+	if fx.has("knockback") and t.alive:
+		var kb: float = fx["knockback"] * (0.25 if t.is_boss else 1.0)
+		t.dist = maxf(0.0, t.dist - kb)
+		t.pos = path_pos(t.dist)
 	if fx.has("execute") and t.alive and not t.is_boss and t.kind != "elite" and t.hp_ratio() <= fx["execute"]:
 		float_text(t.pos + Vector2(0, -16), "처형!", Color(0.8, 0.4, 1.0), 14)
 		_damage(t, t.hp + t.shield + 1.0, id, false, true)
@@ -989,6 +1185,8 @@ func _damage(e: EnemyState, amount: float, src: String, _show: bool, true_dmg :=
 	var dmg := amount
 	if not true_dmg:
 		dmg *= 1.0 - e.effective_armor() / 100.0
+	if e.shield_t > 0.0:
+		dmg *= 0.2
 	if src != "":
 		dmg_by_unit[src] = dmg_by_unit.get(src, 0.0) + minf(dmg, e.hp + e.shield)
 	if e.shield > 0.0:
@@ -1176,7 +1374,7 @@ func snapshot() -> Dictionary:
 		if cell["id"] == "":
 			c.append(-1)
 		else:
-			c.append(GameData.unit_index(cell["id"]) * 4 + cell["n"])
+			c.append(GameData.unit_index(cell["id"]) * 32 + cell["star"] * 4 + cell["n"])
 	# 적 1마리 = int32 2개 (위치 / 종류+체력+상태) 로 압축
 	var e := PackedInt32Array()
 	for en in enemies:
@@ -1207,7 +1405,8 @@ func apply_snapshot(d: Dictionary) -> void:
 			cells[i]["id"] = ""
 			cells[i]["n"] = 0
 		else:
-			cells[i]["id"] = GameData.UNIT_ORDER[c[i] / 4]
+			cells[i]["id"] = GameData.UNIT_ORDER[c[i] / 32]
+			cells[i]["star"] = (c[i] / 4) % 8
 			cells[i]["n"] = c[i] % 4
 	var e: PackedInt32Array = d.get("e", PackedInt32Array())
 	var count := e.size() / 2
@@ -1233,6 +1432,8 @@ func apply_snapshot(d: Dictionary) -> void:
 		en.shield = 1.0 if f & 8 else 0.0
 		en.max_shield = 1.0
 		en.enraged = (f & 16) != 0
+		en.casting = "cast" if f & 32 else ""
+		en.shield_t = 1.0 if f & 64 else 0.0
 	if alive and not d.get("a", true):
 		alive = false
 
@@ -1291,6 +1492,181 @@ func revive() -> void:
 	show_banner("부활!", "적 절반 제거" + (" · 보스 재도전 30초" if boss_alive else ""), Color(0.5, 1.0, 0.7))
 	_flash(Color(0.6, 1.0, 0.8), 0.6)
 	_sfx("rare")
+
+
+# ===========================================================================
+# ★ 강화 시도
+# ===========================================================================
+func enhance_cost_of(i: int) -> int:
+	var c: Dictionary = cells[i]
+	return GameData.enhance_cost(GameData.UNITS[c["id"]]["rarity"], c["star"])
+
+
+func can_enhance(i: int) -> bool:
+	if i < 0 or not alive or not pending_enhance.is_empty():
+		return false
+	var c: Dictionary = cells[i]
+	return c["id"] != "" and c["star"] < GameData.STAR_MAX and gold >= enhance_cost_of(i)
+
+
+func enhance_try(i: int) -> bool:
+	if not can_enhance(i):
+		return false
+	var cost := enhance_cost_of(i)
+	gold -= cost
+	pending_enhance = {"cell": cells[i], "t": GameData.ENHANCE_TIME, "cost": cost}
+	last_enhance = {}
+	_sfx("tick")
+	return true
+
+
+func _update_enhance(dt: float) -> void:
+	if pending_enhance.is_empty():
+		return
+	pending_enhance["t"] -= dt
+	var c: Dictionary = pending_enhance["cell"]
+	var idx := cells.find(c)
+	if idx >= 0 and fmod(pending_enhance["t"], 0.2) < dt:
+		_sparks(cell_center(idx), Color(1, 0.85, 0.4), 4)
+		_sfx("tick")
+	if pending_enhance["t"] > 0.0:
+		return
+	var paid: int = pending_enhance["cost"]
+	pending_enhance = {}
+	if idx < 0 or c["id"] == "":
+		gold += paid
+		return
+	var star: int = c["star"]
+	var p := cell_center(idx)
+	var res := {"ok": false, "star": star, "down": false}
+	if rng.randf() < GameData.STAR_CHANCE[star]:
+		c["star"] = star + 1
+		res = {"ok": true, "star": star + 1, "down": false}
+		_add_effect({"type": "ring", "pos": p, "r0": 8.0, "r1": 90.0, "t": 0.0, "dur": 0.6, "color": Color(1, 0.85, 0.3)})
+		_coin_burst(p, 8 + star * 4)
+		float_text(p + Vector2(0, -30), "★%d 성공!" % (star + 1), Color(1, 0.85, 0.3), 20)
+		float_text(p + Vector2(0, -8), "공격력 +%d%% · 공속 +%d%%" % [int(GameData.STAR_DMG * 100), int(GameData.STAR_SPEED * 100)], Color(0.6, 1.0, 0.6), 13)
+		_add_effect({"type": "up", "pos": p, "t": 0.0, "dur": 0.9, "color": Color(1, 0.85, 0.3)})
+		max_star = maxi(max_star, star + 1)
+		if star + 1 == GameData.TRANSCEND_STAR:
+			show_banner("초월!", "%s ★5 - 두 번 공격" % GameData.UNITS[c["id"]]["name"], Color(1, 0.4, 0.9))
+			_coin_burst(p, 30, Color(1, 0.5, 1.0))
+		if star + 1 == GameData.AWAKEN_STAR:
+			show_banner("각성!", "%s 특성 강화" % GameData.UNITS[c["id"]]["name"], Color(1, 0.7, 0.3))
+			_flash(Color(1, 0.8, 0.4), 0.4)
+		_sfx("win" if star + 1 >= 3 else "rare")
+	else:
+		if rng.randf() < GameData.STAR_DOWN_CHANCE[star]:
+			c["star"] = star - 1
+			res = {"ok": false, "star": star - 1, "down": true}
+			float_text(p + Vector2(0, -30), "하락... ★%d" % (star - 1), Color(1, 0.35, 0.35), 20)
+			shake = 10.0
+		else:
+			float_text(p + Vector2(0, -30), "실패", Color(0.7, 0.7, 0.75), 20)
+			shake = 5.0
+		_add_effect({"type": "pop", "pos": p, "r": 30.0, "t": 0.0, "dur": 0.5, "color": Color(0.5, 0.5, 0.55)})
+		_sfx("fail")
+	last_enhance = res
+
+
+# ===========================================================================
+# 보스 스킬
+# ===========================================================================
+func _setup_boss_skills(b: EnemyState, w: int) -> void:
+	var set_i := clampi(w / 10 - 1, 0, GameData.BOSS_SKILLS.size() - 1)
+	var list: Array = GameData.BOSS_SKILLS[set_i].duplicate(true)
+	if w == GameData.FINAL_WAVE or (mode == "pvp" and w > GameData.FINAL_WAVE):
+		list = [["dash", 11.0], ["summon", 12.0], ["shield", 14.0], ["blink", 12.0], ["roar", 13.0]]
+	b.skills = list
+	b.skill_cd = []
+	for k in list.size():
+		b.skill_cd.append(4.0 + k * 2.5)
+
+
+func _update_boss(e: EnemyState, dt: float) -> void:
+	e.shield_t = maxf(0.0, e.shield_t - dt)
+	# 최종 보스 2페이즈
+	if e.boss_name.begins_with("최종") and not e.phase2 and e.hp_ratio() < 0.5:
+		e.phase2 = true
+		e.speed *= 1.35
+		for k in e.skill_cd.size():
+			e.skill_cd[k] = minf(e.skill_cd[k], 1.5)
+		for s2 in e.skills:
+			s2[1] *= 0.7
+		show_banner("2페이즈!", "사각의 군주가 광폭화합니다", Color(1, 0.2, 0.3))
+		_flash(Color(1, 0.1, 0.2), 0.5)
+		_boss_skill(e, "summon")
+		shake = 14.0
+	if e.casting != "":
+		if e.stun_t > 0.0:
+			# 시전 중 기절 → 스킬 차단
+			float_text(e.pos + Vector2(0, -40), "시전 차단!", Color(0.5, 1.0, 0.6), 18)
+			interrupts += 1
+			_sparks(e.pos, Color(0.5, 1, 0.6), 10)
+			e.casting = ""
+			_sfx("merge")
+			return
+		e.cast_t -= dt
+		if e.cast_t <= 0.0:
+			var sid := e.casting
+			e.casting = ""
+			_boss_skill(e, sid)
+		return
+	if e.stun_t > 0.0:
+		return
+	for k in e.skills.size():
+		e.skill_cd[k] -= dt
+		if e.skill_cd[k] <= 0.0:
+			e.skill_cd[k] = e.skills[k][1] * rng.randf_range(0.9, 1.1)
+			e.casting = e.skills[k][0]
+			e.cast_t = GameData.BOSS_CAST_TIME
+			float_text(e.pos + Vector2(0, -44), GameData.BOSS_SKILL_NAMES[e.casting] + "!", Color(1, 0.4, 0.4), 18)
+			_sfx("alarm")
+			return
+
+
+func _boss_skill(e: EnemyState, sid: String) -> void:
+	match sid:
+		"dash":
+			e.buff_t = 2.0
+			_add_effect({"type": "ring", "pos": e.pos, "r0": 10.0, "r1": 70.0, "t": 0.0, "dur": 0.4, "color": Color(1, 0.5, 0.2)})
+		"roar":
+			var hit := 0
+			for k in cells.size():
+				if cells[k]["id"] != "" and cell_center(k).distance_to(e.pos) < 220.0:
+					cells[k]["silence"] = 2.5
+					hit += 1
+			_add_effect({"type": "ring", "pos": e.pos, "r0": 20.0, "r1": 220.0, "t": 0.0, "dur": 0.6, "color": Color(0.7, 0.3, 1.0)})
+			shake = 10.0
+			if hit > 0:
+				float_text(e.pos + Vector2(0, -60), "유닛 %d칸 침묵!" % hit, Color(0.8, 0.5, 1.0), 16)
+		"summon":
+			var n := 8 if e.phase2 else 5
+			for k in n:
+				var m := _spawn("normal", GameData.wave_hp(maxi(wave, 1)) * 0.7, e.dist - 18.0 * (k + 1))
+				m.color = Color(0.75, 0.75, 0.8)
+			_add_effect({"type": "boom", "pos": e.pos, "r": 60.0, "t": 0.0, "dur": 0.5, "color": Color(0.6, 0.6, 0.7)})
+		"regen":
+			e.hp = minf(e.max_hp, e.hp + e.max_hp * 0.1)
+			float_text(e.pos + Vector2(0, -60), "재생 +10%", Color(0.4, 1.0, 0.5), 16)
+			_add_effect({"type": "ring", "pos": e.pos, "r0": 40.0, "r1": 10.0, "t": 0.0, "dur": 0.6, "color": Color(0.4, 1, 0.5)})
+		"shield":
+			e.shield_t = 3.5
+		"blast":
+			var occupied: Array = []
+			for k in cells.size():
+				if cells[k]["id"] != "":
+					occupied.append(k)
+			occupied.shuffle()
+			for k in occupied.slice(0, 3):
+				cells[k]["silence"] = 3.0
+				_add_effect({"type": "boom", "pos": cell_center(k), "r": 40.0, "t": 0.0, "dur": 0.6, "color": Color(1, 0.4, 0.1)})
+			shake = 12.0
+		"blink":
+			_add_effect({"type": "pop", "pos": e.pos, "r": 30.0, "t": 0.0, "dur": 0.5, "color": Color(0.6, 0.3, 1.0)})
+			e.dist += 220.0
+			e.pos = path_pos(e.dist)
+			_add_effect({"type": "pop", "pos": e.pos, "r": 30.0, "t": 0.0, "dur": 0.5, "color": Color(0.6, 0.3, 1.0)})
 
 
 # ===========================================================================
@@ -1375,6 +1751,8 @@ func _update_slot(dt: float) -> void:
 				result["text"] = "꽝꽝꽝..."
 				shake = 8.0
 		result["win"] = 2 if reels[0] != "skull" else 0
+		if reels[0] != "skull":
+			slot_jackpots += 1
 		if reels[0] != "skull":
 			_flash(Color(1, 0.9, 0.4), 0.4)
 		_sfx("win" if reels[0] != "skull" else "fail")
@@ -1553,7 +1931,8 @@ func _draw() -> void:
 		fc.a = clampf(flash_t, 0.0, 0.5) * 0.6
 		draw_rect(Rect2(0, 0, SIZE, SIZE), fc)
 	_draw_boss_warning()
-	_draw_tag(hover if hover >= 0 else selected)
+	if banner_t <= 0.0:
+		_draw_tag(hover if hover >= 0 else selected)
 	_draw_combo()
 	_draw_countdown()
 	_draw_reveal()
@@ -1697,6 +2076,13 @@ func _draw_grid() -> void:
 		draw_circle(sc, u["range"], Color(1, 1, 1, 0.04))
 		draw_arc(sc, u["range"], 0, TAU, 64, Color(1, 1, 1, 0.4), 2.0)
 		draw_rect(Rect2(sc - Vector2(CELL, CELL) / 2, Vector2(CELL, CELL)), Color(1, 1, 1, 0.95), false, 3.0)
+	if not pending_enhance.is_empty():
+		var pi := cells.find(pending_enhance["cell"])
+		if pi >= 0:
+			var pc := cell_center(pi)
+			var sw := sin(_anim * 22.0)
+			draw_rect(Rect2(pc - Vector2(CELL, CELL) / 2, Vector2(CELL, CELL)), Color(1, 0.85, 0.3, 0.5 + 0.4 * sw), false, 3.0)
+			Glyphs.draw(self, "hammer", pc + Vector2(14, -14) + Vector2(0, -6 * absf(sw)), 12.0, Color(1, 0.9, 0.6))
 	if show_cursor:
 		var cc := cell_center(cursor)
 		draw_rect(Rect2(cc - Vector2(CELL, CELL) / 2 + Vector2(1, 1), Vector2(CELL - 2, CELL - 2)), accent.lightened(0.4), false, 2.0)
@@ -1708,7 +2094,13 @@ func _draw_unit_stack(center: Vector2, c: Dictionary) -> void:
 	var n: int = c["n"]
 	var bob := sin(_anim * 3.0 + center.x * 0.1) * 1.5
 	var p := center + Vector2(0, -4 + bob)
-	Glyphs.draw_unit_token(self, c["id"], p, CELL * 0.26 * (1.0 + c.get("kick", 0.0) * 1.2), _anim)
+	var st: int = c.get("star", 0)
+	if st >= 1:
+		var aura: Color = [Color(1, 1, 1), Color(0.5, 0.8, 1.0), Color(0.6, 1.0, 0.6), Color(1, 0.7, 0.3), Color(1, 0.45, 0.35), Color(1, 0.5, 1.0)][st]
+		if st >= GameData.TRANSCEND_STAR:
+			aura = Color.from_hsv(fmod(_anim * 0.3, 1.0), 0.6, 1.0)
+		draw_circle(p, CELL * (0.3 + 0.02 * st), Color(aura, 0.15 + 0.05 * st + 0.05 * sin(_anim * 4.0)))
+	Glyphs.draw_unit_token(self, c["id"], p, CELL * 0.26 * (1.0 + 0.035 * st) * (1.0 + c.get("kick", 0.0) * 1.2), _anim)
 	# 마릿수: 하단 점 (1~3)
 	for k in n:
 		var x := (k - (n - 1) / 2.0) * 11.0
@@ -1717,6 +2109,15 @@ func _draw_unit_stack(center: Vector2, c: Dictionary) -> void:
 	if u.has("skill"):
 		var ratio := clampf(c["skill_t"] / u["skill"]["cd"], 0.0, 1.0)
 		draw_arc(p, CELL * 0.4, -PI / 2, -PI / 2 + TAU * ratio, 24, Color(1, 1, 1, 0.55), 2.5)
+	var star: int = c.get("star", 0)
+	if star >= GameData.AWAKEN_STAR:
+		# 각성 오라
+		draw_arc(p, CELL * 0.36, _anim * 2.0, _anim * 2.0 + PI * 1.4, 20, Color(1, 0.75, 0.3, 0.8), 3.0)
+	for k in star:
+		Glyphs.draw(self, "star", center + Vector2(-CELL * 0.4 + 7 + k * 10, -CELL * 0.4 + 7), 5.5, Color(1, 0.85, 0.3))
+	if c.get("silence", 0.0) > 0.0:
+		draw_rect(Rect2(center - Vector2(CELL, CELL) * 0.46, Vector2(CELL, CELL) * 0.92), Color(0.3, 0.1, 0.45, 0.55))
+		Glyphs.draw(self, "close", center, 14.0, Color(0.85, 0.5, 1.0))
 	if Art.show_unit_labels:
 		_text(center + Vector2(0, CELL * 0.3), u["name"], 11, rc)
 
@@ -1771,6 +2172,18 @@ func _draw_enemies() -> void:
 			# 눈
 			draw_circle(body + Vector2(-s * 0.35, -s * 0.2), s * 0.2, Color.WHITE)
 			draw_circle(body + Vector2(s * 0.35, -s * 0.2), s * 0.2, Color.WHITE)
+			if e.is_boss:
+				if e.casting != "":
+					var cr := s + 10 + 8 * sin(_anim * 16.0)
+					draw_arc(body, cr, 0, TAU, 28, Color(1, 0.2, 0.2, 0.9), 3.0)
+					draw_arc(body, cr + 8, 0, TAU * (1.0 - e.cast_t / GameData.BOSS_CAST_TIME), 28, Color(1, 0.8, 0.3, 0.9), 3.0)
+				if e.shield_t > 0.0:
+					draw_arc(body, s + 6, 0, TAU, 28, Color(1, 0.6, 0.1, 0.9), 5.0)
+					draw_circle(body, s + 6, Color(1, 0.5, 0.1, 0.18))
+				if e.buff_t > 0.0:
+					draw_line(body, body - (path_pos(e.dist + 5) - body).normalized() * 40.0, Color(1, 0.5, 0.2, 0.6), s)
+			if e.freeze_t > 0.0:
+				draw_circle(body, s + 2, Color(0.6, 0.9, 1.0, 0.45))
 			if e.kind == "goblin":
 				draw_arc(body, s + 4, 0, TAU, 16, Color(1, 1, 0.4, 0.8), 2.0)
 			elif e.kind == "bonus":
@@ -1839,6 +2252,12 @@ func _draw_effects() -> void:
 				draw_line(p0, p0 - fx["vel"] * 0.05, Color(col, 1.0 - k), 2.0)
 			"reveal":
 				pass
+			"up":
+				var up_p: Vector2 = fx["pos"] + Vector2(0, -20 - 26 * k)
+				draw_colored_polygon(PackedVector2Array([up_p + Vector2(0, -9), up_p + Vector2(8, 3), up_p + Vector2(-8, 3)]), Color(col, 1.0 - k))
+				draw_arc(fx["pos"], 18 + 20 * k, 0, TAU, 24, Color(col, 0.7 * (1.0 - k)), 2.0)
+			"pierce":
+				draw_line(fx["from"], fx["to"], Color(col.lightened(0.4), 0.9 * (1.0 - k)), 3.0 * (1.0 - k) + 1.0)
 			"beam":
 				var h := 200.0 * (1.0 - k)
 				draw_rect(Rect2(fx["pos"] + Vector2(-8, -h), Vector2(16, h)), Color(col, 0.5 * (1.0 - k)))
@@ -1912,7 +2331,7 @@ func _draw_boss_warning() -> void:
 	var a := clampf(boss_warn_t, 0.0, 1.0) * (0.3 + 0.4 * pulse)
 	for w in 4:
 		draw_rect(Rect2(w * 6, w * 6, SIZE - w * 12, SIZE - w * 12), Color(1, 0.1, 0.15, a * (1.0 - w * 0.22)), false, 6.0)
-	_text(Vector2(SIZE / 2, SIZE / 2 - 150), "WARNING", 44, Color(1, 0.25, 0.3, a * 1.6))
+	_text(Vector2(SIZE / 2, 32), "WARNING", 30, Color(1, 0.25, 0.3, a * 1.6))
 
 
 func _draw_countdown() -> void:
