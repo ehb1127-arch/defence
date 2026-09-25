@@ -1,0 +1,21 @@
+[Unit]
+Description=Square Defense (사각 디펜스) game server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sqdefense
+Group=sqdefense
+Environment=HOME=/opt/sqdefense
+WorkingDirectory=/opt/sqdefense
+ExecStart=/opt/sqdefense/godot --headless --path /opt/sqdefense/game -- --server --port @PORT@
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -62,7 +62,7 @@ func _think() -> void:
 		if b.gems >= 4 and b.wave >= 6:
 			if b.gamble(1):
 				return
-		elif b.gems >= 2 and b.wave < 6 and level == 1:
+		elif b.gems >= 2 and b.wave < 6:
 			if b.gamble(0):
 				return
 	# 강화
@@ -75,6 +75,39 @@ func _think() -> void:
 		if b.summon():
 			return
 		_make_room()
+		return
+	if level >= 1:
+		_reposition()
+
+
+func _is_outer(i: int) -> bool:
+	var c := i % Board.COLS
+	var r := i / Board.COLS
+	return c == 0 or r == 0 or c == Board.COLS - 1 or r == Board.ROWS - 1
+
+
+func _range_of(i: int) -> float:
+	var id: String = board.cells[i]["id"]
+	return 9999.0 if id == "" else GameData.UNITS[id]["range"]
+
+
+func _reposition() -> void:
+	## 사거리 짧은 유닛은 트랙과 가까운 바깥 칸으로, 긴 유닛은 안쪽으로
+	var b := board
+	var worst_inner := -1
+	for i in b.cells.size():
+		if not _is_outer(i) and b.cells[i]["id"] != "":
+			if worst_inner < 0 or _range_of(i) < _range_of(worst_inner):
+				worst_inner = i
+	if worst_inner < 0:
+		return
+	var best_outer := -1
+	for i in b.cells.size():
+		if _is_outer(i) and _range_of(i) > _range_of(worst_inner) + 40.0:
+			if best_outer < 0 or _range_of(i) > _range_of(best_outer):
+				best_outer = i
+	if best_outer >= 0:
+		b.swap_cells(worst_inner, best_outer)
 
 
 func _count_by_rarity() -> Array:
@@ -108,7 +141,11 @@ func _should_upgrade(track: int) -> bool:
 		return true
 	var cost := GameData.upgrade_cost(track, b.upgrades[track])
 	# 소환이 비싸졌거나 칸이 가득하면 강화 우선
-	if b.used_cells() >= 20:
+	var units := 0
+	for c in b.cells:
+		units += c["n"]
+	# 유닛이 어느 정도 모이면 소환보다 강화 효율이 좋아진다
+	if units >= 14 or b.used_cells() >= 18:
 		return true
 	return b.summon_cost() > cost * 0.6 or b.gold > cost + b.summon_cost() * 3
 

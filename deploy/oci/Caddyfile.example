@@ -1,0 +1,8 @@
+# (선택) 도메인 + HTTPS(wss://) 가 필요할 때: 웹(브라우저) 빌드는 https 페이지에서 ws:// 에 접속할 수 없다.
+# 1) 도메인 A 레코드를 서버 공인 IP 로 지정
+# 2) sudo apt install caddy  →  이 파일을 /etc/caddy/Caddyfile 로 복사 (도메인 수정)
+# 3) OCI Security List + OS 방화벽에 TCP 80, 443 열기
+# 4) 클라이언트 접속 주소: wss://game.example.com
+game.example.com {
+	reverse_proxy 127.0.0.1:24680
+}

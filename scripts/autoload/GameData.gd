@@ -74,7 +74,7 @@ const RECIPES := {
 }
 
 # ---------------------------------------------------------------------------
-# 적 정의 (hp 는 해당 웨이브 기본 체력의 배수)
+# 적 정의 (hp 는 해당 라운드 기본 체력의 배수)
 #   weight: 필드 적 수 계산 시 가중치
 # ---------------------------------------------------------------------------
 const ENEMIES := {
@@ -85,11 +85,12 @@ const ENEMIES := {
 	"splitter": {"hp": 1.2, "speed": 65.0, "armor": 0.0, "weight": 1, "size": 10.0, "color": Color(0.4, 0.85, 0.4), "split": 2},
 	"mini":     {"hp": 0.35, "speed": 110.0, "armor": 0.0, "weight": 1, "size": 6.0, "color": Color(0.5, 0.95, 0.5)},
 	"healer":   {"hp": 1.2, "speed": 66.0, "armor": 5.0, "weight": 1, "size": 9.0, "color": Color(1.0, 0.55, 0.8), "heal": 0.05},
-	"boss":     {"hp": 55.0, "speed": 42.0, "armor": 20.0, "weight": 20, "size": 20.0, "color": Color(0.7, 0.1, 0.5)},
+	"boss":     {"hp": 1.0, "speed": 42.0, "armor": 20.0, "weight": 20, "size": 20.0, "color": Color(0.7, 0.1, 0.5)},
 	"elite":    {"hp": 14.0, "speed": 55.0, "armor": 15.0, "weight": 5, "size": 15.0, "color": Color(0.9, 0.1, 0.1)},
 	"goblin":   {"hp": 6.0, "speed": 150.0, "armor": 0.0, "weight": 0, "size": 9.0, "color": Color(1.0, 0.85, 0.1)},
+	"bonus":    {"hp": 5.0, "speed": 52.0, "armor": 0.0, "weight": 0, "size": 13.0, "color": Color(1.0, 0.68, 0.75)},
 }
-const ENEMY_ORDER := ["normal", "fast", "tank", "shield", "splitter", "mini", "healer", "boss", "elite", "goblin"]
+const ENEMY_ORDER := ["normal", "fast", "tank", "shield", "splitter", "mini", "healer", "boss", "elite", "goblin", "bonus"]
 
 const BOSS_NAMES := ["오우거 대장", "해골 군주", "화염 골렘", "심연의 눈"]
 
@@ -98,7 +99,13 @@ const BOSS_NAMES := ["오우거 대장", "해골 군주", "화염 골렘", "심�
 # ---------------------------------------------------------------------------
 const FINAL_WAVE := 40
 const WAVE_TIME := 20.0
-const BOSS_WAVE_TIME := 45.0
+const BOSS_WAVE_TIME := 60.0
+const BONUS_WAVE_TIME := 25.0
+const BONUS_COUNT := 10
+const PREP_TIME := 8.0
+const BOSS_HP_MULT := 26.0
+const BOSS_HP_DECAY := 0.7
+const FINAL_BOSS_TIME := 90.0
 const SPAWN_PER_WAVE := 20
 const SPAWN_INTERVAL := 0.6
 const ENEMY_LIMIT := 100
@@ -142,11 +149,11 @@ const UPGRADES := [
 ]
 const UPGRADE_DMG_PER_LEVEL := 0.12
 
-## 랜덤 이벤트 (5웨이브마다)
+## 랜덤 이벤트 (3, 8, 13, ... 라운드)
 const EVENTS := [
 	{"id": "goblin", "name": "황금 고블린 출현!", "desc": "잡으면 골드 대박 + 보석"},
 	{"id": "lucky", "name": "행운의 시간!", "desc": "15초간 소환 비용 절반"},
-	{"id": "frenzy", "name": "광란!", "desc": "이번 웨이브 적 이동속도 +30%"},
+	{"id": "frenzy", "name": "광란!", "desc": "이번 라운드 적 이동속도 +30%"},
 	{"id": "supply", "name": "보급품 도착!", "desc": "무료 소환 3회"},
 	{"id": "storm", "name": "번개 폭풍!", "desc": "필드 모든 적에게 체력 25% 피해"},
 	{"id": "gemrain", "name": "보석비!", "desc": "보석 +2"},
@@ -212,14 +219,33 @@ func random_unit_of(rng: RandomNumberGenerator, rarity: int) -> String:
 
 func wave_hp(wave: int) -> float:
 	var hp := BASE_HP * pow(HP_GROWTH, wave - 1)
-	# 최종 웨이브 이후(대전 연장전)는 더 가파르게 증가
+	# 최종 라운드 이후(대전 연장전)는 더 가파르게 증가
 	if wave > FINAL_WAVE:
 		hp *= pow(1.12, wave - FINAL_WAVE)
 	return hp
 
 
+## 보스 체력 = 해당 라운드 일반 체력 x 배수 (후반일수록 배수를 낮춰 제한시간 안에 잡을 수 있게)
+func boss_hp(wave: int) -> float:
+	var n := maxi(wave / 10, 1)
+	return wave_hp(wave) * BOSS_HP_MULT * pow(BOSS_HP_DECAY, n - 1)
+
+
+func boss_time(wave: int) -> float:
+	return FINAL_BOSS_TIME if wave == FINAL_WAVE else BOSS_WAVE_TIME
+
+
 func is_boss_wave(wave: int) -> bool:
-	return wave % 10 == 0
+	return wave > 0 and wave % 10 == 0
+
+
+## 5, 15, 25, 35... 라운드: 제한시간 안에 보물 돼지를 잡는 보너스 라운드
+func is_bonus_wave(wave: int) -> bool:
+	return wave % 10 == 5
+
+
+func is_event_wave(wave: int) -> bool:
+	return wave % 5 == 3
 
 
 ## 웨이브별 등장 적 구성 (가중치 목록)

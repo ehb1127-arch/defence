@@ -30,7 +30,7 @@ func _run(mode: String, level: int, seed_v: int) -> void:
 	var t := 0.0
 	var result := ""
 	var last_wave := 0
-	while t < 60.0 * 40:
+	while t < 60.0 * 60:
 		t += dt
 		for i in n:
 			boards[i].step(dt)
@@ -49,20 +49,20 @@ func _run(mode: String, level: int, seed_v: int) -> void:
 				info.append("f=%d g=%d gem=%d up=%s units=%s" % [b.field_count(), b.gold, b.gems, str(b.upgrades), str(r)])
 			print("  t=%4d w=%2d  %s" % [int(t), boards[0].wave, " | ".join(info)])
 		if mode == "coop":
-			if total >= GameData.COOP_ENEMY_LIMIT:
+			if total >= GameData.COOP_ENEMY_LIMIT or boards.any(func(b): return b.boss_failed):
 				result = "coop LOSE"
 				break
 			if boards.all(func(b): return b.final_cleared_flag):
 				result = "coop WIN"
 				break
 		elif mode == "pvp":
-			var dead := boards.filter(func(b): return b.field_count() >= b.enemy_limit)
+			var dead := boards.filter(func(b): return b.field_count() >= b.enemy_limit or b.boss_failed)
 			if dead.size() > 0:
 				result = "pvp: Bot%d lost" % dead[0].index
 				break
 		else:
-			if boards[0].field_count() >= boards[0].enemy_limit:
-				result = "solo LOSE"
+			if boards[0].field_count() >= boards[0].enemy_limit or boards[0].boss_failed:
+				result = "solo LOSE" + (" (boss)" if boards[0].boss_failed else "")
 				break
 			if boards[0].final_cleared_flag:
 				result = "solo WIN"
@@ -72,6 +72,7 @@ func _run(mode: String, level: int, seed_v: int) -> void:
 		var ids: Array = b.dmg_by_unit.keys()
 		ids.sort_custom(func(x, y): return b.dmg_by_unit[x] > b.dmg_by_unit[y])
 		mvp += " [%s]" % ", ".join(ids.slice(0, 4))
+	print("  boss times: ", boards[0].boss_kill_times)
 	print("%s seed=%d lvl=%d -> %s at wave %d, t=%ds kills=%d mvp=%s" % [mode, seed_v, level, result, boards[0].wave, int(t), boards[0].kills, mvp])
 	for b in boards:
 		b.queue_free()

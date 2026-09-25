@@ -40,12 +40,19 @@ func _process(delta: float) -> void:
 		return
 	_t += delta / Engine.time_scale
 	if Session.mode == "menu" or not "boards" in _match:
-		if _t > 1.0:
-			_done = true
+		# 메뉴: 1초 후 캡처 → 로컬 서버(24693)에 접속해 방 만들기 → 캡처 → 도움말 캡처
+		if _t > 1.0 and _shot_i == 0:
+			_shot_i = 1
 			get_viewport().get_texture().get_image().save_png("%s/menu.png" % _shots)
+			Session.player_name = "테스터"
+			Net.connect_to("127.0.0.1:24693")
+			Net.connection_changed.connect(func(c): if c: Net.create_room("pvp", "같이 하실 분"))
+		elif _t > 4.0 and _shot_i == 1:
+			_shot_i = 2
+			get_viewport().get_texture().get_image().save_png("%s/lobby.png" % _shots)
 			_match._show_help()
-			await get_tree().process_frame
-			await get_tree().process_frame
+		elif _t > 4.5 and _shot_i == 2:
+			_done = true
 			get_viewport().get_texture().get_image().save_png("%s/help.png" % _shots)
 			get_tree().quit()
 		return

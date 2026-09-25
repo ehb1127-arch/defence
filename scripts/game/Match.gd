@@ -50,6 +50,7 @@ func _ready() -> void:
 		var b := Board.new()
 		b.name = "Board%d" % i
 		b.setup(i, p["name"], mode, Session.seed_value, p["kind"] == "remote", p["kind"] == "bot")
+		b.sfx = p["kind"] == "human"
 		add_child(b)
 		boards.append(b)
 		key_sets.append(p.get("keys", -1))
@@ -148,8 +149,8 @@ func _build_controls(ui: CanvasLayer, rect: Rect2, vertical: bool) -> void:
 		help.add_theme_font_size_override("font_size", 12)
 		help.add_theme_color_override("font_color", Color(0.65, 0.7, 0.8))
 		help.text = {
-			"pvp": "대전 규칙\n\n각자 자기 사각형을 지킵니다. 필드 적이 %d마리에 닿으면 패배.\n\n[공격] 탭에서 상대에게 적과 저주를 보내세요!\n\n40웨이브 이후엔 적이 급격히 강해집니다." % GameData.ENEMY_LIMIT,
-			"coop": "협동 규칙\n\n두 전장의 적 수 합이 %d에 닿으면 함께 패배.\n\n골드·유닛을 선물하고, 게이지를 모아 합동 폭격!\n\n둘 다 %d웨이브 보스를 잡으면 승리." % [GameData.COOP_ENEMY_LIMIT, GameData.FINAL_WAVE],
+			"pvp": "대전 규칙\n\n각자 자기 사각형을 지킵니다. 필드 적이 %d마리에 닿으면 패배.\n\n[공격] 탭에서 상대에게 적과 저주를 보내세요!\n\n보스를 제한시간 안에 못 잡아도 패배!\n\n40라운드 이후엔 적이 급격히 강해집니다." % GameData.ENEMY_LIMIT,
+			"coop": "협동 규칙\n\n두 전장의 적 수 합이 %d에 닿으면 함께 패배.\n\n골드·유닛을 선물하고, 게이지를 모아 합동 폭격!\n\n둘 다 %d라운드 보스를 잡으면 승리.\n한 명이라도 보스를 놓치면 패배!" % [GameData.COOP_ENEMY_LIMIT, GameData.FINAL_WAVE],
 		}.get(mode, "")
 		box.add_child(help)
 	_pause_label = Label.new()
@@ -224,15 +225,21 @@ func _check_rules() -> void:
 					b.alive = false
 				_finish(-1, "패배... 합산 적 수가 한도에 도달했습니다", true)
 				return
+			for b in boards:
+				if b.boss_failed:
+					for bb in boards:
+						bb.alive = false
+					_finish(-1, "패배... %s 쪽 보스를 제한시간 안에 잡지 못했습니다" % b.player_name, true)
+					return
 			var all_clear := true
 			for b in boards:
 				if not b.final_cleared_flag:
 					all_clear = false
 			if all_clear:
-				_finish(-2, "협동 승리! %d웨이브 보스를 모두 격파했습니다" % GameData.FINAL_WAVE, true)
+				_finish(-2, "협동 승리! %d라운드 보스를 모두 격파했습니다" % GameData.FINAL_WAVE, true)
 		"pvp":
 			for b in boards:
-				if b.alive and not b.is_remote and b.field_count() >= b.enemy_limit:
+				if b.alive and not b.is_remote and (b.field_count() >= b.enemy_limit or b.boss_failed):
 					b.alive = false
 					b.defeated.emit(b)
 					if Session.online:
@@ -246,11 +253,14 @@ func _check_rules() -> void:
 					_finish(-1, "무승부!", true)
 		_:
 			var b: Board = boards[0]
-			if b.field_count() >= b.enemy_limit:
+			if b.boss_failed:
 				b.alive = false
-				_finish(-1, "패배... WAVE %d 에서 무너졌습니다" % b.wave, false)
+				_finish(-1, "패배... ROUND %d 보스를 제한시간 안에 잡지 못했습니다" % b.wave, false)
+			elif b.field_count() >= b.enemy_limit:
+				b.alive = false
+				_finish(-1, "패배... ROUND %d 에서 무너졌습니다" % b.wave, false)
 			elif b.final_cleared_flag:
-				_finish(0, "승리! %d웨이브를 모두 막아냈습니다" % GameData.FINAL_WAVE, false)
+				_finish(0, "승리! %d라운드를 모두 막아냈습니다" % GameData.FINAL_WAVE, false)
 
 
 # ===========================================================================
@@ -446,7 +456,9 @@ func _toggle_pause() -> void:
 
 func _to_menu() -> void:
 	if Session.online:
-		Net.close()
+		# 매치 도중 나가면 방에서도 나가서 상대에게 알린다. 끝난 뒤라면 방에 남아 재대결 가능
+		if Net.in_match:
+			Net.leave_room()
 	get_tree().change_scene_to_file("res://scenes/Main.tscn")
 
 
@@ -458,11 +470,14 @@ func _finish(winner: int, text: String, broadcast: bool) -> void:
 	if over:
 		return
 	over = true
-	if Session.online and broadcast:
-		Net.send_event("gameover", {"winner": winner, "text": text})
+	if Session.online:
+		if broadcast:
+			Net.send_event("gameover", {"winner": winner, "text": text})
+		Net.end_match()
 	var won := winner == -2 or (winner >= 0 and (not Session.online or winner == Session.local_index))
 	if mode == "solo":
 		won = winner == 0
+	Sfx.play("win" if won else "lose")
 	_over_panel = PanelContainer.new()
 	_over_panel.theme = GameData.ui_theme()
 	var sb := StyleBoxFlat.new()
@@ -489,7 +504,7 @@ func _finish(winner: int, text: String, broadcast: bool) -> void:
 		var l := Label.new()
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		l.add_theme_font_size_override("font_size", 16)
-		var s := "%s  -  WAVE %d / 처치 %d / 골드 %d / 과제 %d개" % [b.player_name, b.wave, b.kills, b.gold, b.missions.size()]
+		var s := "%s  -  ROUND %d / 처치 %d / 골드 %d / 과제 %d개" % [b.player_name, b.wave, b.kills, b.gold, b.missions.size()]
 		var mvp := _mvp(b)
 		if mvp != "":
 			s += "\n   MVP: " + mvp
@@ -508,7 +523,7 @@ func _finish(winner: int, text: String, broadcast: bool) -> void:
 			get_tree().reload_current_scene())
 		h.add_child(again)
 	var menu := Button.new()
-	menu.text = "메인 메뉴"
+	menu.text = "방으로 (재대결)" if Session.online and Net.connected else "메인 메뉴"
 	menu.custom_minimum_size = Vector2(160, 48)
 	menu.pressed.connect(_to_menu)
 	h.add_child(menu)

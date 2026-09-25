@@ -14,6 +14,7 @@ config/icon="res://icon.svg"
 GameData="*res://scripts/autoload/GameData.gd"
 Session="*res://scripts/autoload/Session.gd"
 Net="*res://scripts/autoload/Net.gd"
+Sfx="*res://scripts/autoload/Sfx.gd"
 
 [display]
 

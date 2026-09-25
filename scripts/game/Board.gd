@@ -43,7 +43,7 @@ var gems := GameData.START_GEMS
 var summon_count := 0
 var upgrades := [0, 0, 0, 0]
 var wave := 0
-var wave_timer := 5.0
+var wave_timer := GameData.PREP_TIME
 var spawn_left := 0
 var spawn_t := 0.0
 var kills := 0
@@ -54,6 +54,12 @@ var frenzy := false
 var gauge := 0
 var alive := true
 var final_cleared_flag := false
+var boss_failed := false         # 보스 제한시간 초과 = 패배
+var bonus_left := 0
+var boss_kill_times := {}          # 라운드 -> 처치까지 걸린 초 (통계/밸런스용)
+var sfx := false                  # 이 전장에서 효과음을 낼지 (로컬 사람 플레이어만)
+var _last_tick := -1
+var _alarm_t := 0.0
 var missions := {}
 var gamble_wins := 0
 var gamble_lose_streak := 0
@@ -258,6 +264,8 @@ func summon() -> bool:
 	var idx := add_unit(id)
 	if rarity >= GameData.Rarity.EPIC:
 		_rare_pull_fx(idx, rarity)
+	else:
+		_sfx("summon")
 	return true
 
 
@@ -315,6 +323,7 @@ func merge_cell(i: int) -> bool:
 	if selected == i and cells[i]["id"] == "":
 		selected = idx
 	float_text(cell_center(idx), "합성! %s" % GameData.UNITS[id]["name"], GameData.RARITY_COLORS[rarity + 1])
+	_sfx("merge")
 	if rarity + 1 >= GameData.Rarity.LEGEND:
 		_rare_pull_fx(idx, rarity + 1)
 	return true
@@ -382,6 +391,7 @@ func gamble(g: int) -> bool:
 		gamble_lose_streak += 1
 		var lines := ["꽝!", "다음엔 될 거야...", "운이 없네요", "보석이 증발했다", "하... 꽝"]
 		float_text(Vector2(SIZE / 2, 175), lines[rng.randi() % lines.size()], Color(0.7, 0.7, 0.75), 20)
+		_sfx("fail")
 		shake = 4.0
 		if gamble_lose_streak >= 3:
 			_complete_mission("gamble_lose3")
@@ -542,6 +552,7 @@ func receive_attack(attack_id: String) -> void:
 			curse_t = 10.0
 			show_banner("저주에 걸렸다!", "10초간 공격 속도 -30%", Color(0.7, 0.4, 1.0))
 	shake = 8.0
+	_sfx("alarm")
 
 
 func receive_gold(amount: int) -> void:
@@ -601,12 +612,23 @@ func step(dt: float) -> void:
 
 
 func _update_waves(dt: float) -> void:
-	var final_hold := mode != "pvp" and wave >= GameData.FINAL_WAVE
-	if not final_hold:
+	var finished := mode != "pvp" and final_cleared_flag
+	if not finished:
 		wave_timer -= dt
+		var sec := int(ceil(wave_timer))
+		if sec != _last_tick and sec >= 1 and sec <= 5:
+			_last_tick = sec
+			_sfx("tick_boss" if GameData.is_boss_wave(wave) else "tick")
 		if wave_timer <= 0.0:
 			_end_wave()
+			if boss_failed:
+				return
 			_start_wave(wave + 1)
+	# 적이 한도에 가까우면 경보
+	_alarm_t -= dt
+	if _alarm_t <= 0.0 and float(field_count() + partner_count) / enemy_limit >= 0.8:
+		_alarm_t = 2.0
+		_sfx("alarm")
 	if spawn_left > 0:
 		spawn_t -= dt
 		if spawn_t <= 0.0:
@@ -621,31 +643,54 @@ func _end_wave() -> void:
 		return
 	if GameData.is_boss_wave(wave):
 		for e in enemies:
-			if e.alive and e.is_boss and not e.enraged:
-				e.enraged = true
-				e.speed *= 1.3
-				show_banner("보스 격노!", "처치 실패 - 필드 가중치 2배", Color(1, 0.2, 0.2))
+			if e.alive and e.is_boss:
+				boss_failed = true
+		if boss_failed:
+			show_banner("보스 제한시간 초과!", "보스를 잡지 못했습니다", Color(1, 0.2, 0.2))
+			_flash(Color(1, 0, 0), 0.6)
+			shake = 14.0
+	elif GameData.is_bonus_wave(wave):
+		var missed := 0
+		for e in enemies:
+			if e.alive and e.kind == "bonus":
+				e.alive = false
+				missed += 1
+		if missed > 0:
+			float_text(Vector2(SIZE / 2, 150), "보너스 종료 - 놓친 돼지 %d마리" % missed, Color(1, 0.7, 0.75), 16)
 	else:
 		var bonus := 10 + wave * 2
 		gold += bonus
-		float_text(Vector2(SIZE / 2, 150), "웨이브 보너스 +%dG" % bonus, Color(1, 0.9, 0.3))
+		float_text(Vector2(SIZE / 2, 150), "라운드 보너스 +%dG" % bonus, Color(1, 0.9, 0.3))
 
 
 func _start_wave(w: int) -> void:
 	wave = w
+	_last_tick = -1
 	if GameData.is_boss_wave(w):
-		wave_timer = GameData.BOSS_WAVE_TIME
+		wave_timer = GameData.boss_time(w)
 		spawn_left = 0
-		var b: EnemyState = _spawn("boss", GameData.wave_hp(w), 0.0)
+		var b: EnemyState = _spawn("boss", GameData.boss_hp(w), 0.0)
 		b.boss_name = GameData.BOSS_NAMES[(w / 10 - 1) % GameData.BOSS_NAMES.size()]
-		show_banner("WAVE %d - 보스!" % w, "%s 등장 (%d초 안에 처치)" % [b.boss_name, int(GameData.BOSS_WAVE_TIME)], Color(1, 0.3, 0.5))
+		if w == GameData.FINAL_WAVE:
+			b.boss_name = "최종 보스 · 사각의 군주"
+			b.size *= 1.3
+		show_banner("ROUND %d - 보스!" % w, "%s 등장! %d초 안에 못 잡으면 패배" % [b.boss_name, int(GameData.boss_time(w))], Color(1, 0.3, 0.5))
+		_sfx("boss")
+	elif GameData.is_bonus_wave(w):
+		wave_timer = GameData.BONUS_WAVE_TIME
+		spawn_left = 0
+		bonus_left = GameData.BONUS_COUNT
+		for k in GameData.BONUS_COUNT:
+			_spawn("bonus", GameData.wave_hp(w), -k * 36.0)
+		show_banner("ROUND %d - 보너스!" % w, "%d초 안에 보물 돼지를 잡아 골드를 챙기세요" % int(GameData.BONUS_WAVE_TIME), Color(1, 0.75, 0.8))
+		_sfx("round")
 	else:
 		wave_timer = GameData.WAVE_TIME
 		spawn_left = GameData.SPAWN_PER_WAVE
 		spawn_t = 0.0
-		if w % 5 != 0:
-			show_banner("WAVE %d" % w, "", Color(0.9, 0.9, 1.0))
-	if w % 5 == 0:
+		show_banner("ROUND %d" % w, "", Color(0.9, 0.9, 1.0))
+		_sfx("round")
+	if GameData.is_event_wave(w):
 		_random_event()
 
 
@@ -929,10 +974,12 @@ func _kill(e: EnemyState) -> void:
 	var g := 1 + wave / 10
 	match e.kind:
 		"boss":
+			boss_kill_times[wave] = snappedf(GameData.boss_time(wave) - wave_timer, 0.1)
 			g = 100 + wave * 10
 			var gm := 3 + wave / 10
 			gems += gm
 			show_banner("보스 처치!", "+%d 골드  +%d 보석" % [g, gm], Color(1, 0.85, 0.3))
+			_sfx("win")
 			_flash(Color(1, 0.9, 0.5), 0.5)
 			shake = 14.0
 			if wave >= GameData.FINAL_WAVE and mode != "pvp" and not final_cleared_flag:
@@ -945,6 +992,15 @@ func _kill(e: EnemyState) -> void:
 			g = 80 + wave * 5
 			gems += 2
 			show_banner("고블린 사냥 성공!", "+%d 골드  +2 보석" % g, Color(1, 0.9, 0.2))
+			_sfx("rare")
+		"bonus":
+			g = 8 + wave
+			float_text(e.pos + Vector2(0, -16), "+%dG" % g, Color(1, 0.9, 0.3), 15)
+			bonus_left -= 1
+			if bonus_left <= 0:
+				gems += 1
+				show_banner("퍼펙트 보너스!", "돼지 전부 처치 +1 보석", Color(1, 0.8, 0.85))
+				_sfx("rare")
 	gold += g
 	for n in e.split:
 		var m := _spawn("mini", e.max_hp / GameData.ENEMIES["splitter"]["hp"], e.dist - 10.0 * n)
@@ -1076,7 +1132,7 @@ func snapshot() -> Dictionary:
 	return {
 		"c": c, "e": e, "g": gold, "m": gems, "w": wave, "t": wave_timer, "k": kills,
 		"f": field_count(), "a": alive, "fc": final_cleared_flag, "sc": summon_cost(),
-		"u": upgrades, "ga": gauge,
+		"u": upgrades, "ga": gauge, "bf": boss_failed,
 	}
 
 
@@ -1088,6 +1144,7 @@ func apply_snapshot(d: Dictionary) -> void:
 	wave_timer = d.get("t", 0.0)
 	kills = d.get("k", 0)
 	final_cleared_flag = d.get("fc", false)
+	boss_failed = d.get("bf", false)
 	upgrades = d.get("u", [0, 0, 0, 0])
 	gauge = d.get("ga", 0)
 	var c: PackedInt32Array = d.get("c", PackedInt32Array())
@@ -1129,6 +1186,11 @@ func apply_snapshot(d: Dictionary) -> void:
 # ===========================================================================
 # 시각 효과
 # ===========================================================================
+func _sfx(sound: String) -> void:
+	if sfx:
+		Sfx.play(sound)
+
+
 func float_text(p: Vector2, text: String, color: Color, fsize := 14) -> void:
 	texts.append({"pos": p, "text": text, "color": color, "t": 0.0, "dur": 1.1, "size": fsize})
 	if texts.size() > 40:
@@ -1156,6 +1218,7 @@ func _rare_pull_fx(idx: int, rarity: int) -> void:
 	if idx < 0:
 		return
 	var col: Color = GameData.RARITY_COLORS[rarity]
+	_sfx("rare")
 	_add_effect({"type": "ring", "pos": cell_center(idx), "r0": 10.0, "r1": 110.0, "t": 0.0, "dur": 0.7, "color": col})
 	_add_effect({"type": "beam", "pos": cell_center(idx), "t": 0.0, "dur": 0.8, "color": col})
 	if rarity >= GameData.Rarity.LEGEND:
@@ -1233,6 +1296,7 @@ func _draw() -> void:
 		fc.a = clampf(flash_t, 0.0, 0.5) * 0.6
 		draw_rect(Rect2(0, 0, SIZE, SIZE), fc)
 	_draw_banner()
+	_draw_countdown()
 	if not alive:
 		draw_rect(Rect2(0, 0, SIZE, SIZE), Color(0, 0, 0, 0.6))
 		_text(Vector2(SIZE / 2, SIZE / 2), "패배", 56, Color(1, 0.3, 0.3))
@@ -1279,10 +1343,21 @@ func _draw_info() -> void:
 	var limit := enemy_limit
 	var shown := count + (partner_count if mode == "coop" else 0)
 	_text(Vector2(SIZE / 2, 74), player_name, 15, accent.lightened(0.3))
-	var wave_s := "WAVE %d" % wave if wave > 0 else "준비"
+	var wave_s := "ROUND %d" % wave if wave > 0 else "준비"
 	_text(Vector2(150, 102), wave_s, 22, Color(0.95, 0.95, 1.0))
 	var tsec := maxi(0, int(ceil(wave_timer)))
-	_text(Vector2(150, 128), "%02d:%02d" % [tsec / 60, tsec % 60], 16, Color(0.75, 0.8, 0.9))
+	var tlabel := "다음 라운드"
+	var tcol := Color(0.75, 0.8, 0.9)
+	if wave == 0:
+		tlabel = "시작까지"
+	elif GameData.is_boss_wave(wave):
+		tlabel = "보스 제한"
+		tcol = Color(1, 0.4, 0.45)
+	elif GameData.is_bonus_wave(wave):
+		tlabel = "보너스"
+		tcol = Color(1, 0.75, 0.8)
+	if not (final_cleared_flag and mode != "pvp"):
+		_text(Vector2(150, 128), "%s %02d:%02d" % [tlabel, tsec / 60, tsec % 60], 15, tcol)
 	# 적 수 게이지
 	var ratio := clampf(float(shown) / limit, 0.0, 1.0)
 	var bar := Rect2(260, 90, 230, 18)
@@ -1300,7 +1375,7 @@ func _draw_info() -> void:
 			var r := Rect2(260, 120, 230, 12)
 			draw_rect(r, Color(0.1, 0.02, 0.05))
 			draw_rect(Rect2(r.position, Vector2(r.size.x * e.hp_ratio(), r.size.y)), Color(0.85, 0.15, 0.4))
-			_text(r.get_center() + Vector2(0, 16), (e.boss_name if e.boss_name != "" else "보스") + (" (격노)" if e.enraged else ""), 12, Color(1, 0.6, 0.7))
+			_text(r.get_center() + Vector2(0, 16), e.boss_name if e.boss_name != "" else "보스", 12, Color(1, 0.6, 0.7))
 			break
 	# 상태 아이콘
 	var status := []
@@ -1412,6 +1487,14 @@ func _draw_enemies() -> void:
 			draw_circle(body + Vector2(s * 0.35, -s * 0.2), s * 0.2, Color.WHITE)
 			if e.kind == "goblin":
 				draw_arc(body, s + 4, 0, TAU, 16, Color(1, 1, 0.4, 0.8), 2.0)
+			elif e.kind == "bonus":
+				# 보물 돼지: 귀 + 코
+				draw_colored_polygon(PackedVector2Array([body + Vector2(-s * 0.8, -s * 0.5), body + Vector2(-s * 0.3, -s * 0.95), body + Vector2(-s * 0.9, -s * 1.1)]), col)
+				draw_colored_polygon(PackedVector2Array([body + Vector2(s * 0.8, -s * 0.5), body + Vector2(s * 0.3, -s * 0.95), body + Vector2(s * 0.9, -s * 1.1)]), col)
+				draw_circle(body + Vector2(0, s * 0.25), s * 0.35, col.darkened(0.2))
+				draw_circle(body + Vector2(-s * 0.12, s * 0.25), s * 0.08, Color(0.3, 0.1, 0.1))
+				draw_circle(body + Vector2(s * 0.12, s * 0.25), s * 0.08, Color(0.3, 0.1, 0.1))
+				draw_string(font, body + Vector2(-4, -s - 10), "$", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 0.9, 0.3))
 			if e.shield > 0.0:
 				draw_arc(body, s + 3, 0, TAU, 16, Color(0.5, 0.8, 1.0, 0.9), 2.0)
 			if e.slow_t > 0.0 or e.aura_slow > 0.0:
@@ -1478,6 +1561,27 @@ func _draw_texts() -> void:
 		var col: Color = t["color"]
 		col.a = 1.0 - k * k
 		_text(t["pos"] + Vector2(0, -30.0 * k), t["text"], t["size"], col)
+
+
+func _draw_countdown() -> void:
+	## 라운드 마지막 5초 큰 카운트다운 (유즈맵 스타일)
+	if not alive or wave_timer > 5.0 or wave_timer <= 0.0 or (final_cleared_flag and mode != "pvp"):
+		return
+	var boss := GameData.is_boss_wave(wave)
+	var boss_alive := false
+	if boss:
+		for e in enemies:
+			if e.alive and e.is_boss:
+				boss_alive = true
+		if not boss_alive:
+			return
+	var n := int(ceil(wave_timer))
+	var frac := wave_timer - floorf(wave_timer)
+	var col := Color(1, 0.25, 0.3) if boss else Color(1, 1, 1)
+	col.a = 0.25 + 0.5 * frac
+	_text(Vector2(SIZE / 2, SIZE / 2 + 60), str(n), int(90 + 40 * frac), col)
+	if boss:
+		_text(Vector2(SIZE / 2, SIZE / 2 + 130), "보스 제한시간!", 20, Color(1, 0.4, 0.4, 0.9))
 
 
 func _draw_banner() -> void:
