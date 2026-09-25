@@ -30,6 +30,9 @@ var _snap_t := 0.0
 var _time := 0.0
 
 var _lbl_center: Label
+var _lbl_left: Label
+var _lbl_round: Label
+var _coop_bar: ProgressBar
 var _btn_speed: Button
 var _btn_pause: Button
 var _over_panel: PanelContainer
@@ -68,31 +71,51 @@ func _ready() -> void:
 		Net.disconnected.connect(_on_net_disconnected)
 
 
+const TOP_BAR := 52.0
+
+
 func _layout(ui: CanvasLayer) -> void:
+	## 화면(1600x900)을 빈틈 없이: 상단 바 / 전장(최대 크기) / 조작 패널
 	var n := boards.size()
 	var human_count := 0
 	for p in Session.players:
 		if p["kind"] == "human":
 			human_count += 1
+	_build_top_bar(ui)
 	if n == 1:
+		var s := 1.41
 		var b: Board = boards[0]
-		b.position = Vector2(30, 30)
-		b.scale = Vector2(1.5, 1.5)
+		b.scale = Vector2(s, s)
+		b.position = Vector2(14, TOP_BAR + 6 + Board.HEADER * s)
 		var hud := _make_hud(0, human_count)
-		hud.position = Vector2(900, 110)
-		hud.size = Vector2(670, 760)
+		var x := 14 + Board.SIZE * s + 14
+		hud.position = Vector2(x, TOP_BAR + 8)
+		hud.size = Vector2(1600 - x - 14, 900 - TOP_BAR - 16)
 		ui.add_child(hud)
-		_build_controls(ui, Rect2(900, 20, 670, 80), false)
 	else:
+		var s := 1.08
+		var bw := Board.SIZE * s
+		var board_bottom := TOP_BAR + 6 + Board.HEADER * s + bw
 		for i in n:
 			var b: Board = boards[i]
-			b.position = Vector2(110 + i * 800, 12)
-			b.scale = Vector2(1.03, 1.03)
+			b.scale = Vector2(s, s)
+			b.position = Vector2(800 * i + (800 - bw) / 2.0, TOP_BAR + 6 + Board.HEADER * s)
 			var hud := _make_hud(i, human_count)
-			hud.position = Vector2(15 + i * 800, 604)
-			hud.size = Vector2(770, 286)
+			hud.position = Vector2(800 * i + 8, board_bottom + 6)
+			hud.size = Vector2(784, 900 - board_bottom - 12)
 			ui.add_child(hud)
-		_build_controls(ui, Rect2(700, 20, 200, 560), true)
+		var gap_x := (800 - bw) / 2.0 + bw
+		_build_center_column(ui, Rect2(gap_x + 6, TOP_BAR + 10, 1600 - 2 * gap_x - 12, board_bottom - TOP_BAR - 10))
+	_pause_label = Label.new()
+	_pause_label.text = "일시정지"
+	_pause_label.add_theme_font_size_override("font_size", 64)
+	_pause_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	_pause_label.add_theme_constant_override("outline_size", 12)
+	_pause_label.position = Vector2(500, 380)
+	_pause_label.size = Vector2(600, 100)
+	_pause_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_pause_label.visible = false
+	ui.add_child(_pause_label)
 
 
 func _make_hud(i: int, human_count: int) -> BoardHUD:
@@ -112,55 +135,89 @@ func _make_hud(i: int, human_count: int) -> BoardHUD:
 	return hud
 
 
-func _build_controls(ui: CanvasLayer, rect: Rect2, vertical: bool) -> void:
-	var box: BoxContainer = VBoxContainer.new() if vertical else HBoxContainer.new()
-	box.theme = GameData.ui_theme()
-	box.position = rect.position
-	box.size = rect.size
-	box.add_theme_constant_override("separation", 10)
-	ui.add_child(box)
+func _build_top_bar(ui: CanvasLayer) -> void:
+	## 유즈맵 스타일 상단 바: [모드·경과시간] [ROUND · 남은 시간] [배속/일시정지/메뉴]
+	var bar := PanelContainer.new()
+	bar.theme = GameData.ui_theme()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.05, 0.06, 0.08)
+	sb.border_color = Color(0.25, 0.28, 0.38)
+	sb.border_width_bottom = 2
+	sb.content_margin_left = 14
+	sb.content_margin_right = 10
+	sb.content_margin_top = 4
+	sb.content_margin_bottom = 4
+	bar.add_theme_stylebox_override("panel", sb)
+	bar.position = Vector2.ZERO
+	bar.size = Vector2(1600, TOP_BAR)
+	ui.add_child(bar)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 8)
+	bar.add_child(h)
+	_lbl_left = Label.new()
+	_lbl_left.custom_minimum_size = Vector2(380, 0)
+	_lbl_left.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_lbl_left.add_theme_font_size_override("font_size", 17)
+	_lbl_left.add_theme_color_override("font_color", Color(0.75, 0.8, 0.9))
+	h.add_child(_lbl_left)
+	_lbl_round = Label.new()
+	_lbl_round.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_lbl_round.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lbl_round.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_lbl_round.add_theme_font_size_override("font_size", 28)
+	_lbl_round.add_theme_color_override("font_outline_color", Color.BLACK)
+	_lbl_round.add_theme_constant_override("outline_size", 6)
+	h.add_child(_lbl_round)
+	var right := HBoxContainer.new()
+	right.custom_minimum_size = Vector2(380, 0)
+	right.alignment = BoxContainer.ALIGNMENT_END
+	h.add_child(right)
+	if not Session.online:
+		_btn_speed = _bar_btn("배속 x1", _cycle_speed)
+		right.add_child(_btn_speed)
+		_btn_pause = _bar_btn("일시정지", _toggle_pause)
+		right.add_child(_btn_pause)
+	right.add_child(_bar_btn("메인 메뉴", _to_menu))
+
+
+func _bar_btn(text: String, cb: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(112, 40)
+	b.pressed.connect(cb)
+	return b
+
+
+func _build_center_column(ui: CanvasLayer, rect: Rect2) -> void:
+	## 두 전장 사이: VS / 협동 합산 게이지 + 규칙 요약
+	var v := VBoxContainer.new()
+	v.theme = GameData.ui_theme()
+	v.position = rect.position
+	v.size = rect.size
+	v.add_theme_constant_override("separation", 12)
+	ui.add_child(v)
 	_lbl_center = Label.new()
 	_lbl_center.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_lbl_center.add_theme_font_size_override("font_size", 28 if vertical else 20)
-	_lbl_center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_child(_lbl_center)
-	if not Session.online:
-		_btn_speed = Button.new()
-		_btn_speed.text = "배속 x1"
-		_btn_speed.focus_mode = Control.FOCUS_NONE
-		_btn_speed.custom_minimum_size = Vector2(110, 44)
-		_btn_speed.pressed.connect(_cycle_speed)
-		box.add_child(_btn_speed)
-		_btn_pause = Button.new()
-		_btn_pause.text = "일시정지 (Esc)"
-		_btn_pause.focus_mode = Control.FOCUS_NONE
-		_btn_pause.custom_minimum_size = Vector2(110, 44)
-		_btn_pause.pressed.connect(_toggle_pause)
-		box.add_child(_btn_pause)
-	var quit := Button.new()
-	quit.text = "메인 메뉴"
-	quit.focus_mode = Control.FOCUS_NONE
-	quit.custom_minimum_size = Vector2(110, 44)
-	quit.pressed.connect(_to_menu)
-	box.add_child(quit)
-	if vertical:
-		var help := Label.new()
-		help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		help.add_theme_font_size_override("font_size", 12)
-		help.add_theme_color_override("font_color", Color(0.65, 0.7, 0.8))
-		help.text = {
-			"pvp": "대전 규칙\n\n각자 자기 사각형을 지킵니다. 필드 적이 %d마리에 닿으면 패배.\n\n[공격] 탭에서 상대에게 적과 저주를 보내세요!\n\n보스를 제한시간 안에 못 잡아도 패배!\n\n40라운드 이후엔 적이 급격히 강해집니다." % GameData.ENEMY_LIMIT,
-			"coop": "협동 규칙\n\n두 전장의 적 수 합이 %d에 닿으면 함께 패배.\n\n골드·유닛을 선물하고, 게이지를 모아 합동 폭격!\n\n둘 다 %d라운드 보스를 잡으면 승리.\n한 명이라도 보스를 놓치면 패배!" % [GameData.COOP_ENEMY_LIMIT, GameData.FINAL_WAVE],
-		}.get(mode, "")
-		box.add_child(help)
-	_pause_label = Label.new()
-	_pause_label.text = "일시정지"
-	_pause_label.add_theme_font_size_override("font_size", 64)
-	_pause_label.position = Vector2(600, 380)
-	_pause_label.size = Vector2(400, 100)
-	_pause_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_pause_label.visible = false
-	ui.add_child(_pause_label)
+	_lbl_center.add_theme_font_size_override("font_size", 40 if mode == "pvp" else 22)
+	_lbl_center.add_theme_color_override("font_color", Color(1, 0.55, 0.45) if mode == "pvp" else Color(0.6, 0.9, 1.0))
+	v.add_child(_lbl_center)
+	if mode == "coop":
+		_coop_bar = ProgressBar.new()
+		_coop_bar.max_value = GameData.COOP_ENEMY_LIMIT
+		_coop_bar.show_percentage = false
+		_coop_bar.custom_minimum_size = Vector2(0, 14)
+		v.add_child(_coop_bar)
+	var help := Label.new()
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	help.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	help.add_theme_font_size_override("font_size", 13)
+	help.add_theme_color_override("font_color", Color(0.65, 0.7, 0.8))
+	help.text = {
+		"pvp": "대전 규칙\n\n필드 적 %d마리 또는 보스 시간 초과 시 패배\n\n[공격] 탭으로 적·저주 보내기\n\n40라운드 이후 적 급성장" % GameData.ENEMY_LIMIT,
+		"coop": "협동 규칙\n\n적 수 합계 %d 도달 또는 한 명이라도 보스 시간 초과 시 패배\n\n골드·유닛 선물, 합동 폭격!\n\n%d라운드 최종 보스를 둘 다 잡으면 승리" % [GameData.COOP_ENEMY_LIMIT, GameData.FINAL_WAVE],
+	}.get(mode, "")
+	v.add_child(help)
 
 
 # ===========================================================================
@@ -196,20 +253,48 @@ func _process(delta: float) -> void:
 
 
 func _update_center_label() -> void:
-	if _lbl_center == null:
+	if _lbl_round == null:
 		return
 	var tsec := int(_time)
-	var ts := "%02d:%02d" % [tsec / 60, tsec % 60]
+	var elapsed := "%02d:%02d" % [tsec / 60, tsec % 60]
+	var total := 0
+	for b in boards:
+		total += b.field_count()
 	match mode:
 		"pvp":
-			_lbl_center.text = "VS\n" + ts
+			_lbl_left.text = "대전  ·  경과 %s" % elapsed
 		"coop":
-			var total := 0
-			for b in boards:
-				total += b.field_count()
-			_lbl_center.text = "협동\n%s\n%d/%d" % [ts, total, GameData.COOP_ENEMY_LIMIT]
+			_lbl_left.text = "협동  ·  경과 %s  ·  합산 %d/%d" % [elapsed, total, GameData.COOP_ENEMY_LIMIT]
 		_:
-			_lbl_center.text = "솔로  " + ts
+			_lbl_left.text = "솔로  ·  경과 %s" % elapsed
+	if _lbl_center != null:
+		_lbl_center.text = "VS" if mode == "pvp" else "합산 적\n%d / %d" % [total, GameData.COOP_ENEMY_LIMIT]
+	if _coop_bar != null:
+		_coop_bar.value = total
+	# 라운드 / 남은 시간 (내 전장 기준)
+	var b: Board = _local_board()
+	var t := maxi(0, int(ceil(b.wave_timer)))
+	var ts := "%02d:%02d" % [t / 60, t % 60]
+	var text := ""
+	var col := Color(0.95, 0.95, 1.0)
+	if b.wave == 0:
+		text = "게임 시작까지  %s" % ts
+	elif mode != "pvp" and b.final_cleared_flag:
+		text = "ROUND %d  ·  최종 보스 격파!" % b.wave
+		col = Color(1, 0.85, 0.35)
+	elif GameData.is_boss_wave(b.wave):
+		text = "ROUND %d  ·  보스 제한시간  %s" % [b.wave, ts]
+		col = Color(1, 0.4, 0.45)
+	elif GameData.is_bonus_wave(b.wave):
+		text = "ROUND %d  ·  보너스 라운드  %s" % [b.wave, ts]
+		col = Color(1, 0.72, 0.8)
+	else:
+		text = "ROUND %d  ·  다음 라운드  %s" % [b.wave, ts]
+	if b.wave_timer <= 5.0 and b.wave_timer > 0.0 and not (mode != "pvp" and b.final_cleared_flag):
+		if fmod(b.wave_timer, 0.5) < 0.25:
+			col = Color(1, 1, 0.4) if not GameData.is_boss_wave(b.wave) else Color(1, 0.15, 0.15)
+	_lbl_round.text = text
+	_lbl_round.add_theme_color_override("font_color", col)
 
 
 func _check_rules() -> void:
@@ -316,7 +401,7 @@ func _on_blast(b: Board) -> void:
 
 
 func _local_board() -> Board:
-	return boards[Session.local_index]
+	return boards[Session.local_index if Session.online else 0]
 
 
 func _on_net_event(kind: String, data: Variant) -> void:

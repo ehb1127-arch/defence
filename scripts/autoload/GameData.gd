@@ -111,7 +111,7 @@ const SPAWN_INTERVAL := 0.6
 const ENEMY_LIMIT := 100
 const COOP_ENEMY_LIMIT := 180
 const BASE_HP := 22.0
-const HP_GROWTH := 1.19
+const HP_GROWTH := 1.194
 const START_GOLD := 100
 const START_GEMS := 2
 const SUMMON_BASE_COST := 20
@@ -165,7 +165,7 @@ const MISSIONS := [
 	{"id": "first_legend", "name": "전설의 시작", "desc": "전설 유닛 획득", "gold": 0, "gems": 2},
 	{"id": "first_mythic", "name": "신화 강림", "desc": "신화 유닛 조합", "gold": 300, "gems": 3},
 	{"id": "kill_500", "name": "학살자", "desc": "적 500마리 처치", "gold": 200, "gems": 1},
-	{"id": "full_board", "name": "만원 사례", "desc": "18칸 이상 채우기", "gold": 100, "gems": 0},
+	{"id": "full_board", "name": "만원 사례", "desc": "24칸 이상 채우기", "gold": 150, "gems": 0},
 	{"id": "gamble_win3", "name": "타짜", "desc": "도박 3회 성공", "gold": 0, "gems": 2},
 	{"id": "gamble_lose3", "name": "눈물의 도박", "desc": "도박 3회 연속 실패", "gold": 0, "gems": 3},
 	{"id": "chest_5", "name": "보물 사냥꾼", "desc": "보물상자 5개 열기", "gold": 150, "gems": 1},
@@ -296,6 +296,10 @@ func recipe_text(mythic: String) -> String:
 
 
 var _theme: Theme
+
+
+func _exit_tree() -> void:
+	_theme = null
 
 
 ## 모든 UI 가 공유하는 테마 (버튼 스타일 등)

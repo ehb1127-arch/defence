@@ -16,9 +16,10 @@ const INSET := 28.0
 const SIDE := 504.0
 const LOOP := 2016.0
 const COLS := 6
-const ROWS := 4
-const CELL := 72.0
-const GRID_ORIGIN := Vector2(64.0, 204.0)
+const ROWS := 6
+const CELL := 448.0 / 6.0                 # 트랙 안쪽(56~504)을 격자로 꽉 채움
+const GRID_ORIGIN := Vector2(56.0, 56.0)
+const HEADER := 34.0                       # 전장 위(-HEADER~0)에 그리는 이름/적 수/보스 체력 줄
 const CHEST_CHANCE := 0.012
 
 var index := 0
@@ -249,12 +250,12 @@ func summon() -> bool:
 	var free := free_summons > 0
 	var cost := summon_cost()
 	if not free and gold < cost:
-		float_text(Vector2(SIZE / 2, 170), "골드 부족!", Color(1, 0.4, 0.4))
+		float_text(Vector2(SIZE / 2, 150), "골드 부족!", Color(1, 0.4, 0.4))
 		return false
 	var rarity := GameData.roll_summon_rarity(rng, upgrades[3])
 	var id := GameData.random_unit_of(rng, rarity)
 	if not has_space_for(id):
-		float_text(Vector2(SIZE / 2, 170), "빈 칸이 없어요!", Color(1, 0.4, 0.4))
+		float_text(Vector2(SIZE / 2, 150), "빈 칸이 없어요!", Color(1, 0.4, 0.4))
 		return false
 	if free:
 		free_summons -= 1
@@ -368,11 +369,11 @@ func gamble(g: int) -> bool:
 		return false
 	var d: Dictionary = GameData.GAMBLES[g]
 	if gems < d["gems"]:
-		float_text(Vector2(SIZE / 2, 170), "보석 부족!", Color(1, 0.4, 0.4))
+		float_text(Vector2(SIZE / 2, 150), "보석 부족!", Color(1, 0.4, 0.4))
 		return false
 	var probe: String = GameData.units_of_rarity(d["rarity"])[0]
 	if used_cells() >= cells.size() and not has_space_for(probe):
-		float_text(Vector2(SIZE / 2, 170), "빈 칸이 없어요!", Color(1, 0.4, 0.4))
+		float_text(Vector2(SIZE / 2, 150), "빈 칸이 없어요!", Color(1, 0.4, 0.4))
 		return false
 	gems -= d["gems"]
 	if rng.randf() < d["chance"]:
@@ -390,7 +391,7 @@ func gamble(g: int) -> bool:
 	else:
 		gamble_lose_streak += 1
 		var lines := ["꽝!", "다음엔 될 거야...", "운이 없네요", "보석이 증발했다", "하... 꽝"]
-		float_text(Vector2(SIZE / 2, 175), lines[rng.randi() % lines.size()], Color(0.7, 0.7, 0.75), 20)
+		float_text(Vector2(SIZE / 2, 150), lines[rng.randi() % lines.size()], Color(0.7, 0.7, 0.75), 20)
 		_sfx("fail")
 		shake = 4.0
 		if gamble_lose_streak >= 3:
@@ -407,7 +408,7 @@ func upgrade(track: int) -> bool:
 	else:
 		gold -= cost
 	upgrades[track] += 1
-	float_text(Vector2(SIZE / 2, 170), "%s 강화 Lv.%d" % [GameData.UPGRADES[track]["name"], upgrades[track]], Color(0.6, 1.0, 0.6))
+	float_text(Vector2(SIZE / 2, 150), "%s 강화 Lv.%d" % [GameData.UPGRADES[track]["name"], upgrades[track]], Color(0.6, 1.0, 0.6))
 	return true
 
 
@@ -466,11 +467,11 @@ func request_attack(attack_id: String) -> bool:
 	for a in GameData.ATTACKS:
 		if a["id"] == attack_id:
 			if gold < a["gold"] or gems < a["gems"]:
-				float_text(Vector2(SIZE / 2, 170), "재화 부족!", Color(1, 0.4, 0.4))
+				float_text(Vector2(SIZE / 2, 150), "재화 부족!", Color(1, 0.4, 0.4))
 				return false
 			gold -= a["gold"]
 			gems -= a["gems"]
-			float_text(Vector2(SIZE / 2, 170), "%s 발사!" % a["name"], Color(1, 0.5, 0.3), 20)
+			float_text(Vector2(SIZE / 2, 150), "%s 발사!" % a["name"], Color(1, 0.5, 0.3), 20)
 			action_attack.emit(self, attack_id)
 			return true
 	return false
@@ -480,7 +481,7 @@ func request_gift_gold(amount: int) -> bool:
 	if not alive or gold < amount:
 		return false
 	gold -= amount
-	float_text(Vector2(SIZE / 2, 170), "골드 %d 선물!" % amount, Color(1, 0.9, 0.3))
+	float_text(Vector2(SIZE / 2, 150), "골드 %d 선물!" % amount, Color(1, 0.9, 0.3))
 	action_gift_gold.emit(self, amount)
 	return true
 
@@ -559,7 +560,7 @@ func receive_gold(amount: int) -> void:
 	if is_remote:
 		return
 	gold += amount
-	float_text(Vector2(SIZE / 2, 170), "파트너 선물 +%dG" % amount, Color(1, 0.9, 0.3), 20)
+	float_text(Vector2(SIZE / 2, 150), "파트너 선물 +%dG" % amount, Color(1, 0.9, 0.3), 20)
 
 
 func receive_unit(id: String) -> bool:
@@ -571,7 +572,7 @@ func receive_unit(id: String) -> bool:
 		var r: int = GameData.UNITS[id]["rarity"]
 		gold += GameData.SELL_GOLD[r] * 2
 		gems += maxi(GameData.SELL_GEMS[r], 1 if r >= 3 else 0)
-		float_text(Vector2(SIZE / 2, 170), "자리 부족 - 환급받음", Color(1, 0.8, 0.4))
+		float_text(Vector2(SIZE / 2, 150), "자리 부족 - 환급받음", Color(1, 0.8, 0.4))
 		return false
 	float_text(cell_center(idx), "선물 도착! %s" % GameData.UNITS[id]["name"], Color(0.6, 1.0, 0.8), 18)
 	return true
@@ -1093,7 +1094,7 @@ func _check_missions_now() -> void:
 		_complete_mission("first_legend")
 	if kills >= 500:
 		_complete_mission("kill_500")
-	if used_cells() >= 18:
+	if used_cells() >= 24:
 		_complete_mission("full_board")
 
 
@@ -1110,7 +1111,7 @@ func _complete_mission(mid: String) -> void:
 				reward.append("+%dG" % m["gold"])
 			if m["gems"] > 0:
 				reward.append("+%d보석" % m["gems"])
-			float_text(Vector2(SIZE / 2, 130), "과제 달성: %s %s" % [m["name"], " ".join(reward)], Color(0.5, 1.0, 0.7), 16)
+			float_text(Vector2(SIZE / 2, 120), "과제 달성: %s %s" % [m["name"], " ".join(reward)], Color(0.5, 1.0, 0.7), 16)
 
 
 # ===========================================================================
@@ -1282,9 +1283,9 @@ func _draw() -> void:
 	var off := Vector2.ZERO
 	if shake > 0.0:
 		off = Vector2(randf_range(-shake, shake), randf_range(-shake, shake)) * 0.5
+	_draw_header()
 	draw_set_transform(off)
 	_draw_field()
-	_draw_info()
 	_draw_grid()
 	_draw_enemies()
 	_draw_effects()
@@ -1301,7 +1302,7 @@ func _draw() -> void:
 		draw_rect(Rect2(0, 0, SIZE, SIZE), Color(0, 0, 0, 0.6))
 		_text(Vector2(SIZE / 2, SIZE / 2), "패배", 56, Color(1, 0.3, 0.3))
 	elif final_cleared_flag and mode != "pvp":
-		_text(Vector2(SIZE / 2, 110), "최종 보스 격파!", 22, Color(1, 0.9, 0.4))
+		_text(Vector2(SIZE / 2, SIZE / 2 - 110), "최종 보스 격파!", 26, Color(1, 0.9, 0.4))
 
 
 func _text(center: Vector2, s: String, fsize: int, color: Color, outline := true) -> void:
@@ -1338,46 +1339,13 @@ func _draw_field() -> void:
 	_text(Vector2(INSET, INSET), "!", 18, Color(1, 0.8, 0.8))
 
 
-func _draw_info() -> void:
-	var count := field_count()
-	var limit := enemy_limit
-	var shown := count + (partner_count if mode == "coop" else 0)
-	_text(Vector2(SIZE / 2, 74), player_name, 15, accent.lightened(0.3))
-	var wave_s := "ROUND %d" % wave if wave > 0 else "준비"
-	_text(Vector2(150, 102), wave_s, 22, Color(0.95, 0.95, 1.0))
-	var tsec := maxi(0, int(ceil(wave_timer)))
-	var tlabel := "다음 라운드"
-	var tcol := Color(0.75, 0.8, 0.9)
-	if wave == 0:
-		tlabel = "시작까지"
-	elif GameData.is_boss_wave(wave):
-		tlabel = "보스 제한"
-		tcol = Color(1, 0.4, 0.45)
-	elif GameData.is_bonus_wave(wave):
-		tlabel = "보너스"
-		tcol = Color(1, 0.75, 0.8)
-	if not (final_cleared_flag and mode != "pvp"):
-		_text(Vector2(150, 128), "%s %02d:%02d" % [tlabel, tsec / 60, tsec % 60], 15, tcol)
-	# 적 수 게이지
-	var ratio := clampf(float(shown) / limit, 0.0, 1.0)
-	var bar := Rect2(260, 90, 230, 18)
-	draw_rect(bar, Color(0.05, 0.05, 0.08))
-	var bc := Color(0.4, 0.85, 0.4).lerp(Color(1, 0.2, 0.2), ratio)
-	if ratio > 0.8 and fmod(_anim, 0.5) < 0.25:
-		bc = Color(1, 1, 1)
-	draw_rect(Rect2(bar.position, Vector2(bar.size.x * ratio, bar.size.y)), bc)
-	draw_rect(bar, Color(1, 1, 1, 0.3), false, 1.0)
-	var label := ("적 %d / %d" % [shown, limit]) if mode != "coop" else ("합산 적 %d / %d" % [shown, limit])
-	_text(bar.get_center() + Vector2(0, 0), label, 13, Color.WHITE)
-	# 보스 체력바
-	for e in enemies:
-		if e.alive and e.is_boss:
-			var r := Rect2(260, 120, 230, 12)
-			draw_rect(r, Color(0.1, 0.02, 0.05))
-			draw_rect(Rect2(r.position, Vector2(r.size.x * e.hp_ratio(), r.size.y)), Color(0.85, 0.15, 0.4))
-			_text(r.get_center() + Vector2(0, 16), e.boss_name if e.boss_name != "" else "보스", 12, Color(1, 0.6, 0.7))
-			break
-	# 상태 아이콘
+func _draw_header() -> void:
+	## 전장 바로 위 한 줄: 이름+상태 | 적 수 게이지 | 보스 체력
+	var y0 := -HEADER
+	draw_rect(Rect2(0, y0, SIZE, HEADER - 3), Color(0.1, 0.11, 0.15))
+	draw_rect(Rect2(0, y0, 4, HEADER - 3), accent)
+	var name_font := 14
+	draw_string(font, Vector2(10, y0 + 15), player_name, HORIZONTAL_ALIGNMENT_LEFT, 150, name_font, accent.lightened(0.35))
 	var status := []
 	if lucky_t > 0.0:
 		status.append("행운 %ds" % int(ceil(lucky_t)))
@@ -1386,9 +1354,36 @@ func _draw_info() -> void:
 	if frenzy:
 		status.append("광란")
 	if free_summons > 0:
-		status.append("무료소환 %d" % free_summons)
+		status.append("무료 %d" % free_summons)
 	if not status.is_empty():
-		_text(Vector2(SIZE / 2, 176), "  ".join(status), 13, Color(1, 0.85, 0.5))
+		draw_string(font, Vector2(10, y0 + 28), " ".join(status), HORIZONTAL_ALIGNMENT_LEFT, 150, 11, Color(1, 0.85, 0.5))
+	# 적 수 게이지
+	var count := field_count()
+	var shown := count + (partner_count if mode == "coop" else 0)
+	var ratio := clampf(float(shown) / enemy_limit, 0.0, 1.0)
+	var bar := Rect2(165, y0 + 5, 215, HEADER - 13)
+	draw_rect(bar, Color(0.04, 0.04, 0.06))
+	var bc := Color(0.4, 0.85, 0.4).lerp(Color(1, 0.2, 0.2), ratio)
+	if ratio > 0.8 and fmod(_anim, 0.5) < 0.25:
+		bc = Color(1, 1, 1)
+	draw_rect(Rect2(bar.position, Vector2(bar.size.x * ratio, bar.size.y)), bc)
+	draw_rect(bar, Color(1, 1, 1, 0.3), false, 1.0)
+	var label := ("적 %d / %d" % [shown, enemy_limit]) if mode != "coop" else ("합산 %d / %d" % [shown, enemy_limit])
+	_text(bar.get_center(), label, 13, Color.WHITE)
+	# 보스 체력 (없으면 처치 수)
+	var r := Rect2(390, y0 + 5, SIZE - 396, HEADER - 13)
+	var boss: EnemyState = null
+	for e in enemies:
+		if e.alive and e.is_boss:
+			boss = e
+			break
+	if boss != null:
+		draw_rect(r, Color(0.12, 0.02, 0.06))
+		draw_rect(Rect2(r.position, Vector2(r.size.x * boss.hp_ratio(), r.size.y)), Color(0.85, 0.15, 0.4))
+		draw_rect(r, Color(1, 0.5, 0.6, 0.5), false, 1.0)
+		_text(r.get_center(), boss.boss_name if boss.boss_name != "" else "보스", 12, Color(1, 0.9, 0.92))
+	else:
+		_text(r.get_center(), "처치 %d" % kills, 13, Color(0.75, 0.8, 0.9), false)
 
 
 func _draw_grid() -> void:

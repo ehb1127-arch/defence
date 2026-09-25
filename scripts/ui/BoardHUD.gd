@@ -23,6 +23,10 @@ var _btn_blast: Button
 var _blast_bar: ProgressBar
 var _mission_list: VBoxContainer
 var _t := 0.0
+var _btn_h := 44.0
+var _tall := false
+var _lbl_detail: Label
+var _lbl_info: RichTextLabel
 
 
 func setup(b: Board, p_interactive: bool, p_keys_hint: String, tall := false) -> void:
@@ -30,30 +34,36 @@ func setup(b: Board, p_interactive: bool, p_keys_hint: String, tall := false) ->
 	interactive = p_interactive
 	keys_hint = p_keys_hint
 	theme = GameData.ui_theme()
+	_btn_h = 52.0 if tall else 36.0
+	_tall = tall
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.1, 0.11, 0.15, 0.95)
 	sb.border_color = b.accent.darkened(0.2)
 	sb.set_border_width_all(2)
 	sb.set_corner_radius_all(8)
-	sb.set_content_margin_all(8)
+	sb.set_content_margin_all(8 if tall else 6)
 	add_theme_stylebox_override("panel", sb)
 	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 6)
+	root.add_theme_constant_override("separation", 6 if tall else 3)
 	add_child(root)
 
 	_lbl_head = RichTextLabel.new()
 	_lbl_head.bbcode_enabled = true
 	_lbl_head.fit_content = true
 	_lbl_head.scroll_active = false
-	_lbl_head.custom_minimum_size = Vector2(0, 26)
-	_lbl_head.add_theme_font_size_override("normal_font_size", 16)
+	_lbl_head.custom_minimum_size = Vector2(0, 26 if tall else 22)
+	_lbl_head.add_theme_font_size_override("normal_font_size", 16 if tall else 15)
 	root.add_child(_lbl_head)
 
 	if not interactive:
-		var l := Label.new()
-		l.text = "원격 플레이어의 전장입니다." if b.is_remote else "AI가 플레이 중입니다."
-		l.add_theme_color_override("font_color", Color(0.7, 0.75, 0.85))
-		root.add_child(l)
+		# 상대/AI 전장: 조작 대신 현황판
+		_lbl_info = RichTextLabel.new()
+		_lbl_info.bbcode_enabled = true
+		_lbl_info.scroll_active = false
+		_lbl_info.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		_lbl_info.add_theme_font_size_override("normal_font_size", 14)
+		_lbl_info.add_theme_constant_override("line_separation", 4)
+		root.add_child(_lbl_info)
 		return
 
 	var tabs := TabContainer.new()
@@ -68,7 +78,7 @@ func setup(b: Board, p_interactive: bool, p_keys_hint: String, tall := false) ->
 	if tall:
 		# 세로로 긴 패널(솔로)은 조합표와 과제를 항상 펼쳐서 보여준다
 		tabs.size_flags_vertical = Control.SIZE_FILL
-		tabs.custom_minimum_size = Vector2(0, 230)
+		tabs.custom_minimum_size = Vector2(0, 255)
 		for section in [["신화 조합표", _build_recipe_tab()], ["도전 과제", _build_mission_tab()]]:
 			var h := Label.new()
 			h.text = section[0]
@@ -76,7 +86,10 @@ func setup(b: Board, p_interactive: bool, p_keys_hint: String, tall := false) ->
 			h.add_theme_color_override("font_color", Color(1, 0.85, 0.4))
 			root.add_child(h)
 			var body: Control = section[1]
-			body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+			if section[0] == "신화 조합표":
+				body.custom_minimum_size = Vector2(0, 5 * 46)
+			else:
+				body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 			root.add_child(body)
 	else:
 		tabs.add_child(_build_recipe_tab())
@@ -84,17 +97,32 @@ func setup(b: Board, p_interactive: bool, p_keys_hint: String, tall := false) ->
 	if keys_hint != "":
 		var hint := Label.new()
 		hint.text = keys_hint
-		hint.add_theme_font_size_override("font_size", 11)
-		hint.add_theme_color_override("font_color", Color(0.55, 0.6, 0.7))
+		hint.add_theme_font_size_override("font_size", 12 if tall else 14)
+		hint.add_theme_color_override("font_color", Color(0.6, 0.65, 0.75))
 		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		root.add_child(hint)
+		if tall:
+			root.add_child(hint)
+		else:
+			# 좁은 패널에서는 조작법을 별도 탭으로
+			hint.name = "조작"
+			hint.text = keys_hint.replace(" / ", "\n").replace("키보드: ", "")
+			var cols := HFlowContainer.new()
+			cols.name = "조작"
+			for line in keys_hint.replace("키보드: ", "").split(" / "):
+				var l := Label.new()
+				l.text = line
+				l.custom_minimum_size = Vector2(170, 0)
+				l.add_theme_font_size_override("font_size", 14)
+				l.add_theme_color_override("font_color", Color(0.75, 0.8, 0.9))
+				cols.add_child(l)
+			tabs.add_child(cols)
 
 
 func _btn(text: String, cb: Callable, min_w := 0.0) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(min_w, 44)
+	b.custom_minimum_size = Vector2(min_w, _btn_h)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.pressed.connect(cb)
 	return b
@@ -136,6 +164,14 @@ func _build_action_tab() -> Control:
 		_btn_sel_gift = _btn("선물", func(): board.request_gift_unit(board.selected), 70)
 		_btn_sel_gift.size_flags_horizontal = Control.SIZE_SHRINK_END
 		sel.add_child(_btn_sel_gift)
+	if _tall:
+		_lbl_detail = Label.new()
+		_lbl_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_lbl_detail.add_theme_font_size_override("font_size", 14)
+		_lbl_detail.add_theme_color_override("font_color", Color(0.75, 0.8, 0.9))
+		v.add_child(_lbl_detail)
+		_lbl_probs.add_theme_font_size_override("font_size", 14)
+		_lbl_sel.add_theme_font_size_override("font_size", 17)
 	return v
 
 
@@ -162,13 +198,13 @@ func _build_recipe_tab() -> Control:
 		var row := HBoxContainer.new()
 		var l := Label.new()
 		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		l.add_theme_font_size_override("font_size", 13)
+		l.add_theme_font_size_override("font_size", 16 if _tall else 13)
 		l.clip_text = true
 		row.add_child(l)
 		var mm: String = m
 		var b := _btn("조합", func(): board.combine(mm), 70)
 		b.size_flags_horizontal = Control.SIZE_SHRINK_END
-		b.custom_minimum_size = Vector2(70, 30)
+		b.custom_minimum_size = Vector2(80, 40 if _tall else 30)
 		row.add_child(b)
 		v.add_child(row)
 		_recipe_rows.append([m, l, b])
@@ -225,7 +261,7 @@ func _build_mission_tab() -> Control:
 	scroll.add_child(_mission_list)
 	for m in GameData.MISSIONS:
 		var l := Label.new()
-		l.add_theme_font_size_override("font_size", 13)
+		l.add_theme_font_size_override("font_size", 15 if _tall else 13)
 		l.set_meta("mid", m["id"])
 		_mission_list.add_child(l)
 	return scroll
@@ -245,6 +281,7 @@ func _refresh() -> void:
 		b.accent.lightened(0.3).to_html(false), b.player_name, b.gold, b.gems, b.kills,
 		b.summon_cost() if not b.is_remote else int(b.remote_stats.get("sc", 0))]
 	if not interactive:
+		_refresh_info()
 		return
 	var ok := b.alive
 	_btn_summon.text = "소환 (%s)" % ("무료 x%d" % b.free_summons if b.free_summons > 0 else "%dG" % b.summon_cost())
@@ -274,6 +311,8 @@ func _refresh() -> void:
 	else:
 		_lbl_sel.text = "칸을 클릭해 선택 → 다른 칸 클릭으로 이동/교체"
 		_lbl_sel.add_theme_color_override("font_color", Color(0.6, 0.65, 0.75))
+	if _lbl_detail:
+		_lbl_detail.text = _unit_detail(b.cells[sel]["id"]) if has_sel else "유닛 칸을 선택하면 능력치가 표시됩니다.\n사거리가 짧은 유닛은 트랙과 가까운 바깥 칸에 두세요."
 	_btn_sel_merge.disabled = not ok or not has_sel or not b.mergeable(sel)
 	_btn_sel_sell.disabled = not ok or not has_sel
 	if _btn_sel_gift:
@@ -318,3 +357,71 @@ func _refresh() -> void:
 					var done := b.missions.has(mid)
 					l.text = "%s %s - %s" % ["[완료]" if done else "[  ]", m["name"], m["desc"]]
 					l.add_theme_color_override("font_color", Color(0.5, 1.0, 0.6) if done else Color(0.8, 0.8, 0.85))
+
+
+func _unit_detail(id: String) -> String:
+	var u: Dictionary = GameData.UNITS[id]
+	var mult := board.dmg_mult(u["rarity"])
+	var lines: Array = []
+	lines.append("공격력 %d (강화 +%d%%)   ·   공격 간격 %.2f초   ·   사거리 %d" % [int(u["dmg"] * mult), int(round((mult - 1.0) * 100.0)), u["cd"], int(u["range"])])
+	var fx: Dictionary = u["fx"]
+	var eff: Array = []
+	if fx.has("splash"):
+		eff.append("범위 %d" % int(fx["splash"]))
+	if fx.has("slow"):
+		eff.append("둔화 %d%%" % int(fx["slow"] * 100))
+	if fx.has("stun_chance"):
+		eff.append("기절 %d%%" % int(fx["stun_chance"] * 100))
+	if fx.has("crit"):
+		eff.append("치명 %d%% x%.1f" % [int(fx["crit"] * 100), fx["crit_mult"]])
+	if fx.has("chain"):
+		eff.append("연쇄 %d회" % fx["chain"])
+	if fx.has("multishot"):
+		eff.append("%d발 동시" % fx["multishot"])
+	if fx.has("burn") or fx.has("poison"):
+		eff.append("지속 피해")
+	if fx.has("armor_break"):
+		eff.append("방어 감소 %d" % int(fx["armor_break"]))
+	if fx.has("execute"):
+		eff.append("처형 %d%%" % int(fx["execute"] * 100))
+	if fx.has("gold_chance"):
+		eff.append("골드 강탈 %d%%" % int(fx["gold_chance"] * 100))
+	if fx.has("aura_speed"):
+		eff.append("주변 공속 +%d%%" % int(fx["aura_speed"] * 100))
+	if fx.has("slow_aura"):
+		eff.append("둔화 오라 %d%%" % int(fx["slow_aura"] * 100))
+	if fx.has("meteor_every"):
+		eff.append("%d타마다 메테오" % fx["meteor_every"])
+	if u.has("skill"):
+		eff.append("스킬 [%s] %d초마다" % [u["skill"]["name"], int(u["skill"]["cd"])])
+	if not eff.is_empty():
+		lines.append("효과: " + ", ".join(eff))
+	var uses: Array = []
+	for m in GameData.RECIPES:
+		if id in GameData.RECIPES[m]:
+			uses.append(GameData.UNITS[m]["name"])
+	if not uses.is_empty():
+		lines.append("신화 재료: " + ", ".join(uses))
+	return "\n".join(lines)
+
+
+func _refresh_info() -> void:
+	## 상대/AI 전장 현황판
+	var b := board
+	var up: Array = []
+	for i in GameData.UPGRADES.size():
+		up.append("%s [b]Lv.%d[/b]" % [GameData.UPGRADES[i]["name"], b.upgrades[i]])
+	var counts := [0, 0, 0, 0, 0]
+	for c in b.cells:
+		if c["id"] != "":
+			counts[GameData.UNITS[c["id"]]["rarity"]] += c["n"]
+	var own: Array = []
+	for r in counts.size():
+		own.append("[color=#%s]%s %d[/color]" % [GameData.RARITY_COLORS[r].to_html(false), GameData.RARITY_NAMES[r], counts[r]])
+	var rec: Array = []
+	for m in GameData.RECIPES:
+		var pr := b.recipe_progress(m)
+		var col := "ff5060" if pr[0] >= pr[1] else ("ffd060" if pr[0] * 2 >= pr[1] else "9aa3b5")
+		rec.append("[color=#%s]%s %d/%d[/color]" % [col, GameData.UNITS[m]["name"], pr[0], pr[1]])
+	var who := "원격 플레이어" if b.is_remote else "AI"
+	_lbl_info.text = "[color=#8a93a8]%s 현황[/color]\n보유   %s\n강화   %s\n신화   %s" % [who, "   ".join(own), "   ".join(up), "   ".join(rec)]
