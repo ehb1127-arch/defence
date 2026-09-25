@@ -10,6 +10,8 @@ var _t := 0.0
 var _shot_i := 0
 var _next_shot := 2.0
 var _done := false
+var _stage_mode := false
+var _stage_step := 0
 
 
 func _ready() -> void:
@@ -19,6 +21,24 @@ func _ready() -> void:
 	_shots = args[2] if args.size() > 2 else ""
 	Engine.time_scale = float(args[3]) if args.size() > 3 else 1.0
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	if mode == "campaign":
+		Profile.campaign = {"1-1": 3, "1-2": 2, "1-3": 1}
+		_match = load("res://scenes/Campaign.tscn").instantiate()
+		add_child(_match)
+		return
+	if mode.begins_with("stage"):
+		var sid := mode.substr(5)
+		Session.setup_local("solo", [{"name": "플레이어", "kind": "human", "keys": 0}])
+		Session.stage = sid
+		Session.seed_value = 7
+		Profile.story_seen.erase(sid)
+		Profile.story_seen.erase(sid + "_end")
+		Profile.tutorial_done = true
+		_match = load("res://scenes/Match.tscn").instantiate()
+		add_child(_match)
+		_match.speed = 3.0
+		_stage_mode = true
+		return
 	if mode in ["rewards", "collection"]:
 		Session.mode = mode
 		Profile.coins = maxi(Profile.coins, 2000)
@@ -53,6 +73,12 @@ func _process(delta: float) -> void:
 	if _done:
 		return
 	_t += delta / Engine.time_scale
+	if not "boards" in _match and _match.has_method("_launch"):
+		if _t > 1.0:
+			_done = true
+			get_viewport().get_texture().get_image().save_png("%s/campaign.png" % _shots)
+			get_tree().quit()
+		return
 	if not "boards" in _match and (_match.has_method("_spin") or _match.has_method("_level_up")):
 		if _t > 1.0 and _shot_i == 0:
 			_shot_i = 1
@@ -108,6 +134,9 @@ func _process(delta: float) -> void:
 			_done = true
 			get_viewport().get_texture().get_image().save_png("%s/help.png" % _shots)
 			get_tree().quit()
+		return
+	if _stage_mode:
+		_stage_capture()
 		return
 	if OS.get_cmdline_user_args().has("fx2"):
 		_fx2_capture()
@@ -227,5 +256,35 @@ func _fx2_capture() -> void:
 	elif _fx2_step == 3 and _t > 9.5:
 		_fx2_step = 4
 		shot.call("result")
+		_done = true
+		get_tree().quit()
+
+
+
+func _stage_capture() -> void:
+	## 스토리 스테이지: 대화 캡처 → 대화 넘기고 봇 플레이 → 결과(또는 마무리 대화) 캡처
+	var shot := func(name: String):
+		get_viewport().get_texture().get_image().save_png("%s/%s.png" % [_shots, name])
+	var ui: Node = _match.get_node("UI")
+	if _stage_step == 0 and _t > 1.2:
+		_stage_step = 1
+		shot.call("dialogue")
+		for c in ui.get_children():
+			if c is Dialogue:
+				c._finish()
+		_match.bots[0] = BotBrain.new(_match.boards[0], null, 2)
+	elif _stage_step == 1 and _match.over:
+		_stage_step = 2
+		_t = 0.0
+	elif _stage_step == 2 and _t > 1.0:
+		_stage_step = 3
+		shot.call("stage_end")
+		for c in ui.get_children():
+			if c is Dialogue:
+				c._finish()
+		_t = 0.0
+	elif _stage_step == 3 and _t > 2.0:
+		shot.call("stage_result")
+		print("SMOKE stage wave=%d peak=%d stars=%d" % [_match.boards[0].wave, _match.boards[0].peak_field, _match.boards[0].stage_stars()])
 		_done = true
 		get_tree().quit()

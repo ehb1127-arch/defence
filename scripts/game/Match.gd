@@ -73,9 +73,18 @@ func _ready() -> void:
 	for i in n:
 		var other: Board = boards[1 - i] if n > 1 else null
 		bots.append(BotBrain.new(boards[i], other, Session.bot_level) if boards[i].is_bot else null)
+	if Session.stage != "":
+		boards[0].apply_stage(Session.stage)
 	_layout(ui)
 	_apply_loadout()
-	if Session.tutorial and mode == "solo":
+	var st := Story.get_stage(Session.stage) if Session.stage != "" else {}
+	if not st.is_empty() and not st["data"].get("intro", []).is_empty() and not Profile.story_seen.has(Session.stage):
+		paused = true
+		var dlg := Dialogue.new()
+		dlg.lines = st["data"]["intro"]
+		dlg.finished.connect(_after_intro)
+		ui.add_child(dlg)
+	elif Session.tutorial and mode == "solo":
 		_start_tutorial(ui)
 	if Session.online:
 		Net.event_received.connect(_on_net_event)
@@ -171,6 +180,14 @@ func _on_ad_summon(hud: BoardHUD) -> void:
 func _on_emote(hud: BoardHUD, emote: String) -> void:
 	hud.board.show_emote(emote)
 	Net.send_event("emote", emote)
+
+
+func _after_intro() -> void:
+	Profile.story_seen[Session.stage] = true
+	Profile.save()
+	paused = false
+	if Session.tutorial and mode == "solo":
+		_start_tutorial(ui_layer())
 
 
 func _start_tutorial(ui: CanvasLayer) -> void:
@@ -427,7 +444,11 @@ func _update_center_label() -> void:
 		"coop":
 			_lbl_left.text = "협동  ·  경과 %s  ·  합산 %d/%d" % [elapsed, total, GameData.COOP_ENEMY_LIMIT]
 		_:
-			_lbl_left.text = "솔로  ·  경과 %s" % elapsed
+			if Session.stage != "":
+				var st := Story.get_stage(Session.stage)
+				_lbl_left.text = "스토리 %s %s  ·  %s" % [Session.stage, st["data"]["name"], elapsed]
+			else:
+				_lbl_left.text = "무한 모드  ·  경과 %s" % elapsed
 	if _lbl_center != null:
 		_lbl_center.text = "VS" if mode == "pvp" else "합산 적\n%d / %d" % [total, GameData.COOP_ENEMY_LIMIT]
 	if _coop_bar != null:
@@ -441,21 +462,49 @@ func _update_center_label() -> void:
 	if b.wave == 0:
 		text = "게임 시작까지  %s" % ts
 	elif mode != "pvp" and b.final_cleared_flag:
-		text = "ROUND %d  ·  최종 보스 격파!" % b.wave
+		text = "ROUND %s  ·  %s" % [_round_str(b), "스테이지 클리어!" if b.stage_id != "" else "최종 보스 격파!"]
 		col = Color(1, 0.85, 0.35)
-	elif GameData.is_boss_wave(b.wave):
-		text = "ROUND %d  ·  보스 제한시간  %s" % [b.wave, ts]
+	elif b.is_boss_round(b.wave):
+		text = "ROUND %s  ·  보스 제한시간  %s" % [_round_str(b), ts]
 		col = Color(1, 0.4, 0.45)
-	elif GameData.is_bonus_wave(b.wave):
-		text = "ROUND %d  ·  보너스 라운드  %s" % [b.wave, ts]
+	elif b.is_bonus_round(b.wave):
+		text = "ROUND %s  ·  보너스 라운드  %s" % [_round_str(b), ts]
 		col = Color(1, 0.72, 0.8)
 	else:
-		text = "ROUND %d  ·  다음 라운드  %s" % [b.wave, ts]
+		text = "ROUND %s  ·  %s  %s" % [_round_str(b), "남은 시간" if b.stage_id != "" and b.wave >= b.final_wave else "다음 라운드", ts]
 	if b.wave_timer <= 5.0 and b.wave_timer > 0.0 and not (mode != "pvp" and b.final_cleared_flag):
 		if fmod(b.wave_timer, 0.5) < 0.25:
-			col = Color(1, 1, 0.4) if not GameData.is_boss_wave(b.wave) else Color(1, 0.15, 0.15)
+			col = Color(1, 1, 0.4) if not b.is_boss_round(b.wave) else Color(1, 0.15, 0.15)
 	_lbl_round.text = text
 	_lbl_round.add_theme_color_override("font_color", col)
+
+
+func _finish_stage_win() -> void:
+	## 스테이지 클리어: 보스 스테이지면 마무리 대화 후 결과
+	if over:
+		return
+	var st := Story.get_stage(Session.stage)
+	var outro: Array = st["data"].get("outro", [])
+	var key := Session.stage + "_end"
+	if outro.is_empty() or Profile.story_seen.has(key):
+		_finish(0, "스테이지 클리어!  %s" % st["data"]["name"], false)
+		return
+	over = true
+	var dlg := Dialogue.new()
+	dlg.lines = outro
+	dlg.finished.connect(_after_outro.bind(key, st["data"]["name"]))
+	ui_layer().add_child(dlg)
+
+
+func _after_outro(key: String, stage_name: String) -> void:
+	Profile.story_seen[key] = true
+	Profile.save()
+	over = false
+	_finish(0, "스테이지 클리어!  %s" % stage_name, false)
+
+
+func _round_str(b: Board) -> String:
+	return ("%d / %d" % [b.wave, b.final_wave]) if b.stage_id != "" else str(b.wave)
 
 
 func _check_rules() -> void:
@@ -506,7 +555,10 @@ func _check_rules() -> void:
 				b.alive = false
 				_finish(-1, "패배... ROUND %d 에서 무너졌습니다" % b.wave, false)
 			elif b.final_cleared_flag:
-				_finish(0, "승리! %d라운드를 모두 막아냈습니다" % GameData.FINAL_WAVE, false)
+				if b.stage_id != "":
+					_finish_stage_win()
+				else:
+					_finish(0, "승리! %d라운드를 모두 막아냈습니다" % GameData.FINAL_WAVE, false)
 
 
 # ===========================================================================
@@ -722,6 +774,9 @@ func _to_menu() -> void:
 		# 매치 도중 나가면 방에서도 나가서 상대에게 알린다. 끝난 뒤라면 방에 남아 재대결 가능
 		if Net.in_match:
 			Net.leave_room()
+	if Session.stage != "":
+		get_tree().change_scene_to_file("res://scenes/Campaign.tscn")
+		return
 	get_tree().change_scene_to_file("res://scenes/Main.tscn")
 
 
@@ -747,12 +802,22 @@ func _finish(winner: int, text: String, broadcast: bool) -> void:
 	Sfx.play("win" if won else "lose")
 	var me := _local_board()
 	_pending_coins = GameData.match_coins(me.wave, me.kills, won)
+	_streak_bonus = 0.0
+	if won and not Session.online:
+		_streak_bonus = 0.1 * mini(Profile.streak + 1, 5)
+		_pending_coins = int(_pending_coins * (1.0 + _streak_bonus))
+	_stage_result = {}
+	if Session.stage != "" and won:
+		_stage_result = Profile.record_stage(Session.stage, me.stage_stars())
+		_stage_result["stars"] = me.stage_stars()
 	_coins_given = false
 	var can_revive := not won and not Session.online and mode != "pvp"
 	_build_over_panel(text, won, can_revive)
 
 
 var _last_won := false
+var _streak_bonus := 0.0
+var _stage_result := {}
 
 
 func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
@@ -818,8 +883,49 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 			ic.tooltip_text = "%s  피해 %s" % [GameData.UNITS[id]["name"], _fmt(b.dmg_by_unit[id])]
 			row.add_child(ic)
 		v.add_child(row)
-	# 성취: 경험치 / 레벨 / 최고 기록 / 이번 판 업적
 	var me := _local_board()
+	if Session.stage != "":
+		if won:
+			var srow := HBoxContainer.new()
+			srow.alignment = BoxContainer.ALIGNMENT_CENTER
+			srow.add_theme_constant_override("separation", 18)
+			var got: int = _stage_result.get("stars", 1)
+			for k in 3:
+				var ic := UIIcon.make("star", 70, Color(1, 0.85, 0.3) if k < got else Color(0.25, 0.27, 0.35))
+				ic.scale = Vector2.ZERO
+				ic.pivot_offset = Vector2(35, 35)
+				srow.add_child(ic)
+				var tw := create_tween()
+				tw.tween_interval(0.25 + k * 0.35)
+				tw.tween_property(ic, "scale", Vector2(1.25, 1.25), 0.15)
+				tw.tween_property(ic, "scale", Vector2.ONE, 0.1)
+				if k < got:
+					tw.tween_callback(Sfx.play.bind("rare"))
+			v.add_child(srow)
+			var sr := Label.new()
+			var parts: Array = []
+			if _stage_result.get("first", false):
+				parts.append("첫 클리어!")
+			if _stage_result.get("new_stars", 0) > 0:
+				parts.append("새 ★ +%d" % _stage_result["new_stars"])
+			if _stage_result.get("coins", 0) > 0:
+				parts.append("스테이지 보상 코인 +%d" % _stage_result["coins"])
+			sr.text = "   ".join(parts) if not parts.is_empty() else "최대 적 수 %d (★2: 30 미만, ★3: 15 미만)" % me.peak_field
+			sr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			sr.add_theme_color_override("font_color", Color(1, 0.85, 0.45))
+			v.add_child(sr)
+		else:
+			v.add_child(_near_miss_label(me))
+	elif not won and mode == "solo":
+		v.add_child(_near_miss_label(me))
+	if _streak_bonus > 0.0:
+		var sk := Label.new()
+		sk.text = "연승 x%d  코인 +%d%%" % [Profile.streak + 1, int(_streak_bonus * 100)]
+		sk.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		sk.add_theme_color_override("font_color", Color(1, 0.55, 0.3))
+		sk.add_theme_font_size_override("font_size", 18)
+		v.add_child(sk)
+	# 성취: 경험치 / 레벨 / 최고 기록 / 이번 판 업적
 	var gained := GameData.match_xp(me.wave, me.kills, won)
 	var lv := Profile.level
 	var cur := Profile.xp + gained
@@ -931,17 +1037,55 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 			bd.disabled = true
 		bd.pressed.connect(func(): Ads.show_rewarded("result_double", on_double))
 		h.add_child(bd)
+	if Session.stage != "" and won:
+		var nxt := Story.next_stage(Session.stage)
+		if nxt != "":
+			var nb := ActionButton.make("play", Color(1, 0.85, 0.35), "다음 스테이지 %s" % nxt, _go_stage.bind(nxt), Vector2(170, 96))
+			nb.badge = nxt
+			nb.glow = true
+			h.add_child(nb)
 	if not Session.online:
-		h.add_child(ActionButton.make("play", Color(0.5, 1.0, 0.6), "다시 하기", _restart, bsz))
+		h.add_child(ActionButton.make("back" if Session.stage != "" else "play", Color(0.5, 1.0, 0.6), "다시 하기", _restart, bsz))
 	h.add_child(ActionButton.make("home", Color(0.85, 0.9, 1.0), "방으로 (재대결)" if Session.online and Net.connected else "메인 메뉴", _to_menu, bsz))
 	for c in h.get_children():
 		if c is ActionButton:
 			c.caption = c.tooltip_text.split("\n")[0]
 
 
+func _near_miss_label(me: Board) -> Label:
+	## 아깝게 졌을 때 "한 판 더" 를 부르는 문구
+	var l := Label.new()
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.add_theme_font_size_override("font_size", 19)
+	l.add_theme_color_override("font_color", Color(1, 0.7, 0.4))
+	var boss_left := -1.0
+	for e in me.enemies:
+		if e.is_boss:
+			boss_left = e.hp_ratio()
+	var tips := ["기절 유닛으로 보스 시전을 끊어보세요", "서로 다른 유닛을 모으면 시너지가 켜져요", "★3 각성은 특성이 크게 강해져요", "도감에서 유닛 레벨을 올려보세요", "상점의 부활 깃털로 한 번 더!"]
+	if boss_left >= 0.0 and boss_left < 0.35:
+		l.text = "아까워요! 보스 체력이 %d%%밖에 안 남았어요!
+팁: %s" % [maxi(1, int(boss_left * 100)), tips[randi() % tips.size()]]
+	elif me.stage_id != "" and me.wave >= me.final_wave - 1:
+		l.text = "마지막 라운드까지 왔어요! 조금만 더!
+팁: %s" % tips[randi() % tips.size()]
+	else:
+		l.text = "팁: %s" % tips[randi() % tips.size()]
+	return l
+
+
+func _go_stage(id: String) -> void:
+	_give_coins(1)
+	Campaign.start_stage(id, get_tree())
+
+
 func _restart() -> void:
 	_give_coins(1)
 	Session.seed_value = randi()
+	if Session.stage != "":
+		Campaign.start_stage(Session.stage, get_tree())
+		return
 	get_tree().reload_current_scene()
 
 
@@ -969,6 +1113,8 @@ func _give_coins(_mult: int) -> void:
 	Profile.add_coins(_pending_coins)
 	var me := _local_board()
 	Profile.record_match(mode, me.wave, _last_won)
+	if not Session.online:
+		Profile.note_result(_last_won)
 	# 도감 등록 + 일일 미션 진행 (로컬 사람 전장 기준)
 	for b in boards:
 		if not b.is_bot and not b.is_remote:

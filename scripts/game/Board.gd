@@ -83,6 +83,13 @@ var syn_counts := {}              # 시너지 태그 -> 서로 다른 유닛 종
 var syn_version := 0
 var _syn_t := 0.0
 var max_star := 0
+# 스토리 스테이지
+var final_wave := GameData.FINAL_WAVE
+var stage_id := ""
+var stage_hp_mult := 1.0
+var stage_mods: Array = []
+var stage_boss := -1
+var peak_field := 0
 var interrupts := 0
 var slot_jackpots := 0
 var pending_enhance := {}         # ★ 강화 시도 진행 중 {cell, t}
@@ -251,6 +258,70 @@ func recipe_progress(mythic: String) -> Array:
 func mergeable(i: int) -> bool:
 	var c: Dictionary = cells[i]
 	return c["id"] != "" and c["n"] >= GameData.MAX_STACK and GameData.UNITS[c["id"]]["rarity"] <= GameData.Rarity.EPIC
+
+
+# ===========================================================================
+# 라운드 규칙 (무한 모드 / 스토리 스테이지 공통)
+# ===========================================================================
+func apply_stage(id: String) -> void:
+	var st := Story.get_stage(id)
+	if st.is_empty():
+		return
+	var ch: Dictionary = st["chapter"]
+	var d: Dictionary = st["data"]
+	stage_id = id
+	final_wave = d["rounds"]
+	stage_hp_mult = ch["hp"]
+	stage_mods = d.get("mods", [])
+	stage_boss = d.get("boss", -1)
+	gold = ch["gold"]
+	gems = ch["gems"]
+
+
+func is_boss_round(w: int) -> bool:
+	if stage_id != "":
+		return stage_boss >= 0 and w == final_wave
+	return GameData.is_boss_wave(w)
+
+
+func is_bonus_round(w: int) -> bool:
+	if stage_id != "":
+		return w == 5 and final_wave >= 8
+	return GameData.is_bonus_wave(w)
+
+
+func hp_at(w: int) -> float:
+	var hp := GameData.wave_hp(w) * stage_hp_mult
+	if "swarm" in stage_mods:
+		hp *= 0.75
+	return hp
+
+
+func boss_hp_at(w: int) -> float:
+	if stage_id != "":
+		var hp := GameData.wave_hp(w) * stage_hp_mult * GameData.BOSS_HP_MULT * 0.55
+		if stage_boss == 4:
+			hp *= 1.5
+		return hp
+	return GameData.boss_hp(w)
+
+
+func boss_time_at(w: int) -> float:
+	if stage_id != "":
+		return 75.0 if stage_boss == 4 else GameData.BOSS_WAVE_TIME
+	return GameData.boss_time(w)
+
+
+func stage_stars() -> int:
+	## 클리어 평가: 클리어 ★1, 최대 적 수 30 미만 ★2, 15 미만(부활 없이) ★3
+	if not final_cleared_flag:
+		return 0
+	var st := 1
+	if peak_field < 30:
+		st += 1
+	if peak_field < 15 and revived == 0:
+		st += 1
+	return st
 
 
 func unit_power(id: String) -> float:
@@ -447,6 +518,9 @@ func first_combinable() -> String:
 func gamble(g: int) -> bool:
 	if not alive:
 		return false
+	if "no_gamble" in stage_mods:
+		float_text(Vector2(SIZE / 2, 150), "운 봉인! 도박 불가", Color(1, 0.4, 0.4))
+		return false
 	var d: Dictionary = GameData.GAMBLES[g]
 	if gems < d["gems"]:
 		float_text(Vector2(SIZE / 2, 150), "보석 부족!", Color(1, 0.4, 0.4))
@@ -630,10 +704,10 @@ func receive_attack(attack_id: String) -> void:
 	match attack_id:
 		"swarm":
 			for k in 6:
-				_spawn("fast", GameData.wave_hp(w), -k * 18.0)
+				_spawn("fast", hp_at(w), -k * 18.0)
 			show_banner("적이 몰려온다!", "상대가 잡몹 떼를 보냈습니다", Color(1, 0.5, 0.3))
 		"elite":
-			_spawn("elite", GameData.wave_hp(w), 0.0)
+			_spawn("elite", hp_at(w), 0.0)
 			show_banner("정예 괴수 습격!", "상대가 정예를 보냈습니다", Color(1, 0.3, 0.3))
 		"curse":
 			curse_t = 10.0
@@ -686,6 +760,7 @@ func step(dt: float) -> void:
 		return
 	time_alive += dt
 	lucky_t = maxf(0.0, lucky_t - dt)
+	peak_field = maxi(peak_field, field_count())
 	curse_t = maxf(0.0, curse_t - dt)
 	_update_waves(dt)
 	_update_enemies(dt)
@@ -707,10 +782,16 @@ func _update_waves(dt: float) -> void:
 		var sec := int(ceil(wave_timer))
 		if sec != _last_tick and sec >= 1 and sec <= 5:
 			_last_tick = sec
-			_sfx("tick_boss" if GameData.is_boss_wave(wave) else "tick")
+			_sfx("tick_boss" if is_boss_round(wave) else "tick")
 		if wave_timer <= 0.0:
 			_end_wave()
 			if boss_failed:
+				return
+			if stage_id != "" and wave >= final_wave and not is_boss_round(wave):
+				# 보스 없는 스테이지: 마지막 라운드를 버티면 클리어
+				final_cleared_flag = true
+				final_cleared.emit(self)
+				show_banner("스테이지 클리어!", "", Color(1, 0.85, 0.35))
 				return
 			_start_wave(wave + 1)
 	# 적이 한도에 가까우면 경보
@@ -723,14 +804,17 @@ func _update_waves(dt: float) -> void:
 		if spawn_t <= 0.0:
 			spawn_t = GameData.SPAWN_INTERVAL
 			spawn_left -= 1
-			_spawn(GameData.pick_enemy(rng, wave), GameData.wave_hp(wave), 0.0)
+			var kind := GameData.pick_enemy(rng, wave)
+			if "tank" in stage_mods and rng.randf() < 0.35:
+				kind = "tank"
+			_spawn(kind, hp_at(wave), 0.0)
 
 
 func _end_wave() -> void:
 	frenzy = false
 	if wave <= 0:
 		return
-	if GameData.is_boss_wave(wave):
+	if is_boss_round(wave):
 		for e in enemies:
 			if e.alive and e.is_boss:
 				boss_failed = true
@@ -738,7 +822,7 @@ func _end_wave() -> void:
 			show_banner("보스 제한시간 초과!", "보스를 잡지 못했습니다", Color(1, 0.2, 0.2))
 			_flash(Color(1, 0, 0), 0.6)
 			shake = 14.0
-	elif GameData.is_bonus_wave(wave):
+	elif is_bonus_round(wave):
 		var missed := 0
 		for e in enemies:
 			if e.alive and e.kind == "bonus":
@@ -755,29 +839,31 @@ func _end_wave() -> void:
 func _start_wave(w: int) -> void:
 	wave = w
 	_last_tick = -1
-	if GameData.is_boss_wave(w):
-		wave_timer = GameData.boss_time(w) + bonus_boss_time
+	if is_boss_round(w):
+		wave_timer = boss_time_at(w) + bonus_boss_time
 		spawn_left = 0
-		var b: EnemyState = _spawn("boss", GameData.boss_hp(w), 0.0)
+		var b: EnemyState = _spawn("boss", boss_hp_at(w), 0.0)
 		b.boss_name = GameData.BOSS_NAMES[(w / 10 - 1) % GameData.BOSS_NAMES.size()]
-		if w == GameData.FINAL_WAVE:
+		if stage_boss >= 0:
+			b.boss_name = Story.BOSS_NAMES[stage_boss]
+		if (stage_id == "" and w == final_wave) or stage_boss == 4:
 			b.boss_name = "최종 보스 · 사각의 군주"
 			b.size *= 1.3
 		boss_warn_t = 2.5
 		_setup_boss_skills(b, w)
-		show_banner("ROUND %d - 보스!" % w, "%s 등장! %d초 안에 못 잡으면 패배" % [b.boss_name, int(GameData.boss_time(w))], Color(1, 0.3, 0.5))
+		show_banner("ROUND %d - 보스!" % w, "%s 등장! %d초 안에 못 잡으면 패배" % [b.boss_name, int(boss_time_at(w))], Color(1, 0.3, 0.5))
 		_sfx("boss")
-	elif GameData.is_bonus_wave(w):
+	elif is_bonus_round(w):
 		wave_timer = GameData.BONUS_WAVE_TIME
 		spawn_left = 0
 		bonus_left = GameData.BONUS_COUNT
 		for k in GameData.BONUS_COUNT:
-			_spawn("bonus", GameData.wave_hp(w), -k * 36.0)
+			_spawn("bonus", hp_at(w), -k * 36.0)
 		show_banner("ROUND %d - 보너스!" % w, "%d초 안에 보물 돼지를 잡아 골드를 챙기세요" % int(GameData.BONUS_WAVE_TIME), Color(1, 0.75, 0.8))
 		_sfx("round")
 	else:
 		wave_timer = GameData.WAVE_TIME
-		spawn_left = GameData.SPAWN_PER_WAVE
+		spawn_left = GameData.SPAWN_PER_WAVE * (3 if "swarm" in stage_mods else 2) / 2
 		spawn_t = 0.0
 		show_banner("ROUND %d" % w, "", Color(0.9, 0.9, 1.0))
 		_sfx("round")
@@ -787,13 +873,13 @@ func _start_wave(w: int) -> void:
 
 func _random_event() -> void:
 	var pool: Array = GameData.EVENTS.duplicate()
-	if GameData.is_boss_wave(wave):
+	if is_boss_round(wave):
 		pool = pool.filter(func(ev): return ev["id"] != "frenzy")
 	var ev: Dictionary = pool[event_rng.randi() % pool.size()]
 	show_banner(ev["name"], ev["desc"], Color(1.0, 0.85, 0.3))
 	match ev["id"]:
 		"goblin":
-			_spawn("goblin", GameData.wave_hp(wave), 0.0)
+			_spawn("goblin", hp_at(wave), 0.0)
 		"lucky":
 			lucky_t = 15.0
 		"frenzy":
@@ -812,6 +898,10 @@ func _random_event() -> void:
 func _spawn(kind: String, base_hp: float, offset: float) -> EnemyState:
 	var e := EnemyState.new()
 	e.setup(kind, base_hp)
+	if "fast" in stage_mods:
+		e.speed *= 1.25
+	if "armored" in stage_mods:
+		e.armor += 15.0
 	e.dist = offset
 	e.pos = path_pos(e.dist)
 	e.wobble = rng.randf() * TAU
@@ -1226,7 +1316,7 @@ func _kill(e: EnemyState) -> void:
 		"boss":
 			bosses_killed += 1
 			_coin_burst(e.pos, 22)
-			boss_kill_times[wave] = snappedf(GameData.boss_time(wave) + bonus_boss_time - wave_timer, 0.1)
+			boss_kill_times[wave] = snappedf(boss_time_at(wave) + bonus_boss_time - wave_timer, 0.1)
 			g = 100 + wave * 10
 			var gm := 3 + wave / 10
 			gems += gm
@@ -1234,7 +1324,7 @@ func _kill(e: EnemyState) -> void:
 			_sfx("win")
 			_flash(Color(1, 0.9, 0.5), 0.5)
 			shake = 14.0
-			if wave >= GameData.FINAL_WAVE and mode != "pvp" and not final_cleared_flag:
+			if wave >= final_wave and mode != "pvp" and not final_cleared_flag:
 				final_cleared_flag = true
 				final_cleared.emit(self)
 		"elite":
@@ -1253,6 +1343,8 @@ func _kill(e: EnemyState) -> void:
 				gems += 1
 				show_banner("퍼펙트 보너스!", "돼지 전부 처치 +1 보석", Color(1, 0.8, 0.85))
 				_sfx("rare")
+	if "rich" in stage_mods:
+		g = int(ceil(g * 1.5))
 	gold += g
 	for n in e.split:
 		var m := _spawn("mini", e.max_hp / GameData.ENEMIES["splitter"]["hp"], e.dist - 10.0 * n)
@@ -1574,8 +1666,10 @@ func _update_enhance(dt: float) -> void:
 # ===========================================================================
 func _setup_boss_skills(b: EnemyState, w: int) -> void:
 	var set_i := clampi(w / 10 - 1, 0, GameData.BOSS_SKILLS.size() - 1)
+	if stage_boss >= 0:
+		set_i = mini(stage_boss, GameData.BOSS_SKILLS.size() - 1)
 	var list: Array = GameData.BOSS_SKILLS[set_i].duplicate(true)
-	if w == GameData.FINAL_WAVE or (mode == "pvp" and w > GameData.FINAL_WAVE):
+	if (stage_id == "" and w == final_wave) or stage_boss == 4 or (mode == "pvp" and w > GameData.FINAL_WAVE):
 		list = [["dash", 11.0], ["summon", 12.0], ["shield", 14.0], ["blink", 12.0], ["roar", 13.0]]
 	b.skills = list
 	b.skill_cd = []
@@ -1643,7 +1737,7 @@ func _boss_skill(e: EnemyState, sid: String) -> void:
 		"summon":
 			var n := 8 if e.phase2 else 5
 			for k in n:
-				var m := _spawn("normal", GameData.wave_hp(maxi(wave, 1)) * 0.7, e.dist - 18.0 * (k + 1))
+				var m := _spawn("normal", hp_at(maxi(wave, 1)) * 0.7, e.dist - 18.0 * (k + 1))
 				m.color = Color(0.75, 0.75, 0.8)
 			_add_effect({"type": "boom", "pos": e.pos, "r": 60.0, "t": 0.0, "dur": 0.5, "color": Color(0.6, 0.6, 0.7)})
 		"regen":
@@ -1678,6 +1772,9 @@ func slot_bet(i: int) -> int:
 
 func slot_spin(i: int) -> bool:
 	if not alive or not pending_slot.is_empty():
+		return false
+	if "no_gamble" in stage_mods:
+		float_text(Vector2(SIZE / 2, 150), "운 봉인! 슬롯 불가", Color(1, 0.4, 0.4))
 		return false
 	var bet := slot_bet(i)
 	if gold < bet:
@@ -1941,7 +2038,7 @@ func _draw() -> void:
 		draw_rect(Rect2(0, 0, SIZE, SIZE), Color(0, 0, 0, 0.6))
 		Glyphs.draw_icon(self, "defeat", Vector2(SIZE / 2, SIZE / 2), 70.0, Color(1, 0.3, 0.3))
 	elif final_cleared_flag and mode != "pvp":
-		_text(Vector2(SIZE / 2, SIZE / 2 - 110), "최종 보스 격파!", 26, Color(1, 0.9, 0.4))
+		_text(Vector2(SIZE / 2, SIZE / 2 - 110), "스테이지 클리어!" if stage_id != "" else "최종 보스 격파!", 26, Color(1, 0.9, 0.4))
 
 
 func _text(center: Vector2, s: String, fsize: int, color: Color, outline := true) -> void:
@@ -2338,7 +2435,7 @@ func _draw_countdown() -> void:
 	## 라운드 마지막 5초 큰 카운트다운 (유즈맵 스타일)
 	if not alive or wave_timer > 5.0 or wave_timer <= 0.0 or (final_cleared_flag and mode != "pvp"):
 		return
-	var boss := GameData.is_boss_wave(wave)
+	var boss := is_boss_round(wave)
 	var boss_alive := false
 	if boss:
 		for e in enemies:

@@ -17,6 +17,11 @@ var stats := {"games": 0, "wins": 0, "best_round": 0, "kills": 0, "mythics": 0, 
 var level := 1
 var xp := 0
 var achievements := {}   # 업적 id -> 달성한 단계 수
+var campaign := {}       # 스테이지 id -> 최고 ★ (0~3)
+var chests := {}         # "장-단계" -> 받음
+var story_seen := {}     # 스테이지 id -> 대사 봄
+var streak := 0          # 연승
+var idle_last := 0       # 방치 보상 마지막 수령 (유닉스 초)
 var settings := {"sound": true, "captions": false}
 var device_id := ""
 var unit_levels := {}    # 유닛 id -> 영구 레벨
@@ -30,6 +35,8 @@ var roulette := {"date": "", "free": false, "ads": 0}
 
 func _ready() -> void:
 	load_profile()
+	if idle_last == 0:
+		idle_last = int(Time.get_unix_time_from_system())
 	if device_id == "":
 		device_id = "%08x%08x%08x" % [randi(), randi(), Time.get_ticks_usec() & 0xFFFFFFFF]
 		save()
@@ -59,6 +66,11 @@ func load_profile() -> void:
 	level = cfg.get_value("p", "level", 1)
 	xp = cfg.get_value("p", "xp", 0)
 	achievements = cfg.get_value("p", "achievements", {})
+	campaign = cfg.get_value("p", "campaign", {})
+	chests = cfg.get_value("p", "chests", {})
+	story_seen = cfg.get_value("p", "story_seen", {})
+	streak = cfg.get_value("p", "streak", 0)
+	idle_last = cfg.get_value("p", "idle_last", 0)
 	roulette = cfg.get_value("p", "roulette", roulette)
 
 
@@ -82,6 +94,11 @@ func save() -> void:
 	cfg.set_value("p", "level", level)
 	cfg.set_value("p", "xp", xp)
 	cfg.set_value("p", "achievements", achievements)
+	cfg.set_value("p", "campaign", campaign)
+	cfg.set_value("p", "chests", chests)
+	cfg.set_value("p", "story_seen", story_seen)
+	cfg.set_value("p", "streak", streak)
+	cfg.set_value("p", "idle_last", idle_last)
 	cfg.set_value("p", "roulette", roulette)
 	cfg.save(PATH)
 	changed.emit()
@@ -422,3 +439,92 @@ func finish_match(b: Board, won: bool) -> Dictionary:
 	save()
 	var achs := check_achievements()
 	return {"xp": gained, "levels": levels, "level": level, "level_coins": level_coins, "achievements": achs, "best": best}
+
+
+
+# ---- 스토리 ----
+func stage_stars(id: String) -> int:
+	return int(campaign.get(id, 0))
+
+
+func stage_unlocked(id: String) -> bool:
+	if id == "1-1":
+		return true
+	var ids := Story.all_ids()
+	var i := ids.find(id)
+	return i > 0 and stage_stars(ids[i - 1]) > 0
+
+
+func chapter_stars(ch: int) -> int:
+	var n := 0
+	for i in Story.CHAPTERS[ch - 1]["stages"].size():
+		n += stage_stars(Story.stage_id(ch, i + 1))
+	return n
+
+
+func total_stars() -> int:
+	var n := 0
+	for id in campaign:
+		n += int(campaign[id])
+	return n
+
+
+func record_stage(id: String, stars: int) -> Dictionary:
+	## 스테이지 결과 반영. {first, new_stars, coins}
+	var old := stage_stars(id)
+	var out := {"first": old == 0 and stars > 0, "new_stars": maxi(0, stars - old), "coins": 0}
+	if stars > old:
+		campaign[id] = stars
+	var ch := int(id.split("-")[0])
+	if out["first"]:
+		out["coins"] += 40 + ch * 30
+	out["coins"] += out["new_stars"] * (15 + ch * 10)
+	coins += out["coins"]
+	save()
+	return out
+
+
+func chest_claimable(ch: int, step: int) -> bool:
+	var need: int = Story.CHEST_STEPS[step][0]
+	return chapter_stars(ch) >= need and not chests.get("%d-%d" % [ch, step], false)
+
+
+func claim_chest(ch: int, step: int) -> bool:
+	if not chest_claimable(ch, step):
+		return false
+	chests["%d-%d" % [ch, step]] = true
+	var c: Array = Story.CHEST_STEPS[step]
+	coins += int(c[1]) * ch
+	items[c[2]] = item_count(c[2]) + 1
+	save()
+	return true
+
+
+# ---- 연승 ----
+func streak_mult() -> float:
+	return 1.0 + 0.1 * mini(streak, 5)
+
+
+func note_result(won: bool) -> void:
+	streak = streak + 1 if won else 0
+	save()
+
+
+# ---- 방치 보상: 접속하지 않아도 10분마다 코인이 쌓임 (최대 8시간) ----
+func idle_rate() -> int:
+	## 10분당 코인
+	return 4 + total_stars() / 3 + level / 2
+
+
+func idle_amount() -> int:
+	var now := int(Time.get_unix_time_from_system())
+	var secs := clampi(now - idle_last, 0, 8 * 3600)
+	return (secs / 600) * idle_rate()
+
+
+func claim_idle(mult := 1) -> int:
+	var n := idle_amount() * mult
+	coins += n
+	idle_last = int(Time.get_unix_time_from_system())
+	save()
+	return n

@@ -8,6 +8,9 @@ var _settings: PanelContainer
 var _coin_lbl: Label
 var _rewards_btn: ActionButton
 var _achieve: PanelContainer
+var _two_p: PanelContainer
+var _idle_btn: ActionButton
+var _idle_ad: ActionButton
 var _record_lbl: Label
 var _rank_panel: PanelContainer
 var _rank_list: ItemList
@@ -141,6 +144,8 @@ func _ready() -> void:
 	_build_help()
 	_build_settings()
 	_build_achievements()
+	_build_two_player()
+	_build_idle()
 	# 온라인 매치에서 돌아왔으면 로비를 바로 보여준다
 	if Net.connected:
 		_online.visible = true
@@ -151,6 +156,7 @@ func _process(delta: float) -> void:
 	if _t <= 0.0:
 		_t = 0.25
 		_refresh_online()
+		_refresh_idle()
 
 
 func _mode_sel() -> String:
@@ -436,18 +442,20 @@ func _build_mode_cards() -> void:
 	grid.position = Vector2(230, 180)
 	add_child(grid)
 	var cards := [
-		["mode_solo", "star", Color(1, 0.85, 0.35), "솔로", "40라운드 생존", func(): _start_local("solo", false)],
+		["mode_story", "book", Color(1, 0.8, 0.4), "스토리", _story_sub(), _open_story],
+		["mode_solo", "star", Color(1, 0.85, 0.35), "무한 모드", "40라운드 생존 · 최고 R%d" % int(Profile.stats.get("best_round", 0)), func(): _start_local("solo", false)],
 		["mode_coop_ai", "gift", Color(0.5, 0.95, 0.8), "협동 · AI", "AI 동료와 함께", func(): _start_local("coop", false)],
 		["mode_pvp_ai", "attack", Color(1, 0.5, 0.4), "대전 · AI", "먼저 무너지면 패배", func(): _start_local("pvp", false)],
-		["mode_coop_2p", "heart", Color(0.5, 0.95, 0.8), "협동 · 2인", "한 화면에서 친구와", func(): _start_local("coop", true)],
-		["mode_pvp_2p", "elite", Color(1, 0.5, 0.4), "대전 · 2인", "한 화면 대결", func(): _start_local("pvp", true)],
-		["mode_online", "ad", Color(0.45, 0.7, 1.0), "온라인", "서버 · 빠른 매칭", func(): _online.visible = true],
+		["mode_local_2p", "heart", Color(0.5, 0.95, 0.8), "로컬 2인", "한 화면에서 친구와", func(): _two_p.visible = true],
+		["mode_online", "ad", Color(0.45, 0.7, 1.0), "온라인", "서버 · 빠른 매칭 · 랭킹", func(): _online.visible = true],
 	]
 	for c in cards:
 		var card := VBoxContainer.new()
 		card.add_theme_constant_override("separation", 6)
 		var icon_name: String = c[0] if Art.icon(c[0]) != null else c[1]
 		var b := ActionButton.make(icon_name, c[2], c[3] + "\n" + c[4], c[5], Vector2(360, 200))
+		if c[0] == "mode_story":
+			b.glow = true
 		card.add_child(b)
 		var t := Label.new()
 		t.text = c[3]
@@ -462,6 +470,79 @@ func _build_mode_cards() -> void:
 		sub.add_theme_color_override("font_color", Color(0.65, 0.7, 0.8))
 		card.add_child(sub)
 		grid.add_child(card)
+
+
+func _open_story() -> void:
+	_apply_name()
+	get_tree().change_scene_to_file("res://scenes/Campaign.tscn")
+
+
+func _story_sub() -> String:
+	var cur := "1-1"
+	for id in Story.all_ids():
+		if Profile.stage_unlocked(id):
+			cur = id
+	return "진행 %s  ·  ★ %d" % [cur, Profile.total_stars()]
+
+
+func _build_two_player() -> void:
+	_two_p = _panel(Vector2(560, 300), Vector2(480, 260), "로컬 2인 (WASD / 방향키)")
+	_two_p.visible = false
+	var v: VBoxContainer = _two_p.get_child(0)
+	var h := HBoxContainer.new()
+	h.alignment = BoxContainer.ALIGNMENT_CENTER
+	h.add_theme_constant_override("separation", 16)
+	v.add_child(h)
+	var coop := ActionButton.make("heart", Color(0.5, 0.95, 0.8), "협동", func(): _start_local("coop", true), Vector2(200, 110))
+	coop.badge = "협동"
+	h.add_child(coop)
+	var pvp := ActionButton.make("attack", Color(1, 0.5, 0.4), "대전", func(): _start_local("pvp", true), Vector2(200, 110))
+	pvp.badge = "대전"
+	h.add_child(pvp)
+	v.add_child(_small_btn("닫기", func(): _two_p.visible = false))
+
+
+func _build_idle() -> void:
+	## 방치 보상: 접속하지 않은 동안 쌓인 코인 (최대 8시간)
+	var box := HBoxContainer.new()
+	box.position = Vector2(1380, 110)
+	box.add_theme_constant_override("separation", 6)
+	add_child(box)
+	_idle_btn = ActionButton.make("chest", Color.WHITE, "방치 보상 받기\n접속하지 않아도 10분마다 코인이 쌓여요 (최대 8시간)", _claim_idle, Vector2(90, 70))
+	_idle_btn.badge_icon = "coin"
+	box.add_child(_idle_btn)
+	_idle_ad = ActionButton.make("ad", Color(0.4, 0.7, 1.0), "광고 보고 방치 보상 2배", _claim_idle_ad, Vector2(90, 70))
+	_idle_ad.badge = "x2"
+	box.add_child(_idle_ad)
+	_refresh_idle()
+
+
+func _refresh_idle() -> void:
+	if not is_instance_valid(_idle_btn):
+		return
+	var n := Profile.idle_amount()
+	_idle_btn.badge = str(n)
+	_idle_btn.disabled = n <= 0
+	_idle_btn.glow = n > 0
+	_idle_ad.disabled = n <= 0
+	_idle_btn.queue_redraw()
+	_idle_ad.queue_redraw()
+
+
+func _claim_idle() -> void:
+	if Profile.claim_idle() > 0:
+		Sfx.play("win")
+	_refresh_idle()
+
+
+func _claim_idle_ad() -> void:
+	Ads.show_rewarded("idle_double", _grant_idle_double)
+
+
+func _grant_idle_double() -> void:
+	Profile.claim_idle(2)
+	Sfx.play("win")
+	_refresh_idle()
 
 
 func _build_bottom() -> void:

@@ -9,9 +9,11 @@ var seed_value := 0
 var bot_level := 1                # 0 쉬움 / 1 보통 / 2 어려움
 var player_name := "플레이어"
 var tutorial := false             # 다음 솔로 판에서 튜토리얼 표시
+var stage := ""                   # 스토리 스테이지 id ("" = 무한 모드)
 
 
 func setup_local(p_mode: String, p_players: Array) -> void:
+	stage = ""
 	mode = p_mode
 	players = p_players
 	online = false
@@ -21,6 +23,7 @@ func setup_local(p_mode: String, p_players: Array) -> void:
 
 func setup_online(p_mode: String, seed_v: int, host_name: String, guest_name: String, my_index: int) -> void:
 	mode = p_mode
+	stage = ""
 	online = true
 	seed_value = seed_v
 	local_index = my_index

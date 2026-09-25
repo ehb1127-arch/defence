@@ -13,12 +13,14 @@ func _ready() -> void:
 
 
 func _run(mode: String, level: int, seed_v: int) -> void:
-	var n := 1 if mode == "solo" else 2
+	var n := 1 if mode == "solo" or mode.contains("-") else 2
 	var boards: Array = []
 	var bots: Array = []
 	for i in n:
 		var b := Board.new()
-		b.setup(i, "Bot%d" % i, mode, seed_v, false, true)
+		b.setup(i, "Bot%d" % i, "solo" if mode.contains("-") else mode, seed_v, false, true)
+		if mode.contains("-"):
+			b.apply_stage(mode)
 		add_child(b)
 		boards.append(b)
 	for i in n:
@@ -61,6 +63,9 @@ func _run(mode: String, level: int, seed_v: int) -> void:
 				result = "pvp: Bot%d lost" % dead[0].index
 				break
 		else:
+			if mode.contains("-") and boards[0].final_cleared_flag:
+				result = "stage WIN stars=%d" % boards[0].stage_stars()
+				break
 			if boards[0].field_count() >= boards[0].enemy_limit or boards[0].boss_failed:
 				result = "solo LOSE" + (" (boss)" if boards[0].boss_failed else "")
 				break

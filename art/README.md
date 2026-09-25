@@ -133,6 +133,18 @@
 | `ui/shop_bg.png` | 상점 배경 (1600×900, 9-slice 아님) |
 | `ui/logo.png` | 게임 로고 (가로형, 약 1040×260) |
 
+## portraits/ — 스토리 초상화 (권장 640×720, 투명 배경)
+
+| 파일 | 인물 |
+| --- | --- |
+| `portraits/arka.png` | 아르카 (스승) |
+| `portraits/rina.png` | 리나 (동료 궁수) |
+| `portraits/kael.png` | 카엘 (라이벌) |
+| `portraits/lord.png` | 사각의 군주 (최종 보스) |
+| `portraits/ogre.png` / `lich.png` / `golem.png` / `eye.png` | 장 보스 |
+
+스토리 배경: `ui/chapter_1.png` ~ `ui/chapter_5.png` (1600×900), 대화창: `ui/dialogue_panel.png` (9-slice)
+
 ## 글자 표시
 
 - 전장 칸에는 유닛 이름을 쓰지 않습니다. 마우스를 올리거나 선택했을 때만 이름표가 뜹니다.
