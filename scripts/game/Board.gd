@@ -1984,7 +1984,8 @@ func _cast_skill(i: int, c: Dictionary, u: Dictionary) -> void:
 	var glob: bool = sid in SKILL_FX_GLOBAL
 	var at := Vector2(SIZE / 2, SIZE / 2) if glob else cell_center(i)
 	var sz: float = SIZE * 0.95 if glob else clampf(float(u["range"]) * 2.2, 220.0, SIZE)
-	if _img_fx("skill_" + sid, at, sz, 1.0):
+	# 전장 전체 효과는 유닛이 비쳐 보이게 살짝 투명하게
+	if _img_fx("skill_" + sid, at, sz, 1.0, Color(1, 1, 1, 0.82 if glob else 1.0)):
 		_fx_mute = true
 	_cast_skill_fx(i, c, u)
 	_fx_mute = false
@@ -2480,7 +2481,7 @@ func _boss_skill(e: EnemyState, sid: String) -> void:
 	var rot := 0.0
 	if sid == "dash":
 		rot = (path_pos(e.dist + 10.0) - path_pos(e.dist)).angle()
-	if _img_fx("boss_" + sid, at, sz, 0.9, Color.WHITE, rot, sid != "dash"):
+	if _img_fx("boss_" + sid, at, sz, 0.9, Color(1, 1, 1, 0.8 if glob else 1.0), rot, sid != "dash"):
 		_fx_mute = true
 	_boss_skill_fx(e, sid)
 	_fx_mute = false
@@ -2847,10 +2848,14 @@ func _atk_fx(style: String, from: Vector2, to: Vector2, col: Color, big: bool, d
 		if style in MELEE_STYLES:
 			_img_fx(key, to, sz, 0.28, tint, (to - from).angle(), false)
 			return
+		var fly := maxf(dur, 0.14)
 		if FxArt.has("proj_" + hk):
-			_add_effect({"type": "proj", "key": "proj_" + hk, "from": from, "to": to, "t": 0.0, "dur": maxf(dur, 0.14), "color": tint, "size": sz * 0.7})
-			_add_effect({"type": "img", "key": key, "pos": to, "size": sz, "t": -maxf(dur, 0.14), "dur": 0.28, "color": tint, "rot": 0.0, "spin": false})
-			return
+			_add_effect({"type": "proj", "key": "proj_" + hk, "from": from, "to": to, "t": 0.0, "dur": fly, "color": tint, "size": sz * 0.7})
+		else:
+			# 투사체 이미지가 없으면 날아가는 모습은 코드 연출, 맞는 순간은 타격 이미지
+			_add_effect({"type": "atk", "style": style, "from": from, "to": to, "t": 0.0, "dur": dur, "color": col, "big": big, "seed": rng.randf() * TAU, "no_hit": true})
+		_add_effect({"type": "img", "key": key, "pos": to, "size": sz, "t": -fly * 0.6, "dur": 0.3, "color": tint, "rot": 0.0, "spin": false})
+		return
 	_add_effect({"type": "atk", "style": style, "from": from, "to": to, "t": 0.0, "dur": dur,
 		"color": col, "big": big, "seed": rng.randf() * TAU})
 
