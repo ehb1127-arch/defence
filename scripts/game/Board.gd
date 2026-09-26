@@ -95,6 +95,8 @@ var final_wave := GameData.FINAL_WAVE
 var stage_id := ""
 var stage_hp_mult := 1.0
 var stage_mods: Array = []
+var stage_chapter := 0           # 스토리 장 번호 (탑/오늘의 결계 0)
+var stage_hard := false
 var stage_boss := -1
 var peak_field := 0
 var interrupts := 0
@@ -281,8 +283,12 @@ func apply_stage(id: String) -> void:
 	stage_hp_mult = ch["hp"]
 	stage_mods = d.get("mods", [])
 	stage_boss = d.get("boss", -1)
+	stage_chapter = Story.chapter_of(id)
+	stage_hard = st.get("hard", false)
 	gold = ch["gold"]
 	gems = ch["gems"]
+	if "poor" in stage_mods:
+		gold = int(gold * 0.7)
 
 
 func is_boss_round(w: int) -> bool:
@@ -307,7 +313,7 @@ func hp_at(w: int) -> float:
 func boss_hp_at(w: int) -> float:
 	if stage_id != "":
 		var hp := GameData.wave_hp(w) * stage_hp_mult * GameData.BOSS_HP_MULT * 0.55
-		if stage_boss == 4:
+		if stage_boss in Story.FINAL_BOSSES:
 			hp *= 1.5
 		return hp
 	return GameData.boss_hp(w)
@@ -315,7 +321,7 @@ func boss_hp_at(w: int) -> float:
 
 func boss_time_at(w: int) -> float:
 	if stage_id != "":
-		return 75.0 if stage_boss == 4 else GameData.BOSS_WAVE_TIME
+		return 75.0 if stage_boss in Story.FINAL_BOSSES else GameData.BOSS_WAVE_TIME
 	return GameData.boss_time(w)
 
 
@@ -900,6 +906,8 @@ func _update_waves(dt: float) -> void:
 			var kind := GameData.pick_enemy(rng, wave)
 			if "tank" in stage_mods and rng.randf() < 0.35:
 				kind = "tank"
+			elif "elites" in stage_mods and rng.randf() < 0.07:
+				kind = "elite"
 			_spawn(kind, hp_at(wave), 0.0)
 
 
@@ -939,8 +947,8 @@ func _start_wave(w: int) -> void:
 		b.boss_name = GameData.BOSS_NAMES[(w / 10 - 1) % GameData.BOSS_NAMES.size()]
 		if stage_boss >= 0:
 			b.boss_name = Story.BOSS_NAMES[stage_boss]
-		if (stage_id == "" and w == final_wave) or stage_boss == 4:
-			b.boss_name = "최종 보스 · 사각의 군주"
+		if (stage_id == "" and w == final_wave) or stage_boss in Story.FINAL_BOSSES:
+			b.boss_name = "최종 보스 · " + (Story.BOSS_NAMES[stage_boss] if stage_boss >= 0 else "사각의 군주")
 			b.size *= 1.3
 		boss_warn_t = 2.5
 		_setup_boss_skills(b, w)
@@ -958,7 +966,7 @@ func _start_wave(w: int) -> void:
 		wave_timer = GameData.WAVE_TIME
 		spawn_left = GameData.SPAWN_PER_WAVE * (3 if "swarm" in stage_mods else 2) / 2
 		spawn_t = 0.0
-		if GameData.is_midboss_wave(w) and w < final_wave:
+		if _midboss_round(w):
 			var mb := _spawn("midboss", hp_at(w), 0.0)
 			mb.boss_name = GameData.MIDBOSS_NAMES[(w / 10) % GameData.MIDBOSS_NAMES.size()]
 			boss_warn_t = 1.5
@@ -968,10 +976,31 @@ func _start_wave(w: int) -> void:
 			show_banner("ROUND %d" % w, "", Color(0.9, 0.9, 1.0))
 			_sfx("round")
 		# 적 영웅: 라운드 중간에 난입 (대전은 같은 시드라 두 사람에게 똑같이)
-		if w >= GameData.HERO_FROM_WAVE and not GameData.is_midboss_wave(w) and event_rng.randf() < GameData.HERO_CHANCE:
+		if not _midboss_round(w) and event_rng.randf() < _hero_chance(w):
 			_hero_t = 5.0 + event_rng.randf() * 6.0
 	if GameData.is_event_wave(w):
 		_random_event()
+
+
+func _midboss_round(w: int) -> bool:
+	if w >= final_wave:
+		return false
+	if stage_id == "":
+		return GameData.is_midboss_wave(w)
+	# 스토리/탑: '중간보스' 규칙이 있을 때 4·8라운드, 3장 이후 10라운드 이상 스테이지는 7라운드
+	if "midboss" in stage_mods and (w == 4 or w == 8):
+		return true
+	return stage_chapter >= 3 and final_wave >= 10 and w == 7
+
+
+func _hero_chance(w: int) -> float:
+	if "heroes" in stage_mods:
+		return 1.0 if w >= 2 else 0.0
+	if w < GameData.HERO_FROM_WAVE:
+		return 0.0
+	if stage_id != "" and stage_chapter > 0 and stage_chapter < 3 and not stage_hard:
+		return 0.0   # 초반 스토리는 영웅 없이
+	return GameData.HERO_CHANCE
 
 
 func _spawn_hero() -> void:
@@ -1232,6 +1261,8 @@ func cell_speed(c: Dictionary) -> float:
 	var s: float = (1.0 + GameData.STAR_SPEED * c.get("star", 0)) * (1.0 + syn.get("support", 0.0)) * upgrade_speed(GameData.UNITS[id]["rarity"])
 	if has_tag(id, "archer"):
 		s *= 1.0 + syn.get("archer", 0.0)
+	if "curse" in stage_mods:
+		s *= 0.85
 	return s
 
 
@@ -1561,6 +1592,8 @@ func _kill(e: EnemyState) -> void:
 				_sfx("rare")
 	if "rich" in stage_mods:
 		g = int(ceil(g * 1.5))
+	elif "poor" in stage_mods:
+		g = maxi(1, int(g * 0.7))
 	gold += g
 	for n in e.split:
 		var m := _spawn("mini", e.max_hp / GameData.ENEMIES["splitter"]["hp"], e.dist - 10.0 * n)
@@ -1885,7 +1918,7 @@ func _setup_boss_skills(b: EnemyState, w: int) -> void:
 	if stage_boss >= 0:
 		set_i = mini(stage_boss, GameData.BOSS_SKILLS.size() - 1)
 	var list: Array = GameData.BOSS_SKILLS[set_i].duplicate(true)
-	if (stage_id == "" and w == final_wave) or stage_boss == 4 or (mode == "pvp" and w > GameData.FINAL_WAVE):
+	if (stage_id == "" and w == final_wave) or stage_boss in Story.FINAL_BOSSES or (mode == "pvp" and w > GameData.FINAL_WAVE):
 		list = [["dash", 11.0], ["summon", 12.0], ["shield", 14.0], ["blink", 12.0], ["roar", 13.0]]
 	b.skills = list
 	b.skill_cd = []
@@ -1903,7 +1936,7 @@ func _update_boss(e: EnemyState, dt: float) -> void:
 			e.skill_cd[k] = minf(e.skill_cd[k], 1.5)
 		for s2 in e.skills:
 			s2[1] *= 0.7
-		show_banner("2페이즈!", "사각의 군주가 광폭화합니다", Color(1, 0.2, 0.3))
+		show_banner("2페이즈!", "%s 광폭화!" % e.boss_name.trim_prefix("최종 보스 · "), Color(1, 0.2, 0.3))
 		_flash(Color(1, 0.1, 0.2), 0.5)
 		_boss_skill(e, "summon")
 		shake = 14.0
@@ -2691,10 +2724,17 @@ func _draw_reveal() -> void:
 func _draw_combo() -> void:
 	if combo < 5 or not alive:
 		return
-	var s := 1.0 + combo_pop * 0.35
+	# 전장 가운데 크게. 처치할 때마다 튀고, 콤보가 끊길 때가 다가오면 흐려진다 (유닛을 가리지 않게 반투명)
+	var s := 1.0 + combo_pop * 0.4
 	var col := Color(1, 0.85, 0.3).lerp(Color(1, 0.3, 0.2), clampf(combo / 100.0, 0.0, 1.0))
-	_text(Vector2(SIZE - 100, 78), "COMBO", int(14 * s), Color(col, 0.9))
-	_text(Vector2(SIZE - 100, 104), str(combo), int(30 * s), col)
+	var a := clampf(_combo_t / GameData.COMBO_WINDOW, 0.25, 1.0) * 0.85
+	var c := Vector2(SIZE * 0.5, SIZE * (0.26 if banner_t > 0.0 else 0.44))
+	_text(c + Vector2(0, -34 * s), "COMBO", int(20 * s), Color(col, a))
+	_text(c + Vector2(0, 8), str(combo), int(58 * s), Color(col, a))
+	# 콤보 시간 게이지
+	var gw := 120.0
+	draw_rect(Rect2(c + Vector2(-gw / 2, 44), Vector2(gw, 5)), Color(0, 0, 0, 0.5 * a))
+	draw_rect(Rect2(c + Vector2(-gw / 2, 44), Vector2(gw * clampf(_combo_t / GameData.COMBO_WINDOW, 0.0, 1.0), 5)), Color(col, a))
 
 
 func _draw_boss_warning() -> void:

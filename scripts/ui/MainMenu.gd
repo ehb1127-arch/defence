@@ -550,6 +550,12 @@ var _hero: Control
 func _modes() -> Array:
 	return [
 		{"id": "story", "icon": "book", "col": Color(1, 0.8, 0.4), "name": "스토리", "sub": _story_sub(), "go": "스토리 계속"},
+		{"id": "daily", "icon": "clock", "col": Color(1, 0.75, 0.35), "name": "오늘의 결계",
+			"sub": ("오늘 완료! 내일 새 규칙" if Profile.daily_done() else "매일 바뀌는 규칙 · 보상 300코인") if Profile.stage_unlocked(Story.daily_id()) or Profile.daily_done() else "스토리 1장을 깨면 열려요",
+			"go": "다시 도전" if Profile.daily_done() else "도전!"},
+		{"id": "tower", "icon": "crown", "col": Color(0.7, 0.85, 1.0), "name": "결계의 탑",
+			"sub": ("최고 %d층 · 끝없는 도전" % Profile.tower_best()) if Profile.stage_unlocked("T1") else "스토리 4장을 깨면 열려요",
+			"go": "%d층 도전" % (Profile.tower_best() + 1)},
 		{"id": "solo", "icon": "star", "col": Color(1, 0.85, 0.35), "name": "무한 모드", "sub": "40라운드 생존 · 최고 R%d" % int(Profile.stats.get("best_round", 0)), "go": "전투 시작"},
 		{"id": "coop", "icon": "heart", "col": Color(0.5, 0.95, 0.8), "name": "협동 · AI", "sub": "AI 동료와 함께 40라운드", "go": "전투 시작"},
 		{"id": "pvp", "icon": "attack", "col": Color(1, 0.5, 0.4), "name": "대전 · AI", "sub": "먼저 무너지면 패배", "go": "전투 시작"},
@@ -655,6 +661,13 @@ func _start_selected() -> void:
 	var id: String = _modes()[_mode_i]["id"]
 	if id == "story":
 		_open_story()
+	elif id == "daily" or id == "tower":
+		var sid := Story.daily_id() if id == "daily" else "T%d" % (Profile.tower_best() + 1)
+		if not Profile.stage_unlocked(sid) and not (id == "daily" and Profile.daily_done()):
+			Platform.show_toast(_modes()[_mode_i]["sub"])
+			return
+		_apply_name()
+		Campaign.start_stage(sid, get_tree())
 	else:
 		_start_local(id, false)
 
@@ -696,7 +709,7 @@ func _story_sub() -> String:
 	for id in Story.all_ids():
 		if Profile.stage_unlocked(id):
 			cur = id
-	return "진행 %s  ·  ★ %d" % [cur, Profile.total_stars()]
+	return "진행 %s  ·  ★ %d / %d" % [cur, Profile.total_stars(), Story.all_ids().size() * 3]
 
 
 func _build_two_player() -> void:

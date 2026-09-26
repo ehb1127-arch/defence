@@ -419,12 +419,22 @@ func reward_badge() -> int:
 
 
 # ---- 업적 / 계정 레벨 ----
-const _SUM_STATS := {"kills": "kills", "mythics": "mythics_done", "bosses": "bosses_killed", "interrupts": "interrupts", "jackpots": "slot_jackpots", "merges": "merges_done"}
+const _SUM_STATS := {"kills": "kills", "mythics": "mythics_done", "bosses": "bosses_killed", "interrupts": "interrupts", "jackpots": "slot_jackpots", "merges": "merges_done", "controls": "mind_controls"}
 const _MAX_STATS := {"max_star": "max_star", "max_combo": "best_combo", "best_round": "wave"}
 
 
 func ach_value(stat: String, b: Board = null) -> int:
 	## 누적 기록 + (진행 중인 판의 기록)
+	match stat:
+		"story_stars": return total_stars()
+		"hard_stars": return hard_stars()
+		"tower": return tower_best()
+		"dailies":
+			var nd := 0
+			for k in campaign:
+				if str(k).begins_with("D") and int(campaign[k]) > 0:
+					nd += 1
+			return nd
 	if stat == "discovered":
 		var n := discovered.size()
 		if b != null:
@@ -509,9 +519,42 @@ func stage_stars(id: String) -> int:
 func stage_unlocked(id: String) -> bool:
 	if id == "1-1":
 		return true
+	if id.begins_with("H"):
+		# 악몽: 보통 난이도에서 깬 스테이지만, 그리고 악몽 순서대로
+		var base := id.substr(1)
+		if stage_stars(base) <= 0:
+			return false
+		var hids := Story.hard_ids()
+		var hi := hids.find(id)
+		return hi == 0 or (hi > 0 and stage_stars(hids[hi - 1]) > 0)
+	if id.begins_with("T"):
+		var n := int(id.substr(1))
+		return n >= 1 and n <= tower_best() + 1 and stage_stars("4-4") > 0
+	if id.begins_with("D"):
+		return id == Story.daily_id() and stage_stars("1-4") > 0
 	var ids := Story.all_ids()
 	var i := ids.find(id)
 	return i > 0 and stage_stars(ids[i - 1]) > 0
+
+
+func tower_best() -> int:
+	var best := 0
+	for k in campaign:
+		if str(k).begins_with("T") and int(campaign[k]) > 0:
+			best = maxi(best, int(str(k).substr(1)))
+	return best
+
+
+func daily_done() -> bool:
+	return stage_stars(Story.daily_id()) > 0
+
+
+func hard_stars() -> int:
+	var n := 0
+	for k in campaign:
+		if str(k).begins_with("H"):
+			n += int(campaign[k])
+	return n
 
 
 func chapter_stars(ch: int) -> int:
@@ -522,22 +565,21 @@ func chapter_stars(ch: int) -> int:
 
 
 func total_stars() -> int:
+	## 보통 난이도 스토리 ★ (악몽 ★는 hard_stars)
 	var n := 0
 	for id in campaign:
-		n += int(campaign[id])
+		var k := str(id)
+		if not (k.begins_with("H") or k.begins_with("T") or k.begins_with("D")):
+			n += int(campaign[id])
 	return n
 
 
 func record_stage(id: String, stars: int) -> Dictionary:
 	## 스테이지 결과 반영. {first, new_stars, coins}
 	var old := stage_stars(id)
-	var out := {"first": old == 0 and stars > 0, "new_stars": maxi(0, stars - old), "coins": 0}
+	var out := Story.stage_reward(id, old, stars)
 	if stars > old:
 		campaign[id] = stars
-	var ch := int(id.split("-")[0])
-	if out["first"]:
-		out["coins"] += 40 + ch * 30
-	out["coins"] += out["new_stars"] * (15 + ch * 10)
 	coins += out["coins"]
 	save()
 	return out
@@ -596,12 +638,8 @@ func claim_idle(mult := 1) -> int:
 # 판 종료 정산 (로컬/서버 공통)
 # ===========================================================================
 func preview_stage(id: String, stars: int) -> Dictionary:
-	var old := stage_stars(id)
-	var ch := int(id.split("-")[0])
-	var out := {"first": old == 0 and stars > 0, "new_stars": maxi(0, stars - old), "coins": 0, "stars": stars}
-	if out["first"]:
-		out["coins"] += 40 + ch * 30
-	out["coins"] += out["new_stars"] * (15 + ch * 10)
+	var out := Story.stage_reward(id, stage_stars(id), stars)
+	out["stars"] = stars
 	return out
 
 
@@ -680,6 +718,7 @@ func validate_summary(s: Dictionary) -> Dictionary:
 	v["slot_jackpots"] = clampi(int(s.get("slot_jackpots", 0)), 0, 30)
 	v["best_combo"] = clampi(int(s.get("best_combo", 0)), 0, kills)
 	v["max_star"] = clampi(int(s.get("max_star", 0)), 0, GameData.STAR_MAX)
+	v["mind_controls"] = clampi(int(s.get("mind_controls", 0)), 0, wave / 2 + 2)
 	var ob: Array = []
 	for id in s.get("obtained", []):
 		if GameData.UNITS.has(str(id)) and not str(id) in ob:

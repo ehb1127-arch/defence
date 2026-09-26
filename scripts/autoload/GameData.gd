@@ -409,7 +409,7 @@ func ui_theme() -> Theme:
 	tip.set_content_margin_all(10)
 	tip.shadow_size = 8
 	t.set_stylebox("panel", "TooltipPanel", tip)
-	t.set_color("font_disabled_color", "Button", Color(0.45, 0.47, 0.52))
+	t.set_color("font_disabled_color", "Button", Color(0.82, 0.84, 0.9))
 	t.set_color("font_hover_color", "Button", Color(1, 1, 1))
 	var tab_sel := StyleBoxFlat.new()
 	tab_sel.bg_color = Color(0.25, 0.29, 0.4)
@@ -641,4 +641,9 @@ const ACHIEVEMENTS := [
 	{"id": "a_merge", "name": "합성 달인", "icon": "merge", "stat": "merges", "goals": [100, 1000, 5000], "coins": [40, 150, 500], "desc": "합성 %d회"},
 	{"id": "a_win", "name": "정복자", "icon": "star", "stat": "wins", "goals": [1, 10, 50], "coins": [100, 300, 1000], "desc": "승리 %d회"},
 	{"id": "a_dex", "name": "도감 완성", "icon": "book", "stat": "discovered", "goals": [8, 16, 24], "coins": [50, 150, 500], "desc": "유닛 %d종 수집"},
+	{"id": "a_story", "name": "결계 연대기", "icon": "book", "stat": "story_stars", "goals": [30, 90, 135], "coins": [150, 500, 1500], "desc": "스토리 ★ %d개"},
+	{"id": "a_hard", "name": "악몽을 걷는 자", "icon": "skull", "stat": "hard_stars", "goals": [15, 60, 135], "coins": [200, 700, 2000], "desc": "악몽 ★ %d개"},
+	{"id": "a_tower", "name": "탑의 정복자", "icon": "crown", "stat": "tower", "goals": [10, 30, 60, 100], "coins": [150, 500, 1200, 3000], "desc": "결계의 탑 %d층"},
+	{"id": "a_daily", "name": "매일의 수호자", "icon": "clock", "stat": "dailies", "goals": [3, 10, 30], "coins": [100, 300, 1000], "desc": "오늘의 결계 %d회 완료"},
+	{"id": "a_control", "name": "지배자", "icon": "curse", "stat": "controls", "goals": [5, 30, 100], "coins": [60, 200, 600], "desc": "지배 %d회"},
 ]

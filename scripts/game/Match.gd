@@ -1183,7 +1183,7 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 		var nxt := Story.next_stage(Session.stage)
 		if nxt != "":
 			var nb := ActionButton.make("play", Color(1, 0.85, 0.35), "다음 스테이지 %s" % nxt, _go_stage.bind(nxt), Vector2(170, 96))
-			nb.badge = nxt
+			nb.badge = ("%s층" % nxt.substr(1)) if nxt.begins_with("T") else ("악몽 " + nxt.substr(1) if nxt.begins_with("H") else nxt)
 			nb.glow = true
 			h.add_child(nb)
 	if not Session.online:
@@ -1279,7 +1279,7 @@ func _match_summary() -> Dictionary:
 		"wave": me.wave, "kills": me.kills, "stars": me.stage_stars() if _last_won else 0,
 		"merges_done": me.merges_done, "mythics_done": me.mythics_done, "bosses_killed": me.bosses_killed,
 		"interrupts": me.interrupts, "slot_jackpots": me.slot_jackpots, "best_combo": me.best_combo,
-		"max_star": me.max_star, "obtained": ob, "ad_double": _ad_double_used,
+		"max_star": me.max_star, "obtained": ob, "ad_double": _ad_double_used, "mind_controls": me.mind_controls,
 	}
 
 

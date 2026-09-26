@@ -15,6 +15,20 @@ var _coin_lbl: Label
 var _chap_btns: Array = []
 var _chest_row: HBoxContainer
 var _bg: TextureRect
+var _diff_btns := {}
+static var hard := false          # 악몽 난이도 보기 (화면을 나갔다 와도 유지)
+
+
+func _sid(ch: int, i: int) -> String:
+	## 현재 난이도의 스테이지 id (악몽은 H 접두)
+	return ("H" if hard else "") + Story.stage_id(ch, i)
+
+
+func _chapter_stars(ch: int) -> int:
+	var n := 0
+	for i in Story.CHAPTERS[ch - 1]["stages"].size():
+		n += Profile.stage_stars(_sid(ch, i + 1))
+	return n
 
 
 func _ready() -> void:
@@ -54,18 +68,27 @@ func _ready() -> void:
 	_coin_lbl.add_theme_font_size_override("font_size", 28)
 	_coin_lbl.add_theme_color_override("font_color", Color(0.85, 0.72, 1.0))
 	top.add_child(_coin_lbl)
-	# 왼쪽: 장 목록
+	# 왼쪽: 장 목록 (10장 → 스크롤)
+	var scroll := ScrollContainer.new()
+	scroll.position = Vector2(24, 116)
+	scroll.size = Vector2(350, 770)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	add_child(scroll)
 	var left := VBoxContainer.new()
-	left.position = Vector2(30, 110)
 	left.add_theme_constant_override("separation", 10)
-	add_child(left)
+	scroll.add_child(left)
 	for ch in Story.CHAPTERS:
 		var n: int = ch["id"]
+		if n == 6:
+			var part := UIKit.label("2부 · 새 결계의 주인", 20, Color(0.85, 0.6, 1.0))
+			left.add_child(part)
+		elif n == 1:
+			left.add_child(UIKit.label("1부 · 사각 결계 연대기", 20, Color(1, 0.85, 0.5)))
 		var b := Button.new()
-		b.custom_minimum_size = Vector2(330, 100)
+		b.custom_minimum_size = Vector2(330, 92)
 		b.focus_mode = Control.FOCUS_NONE
 		b.pressed.connect(func(): _select_chapter(n))
-		b.add_theme_font_size_override("font_size", 18)
+		b.add_theme_font_size_override("font_size", 20)
 		left.add_child(b)
 		_chap_btns.append(b)
 	# 가운데: 스테이지 지도
@@ -74,6 +97,19 @@ func _ready() -> void:
 	_map.size = Vector2(1180, 420)
 	_map.menu = self
 	add_child(_map)
+	# 난이도: 보통 / 악몽
+	var diff := HBoxContainer.new()
+	diff.position = Vector2(1236, 112)
+	diff.add_theme_constant_override("separation", 10)
+	add_child(diff)
+	for spec in [[false, "보통", UIKit.BLUE], [true, "악몽", Color(0.75, 0.15, 0.2)]]:
+		var hv: bool = spec[0]
+		var db := ActionButton.make("", Color.WHITE, "%s 난이도\n%s" % [spec[1], "보통 난이도에서 깬 스테이지를 더 강한 적과 규칙으로. 보상 1.6배" if hv else "스토리 진행"], func(): _set_hard(hv), Vector2(160, 64))
+		db.badge = spec[1]
+		db.font_px = 26
+		db.tone = spec[2]
+		diff.add_child(db)
+		_diff_btns[hv] = db
 	# 장별 ★ 상자
 	_chest_row = HBoxContainer.new()
 	_chest_row.position = Vector2(400, 470)
@@ -117,21 +153,34 @@ func _ready() -> void:
 	h.add_child(_start)
 	Profile.changed.connect(_refresh)
 	# 처음엔 진행 중인 장/스테이지
-	var cur := "1-1"
-	for id in Story.all_ids():
-		if Profile.stage_unlocked(id):
-			cur = id
-	_select_chapter(int(cur.split("-")[0]))
-	_select_stage(cur)
+	_set_hard(hard)
 	UIKit.dress_screen(self)
 
+func _set_hard(v: bool) -> void:
+	if v and not Profile.stage_unlocked("H1-1"):
+		Platform.show_toast("1-1 을 깨면 악몽 난이도가 열려요")
+		v = false
+	hard = v
+	for k in _diff_btns:
+		_diff_btns[k].selected = k == hard
+		_diff_btns[k].queue_redraw()
+	var ids: Array = Story.hard_ids() if hard else Story.all_ids()
+	var cur: String = ids[0]
+	for id in ids:
+		if Profile.stage_unlocked(id):
+			cur = id
+	_chapter = Story.chapter_of(cur)
+	_select_chapter(_chapter)
+	_select_stage(cur)
+
+
 func _select_chapter(n: int) -> void:
-	if n > 1 and not Profile.stage_unlocked(Story.stage_id(n, 1)):
+	if n > 1 and not Profile.stage_unlocked(_sid(n, 1)):
 		return
 	_chapter = n
 	var t := Art.tex("ui/chapter_%d" % n)
 	_bg.texture = t
-	_select_stage(Story.stage_id(n, 1))
+	_select_stage(_sid(n, 1))
 
 
 func _select_stage(id: String) -> void:
@@ -143,14 +192,15 @@ func _refresh() -> void:
 	_coin_lbl.text = str(Profile.coins)
 	for i in _chap_btns.size():
 		var ch: Dictionary = Story.CHAPTERS[i]
-		var open := i == 0 or Profile.stage_unlocked(Story.stage_id(i + 1, 1))
-		_chap_btns[i].text = "%d장  %s\n★ %d / %d%s" % [ch["id"], ch["name"], Profile.chapter_stars(i + 1), ch["stages"].size() * 3, "" if open else "   (잠김)"]
+		var open := (i == 0 and not hard) or Profile.stage_unlocked(_sid(i + 1, 1))
+		_chap_btns[i].text = "%s%d장  %s\n★ %d / %d%s" % ["악몽 " if hard else "", ch["id"], ch["name"], _chapter_stars(i + 1), ch["stages"].size() * 3, "" if open else "   (잠김)"]
 		_chap_btns[i].disabled = not open
 		_chap_btns[i].modulate = Color(1.2, 1.2, 1.2) if i + 1 == _chapter else Color(1, 1, 1)
 	_map.set("chapter", _chapter)
 	_map.set("selected", _stage)
 	_map.queue_redraw()
-	# 상자
+	# 상자 (보통 난이도만)
+	_chest_row.visible = not hard
 	for c in _chest_row.get_children():
 		c.queue_free()
 	for k in Story.CHEST_STEPS.size():
@@ -166,7 +216,7 @@ func _refresh() -> void:
 	var st := Story.get_stage(_stage)
 	var d: Dictionary = st["data"]
 	var boss := d.has("boss")
-	_info_title.text = "%s  %s%s" % [_stage, d["name"], "  (보스)" if boss else ""]
+	_info_title.text = "%s  %s%s" % [_stage.trim_prefix("H"), d["name"], "  (보스)" if boss else ""]
 	_info_title.add_theme_color_override("font_color", Color(1, 0.5, 0.5) if boss else Color(1, 0.9, 0.6))
 	for c in _info_stars.get_children():
 		c.queue_free()
@@ -175,7 +225,7 @@ func _refresh() -> void:
 		_info_stars.add_child(UIIcon.make("star", 34, Color(1, 0.85, 0.3) if k < got_stars else Color(0.28, 0.3, 0.38)))
 	var hint := Label.new()
 	hint.text = "  ★1 클리어  ★2 최대 적 30 미만  ★3 최대 적 15 미만 + 부활 없이"
-	hint.add_theme_font_size_override("font_size", 13)
+	hint.add_theme_font_size_override("font_size", 16)
 	hint.add_theme_color_override("font_color", Color(0.55, 0.6, 0.7))
 	_info_stars.add_child(hint)
 	_info_desc.text = "%s\n%d 라운드%s" % [st["chapter"]["desc"], d["rounds"], "  ·  마지막 라운드에 %s 등장" % Story.BOSS_NAMES[d["boss"]] if boss else "  ·  끝까지 버티면 클리어"]
@@ -187,6 +237,7 @@ func _refresh() -> void:
 		mh.add_child(UIIcon.make(info["icon"], 28, Color(1, 0.7, 0.4)))
 		var ml := Label.new()
 		ml.text = "%s: %s" % [info["name"], info["desc"]]
+		ml.add_theme_font_size_override("font_size", 17)
 		mh.add_child(ml)
 		_info_mods.add_child(mh)
 	_start.disabled = not Profile.stage_unlocked(_stage)
@@ -237,19 +288,19 @@ class _StageMap:
 			var nodes := _nodes()
 			for i in nodes.size():
 				if nodes[i].distance_to(event.position) < 60:
-					menu._select_stage(Story.stage_id(chapter, i + 1))
+					menu._select_stage(menu._sid(chapter, i + 1))
 					accept_event()
 					return
 
 	func _draw() -> void:
 		var ch: Dictionary = Story.CHAPTERS[chapter - 1]
-		var col: Color = ch["color"]
+		var col: Color = ch["color"] if not menu.hard else Color(1, 0.35, 0.4)
 		var nodes := _nodes()
 		var font := get_theme_font("font")
 		for i in nodes.size() - 1:
 			var a: Vector2 = nodes[i]
 			var b: Vector2 = nodes[i + 1]
-			var open := Profile.stage_unlocked(Story.stage_id(chapter, i + 2))
+			var open := Profile.stage_unlocked(menu._sid(chapter, i + 2))
 			var pts := PackedVector2Array()
 			for k in 21:
 				var q := k / 20.0
@@ -259,7 +310,7 @@ class _StageMap:
 				var dot := pts[int(fmod(_t * 8.0, 20.0))]
 				draw_circle(dot, 5, Color(1, 1, 1, 0.8))
 		for i in nodes.size():
-			var id := Story.stage_id(chapter, i + 1)
+			var id: String = menu._sid(chapter, i + 1)
 			var d: Dictionary = ch["stages"][i]
 			var p: Vector2 = nodes[i]
 			var open := Profile.stage_unlocked(id)
@@ -270,7 +321,7 @@ class _StageMap:
 			draw_circle(p, r, col.darkened(0.45) if open else Color(0.15, 0.16, 0.2))
 			draw_arc(p, r, 0, TAU, 40, col if open else Color(0.35, 0.37, 0.45), 5.0)
 			if boss:
-				Glyphs.draw_unit_glyph(self, Story.CHARACTERS[["ogre", "lich", "golem", "eye", "lord"][d["boss"]]]["glyph"], p, r * 0.55, Color(1, 0.5, 0.5) if open else Color(0.4, 0.4, 0.45))
+				Glyphs.draw_unit_glyph(self, Story.CHARACTERS[Story.BOSS_CHARS[d["boss"]]]["glyph"], p, r * 0.55, Color(1, 0.5, 0.5) if open else Color(0.4, 0.4, 0.45))
 			elif open:
 				var label := "%d" % (i + 1)
 				var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 34).x
