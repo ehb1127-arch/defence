@@ -27,11 +27,12 @@ var _btn := {}                   # 이름 -> ActionButton
 var _sel_icon: UnitIcon
 var _sel_name: Label
 var _sel_stats: Label
+var _sel_desc: Label
 var _sel_merge: ActionButton
 var _sel_sell: ActionButton
 var _sel_gift: ActionButton
 var _sel_up: ActionButton
-var _syn_row: HBoxContainer
+var _syn_row: Container
 var _syn_items := {}
 var _recipe_rows: Array = []     # [mythic, [UnitIcon...], UnitIcon(result), ActionButton]
 var _sheet: PanelContainer
@@ -106,13 +107,21 @@ func _chips(big: bool) -> HBoxContainer:
 	return h
 
 
-func _synergy_row(isz: float) -> HBoxContainer:
-	_syn_row = HBoxContainer.new()
-	_syn_row.add_theme_constant_override("separation", 6)
+func _synergy_row(isz: float) -> Container:
+	# 큰 화면은 "아이콘 + 이름 n/m" 을 여러 줄로 (글자 크게), 작은 화면은 한 줄
+	if isz >= 34:
+		var fl := HFlowContainer.new()
+		fl.add_theme_constant_override("h_separation", 18)
+		fl.add_theme_constant_override("v_separation", 6)
+		_syn_row = fl
+	else:
+		_syn_row = HBoxContainer.new()
+		_syn_row.add_theme_constant_override("separation", 6)
+	_syn_row.set_meta("named", isz >= 34)
 	for tag in GameData.SYNERGY_ORDER:
 		var d: Dictionary = GameData.SYNERGIES[tag]
 		var box := HBoxContainer.new()
-		box.add_theme_constant_override("separation", 1)
+		box.add_theme_constant_override("separation", 4 if isz >= 34 else 1)
 		box.mouse_filter = Control.MOUSE_FILTER_PASS
 		var tiers: Array = []
 		for t in d["tiers"]:
@@ -148,8 +157,9 @@ func _refresh_synergy() -> void:
 				continue
 			need = t[0]
 			break
-		e[1].text = "%d/%d" % [n, need] if n < GameData.SYNERGIES[tag]["tiers"][-1][0] else "MAX"
-		e[1].add_theme_color_override("font_color", GameData.SYNERGIES[tag]["color"] if on else Color(0.45, 0.47, 0.55))
+		var cnt := "%d/%d" % [n, need] if n < GameData.SYNERGIES[tag]["tiers"][-1][0] else "MAX"
+		e[1].text = (str(GameData.SYNERGIES[tag]["name"]) + " " + cnt) if _syn_row.get_meta("named", false) else cnt
+		e[1].add_theme_color_override("font_color", GameData.SYNERGIES[tag]["color"].lightened(0.25) if on else Color(0.68, 0.71, 0.8))
 		e[2].modulate = Color(1, 1, 1, 1.0 if on else 0.8)
 		e[2].visible = n > 0
 		e[0].color = GameData.SYNERGIES[tag]["color"] if on else Color(0.4, 0.42, 0.5)
@@ -232,9 +242,17 @@ func _refresh_locks() -> void:
 			_sel_up.queue_redraw()
 
 
-func _selected_card(portrait: float) -> HBoxContainer:
+func _selected_card(portrait: float) -> Control:
 	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 8)
+	h.add_theme_constant_override("separation", 12 if tall else 8)
+	# 큰 화면: [초상화 | 이름·설명·능력치] 아래에 [강화][합성][판매] 버튼 줄 → 글자 칸을 넓게
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 10)
+	var brow := HBoxContainer.new()
+	brow.add_theme_constant_override("separation", 10)
+	if tall:
+		outer.add_child(h)
+		outer.add_child(brow)
 	_sel_icon = UnitIcon.make("", portrait)
 	h.add_child(_sel_icon)
 	var v := VBoxContainer.new()
@@ -242,38 +260,49 @@ func _selected_card(portrait: float) -> HBoxContainer:
 	v.add_theme_constant_override("separation", 0)
 	h.add_child(v)
 	_sel_name = Label.new()
-	_sel_name.add_theme_font_size_override("font_size", 26 if tall else 20)
+	_sel_name.add_theme_font_size_override("font_size", 31 if tall else 20)
 	_sel_name.clip_text = true
 	v.add_child(_sel_name)
+	if tall:
+		_sel_desc = Label.new()
+		_sel_desc.add_theme_font_size_override("font_size", 24)
+		_sel_desc.add_theme_color_override("font_color", Color(1, 0.93, 0.7))
+		_sel_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(_sel_desc)
 	_sel_stats = Label.new()
-	_sel_stats.add_theme_font_size_override("font_size", 22 if tall else 18)
-	_sel_stats.add_theme_color_override("font_color", Color(0.8, 0.84, 0.92))
+	_sel_stats.add_theme_font_size_override("font_size", 24 if tall else 18)
+	_sel_stats.add_theme_color_override("font_color", Color(0.88, 0.91, 0.97))
 	if tall:
 		_sel_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	else:
 		_sel_stats.clip_text = true
 	v.add_child(_sel_stats)
-	var bsz := Vector2(92, 92) if tall else Vector2(56, 48)
+	var bsz := Vector2(0, 66) if tall else Vector2(56, 48)
+	var bparent: Container = brow if tall else h
 	var try_enhance := func():
 		if not UIKit.feature_unlocked("enhance"):
 			Sfx.play("fail")
 			ActionButton.show_bubble(_sel_up, "★ 강화\n" + UIKit.UNLOCKS["enhance"][2])
 			return
 		board.enhance_try(board.selected)
-	_sel_up = ActionButton.make("hammer", Color(1, 0.8, 0.4), "★ 강화 시도\n성공하면 공격력·공속 상승, ★3 각성\n높은 ★에서 실패하면 하락 위험", try_enhance, bsz * (Vector2(1.3, 1) if tall else Vector2(1, 1)))
+	_sel_up = ActionButton.make("hammer", Color(1, 0.8, 0.4), "★ 강화 시도\n성공하면 공격력·공속 상승, ★3 각성\n높은 ★에서 실패하면 하락 위험", try_enhance, bsz)
 	_sel_up.badge_icon = "gold"
 	_sel_up.caption = "★ 강화"
-	h.add_child(_sel_up)
+	bparent.add_child(_sel_up)
 	_sel_merge = ActionButton.make("merge", Color(1, 0.85, 0.4), "이 칸 합성", func(): board.merge_cell(board.selected), bsz)
 	_sel_merge.caption = "합성"
-	h.add_child(_sel_merge)
+	bparent.add_child(_sel_merge)
 	_sel_sell = ActionButton.make("sell", Color(1, 0.85, 0.3), "1마리 판매 (X)", func(): board.sell_one(board.selected), bsz)
 	_sel_sell.caption = "판매"
-	h.add_child(_sel_sell)
+	bparent.add_child(_sel_sell)
 	if board.mode == "coop":
 		_sel_gift = ActionButton.make("gift", Color(0.5, 0.95, 0.8), "파트너에게 1마리 선물", func(): board.request_gift_unit(board.selected), bsz)
 		_sel_gift.caption = "선물"
-		h.add_child(_sel_gift)
+		bparent.add_child(_sel_gift)
+	if tall:
+		for c in brow.get_children():
+			c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		return outer
 	return h
 
 
@@ -300,23 +329,21 @@ func _build_tall() -> void:
 	## 한 전장 화면의 오른쪽 패널 (상위 디펜스 게임식):
 	##  재화 → 시너지 → 선택한 유닛 → 보조 버튼(둥근 색 버튼) → 맨 아래 큰 [소환] [합성]
 	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 12)
+	root.add_theme_constant_override("separation", 8)
 	add_child(root)
 	var res := PanelContainer.new()
 	res.add_theme_stylebox_override("panel", _inner_box())
 	res.add_child(_chips(true))
 	root.add_child(res)
-	root.add_child(_synergy_row(34))
-	var sp := Control.new()
-	sp.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root.add_child(sp)
+	root.add_child(_synergy_row(40))
 	root.add_child(_preview_panel())
 	var card_panel := PanelContainer.new()
 	card_panel.add_theme_stylebox_override("panel", _inner_box())
 	card_panel.custom_minimum_size = Vector2(0, 124)
-	card_panel.add_child(_selected_card(100))
+	card_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL   # 남는 세로 공간은 유닛 설명에
+	card_panel.add_child(_selected_card(96))
 	root.add_child(card_panel)
-	var buttons := _action_buttons(Vector2(150, 96))
+	var buttons := _action_buttons(Vector2(150, 80))
 	var grid := GridContainer.new()
 	grid.columns = 4
 	grid.add_theme_constant_override("h_separation", 10)
@@ -332,7 +359,7 @@ func _build_tall() -> void:
 	main.add_theme_constant_override("separation", 12)
 	root.add_child(main)
 	var sm: ActionButton = _btn["summon"]
-	sm.custom_minimum_size = Vector2(0, 128)
+	sm.custom_minimum_size = Vector2(0, 96)
 	sm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sm.size_flags_stretch_ratio = 1.7
 	sm.wide = true
@@ -973,7 +1000,9 @@ func _refresh_selected() -> void:
 		_sel_name.text = "%s%s  x%d%s" % [u["name"], "  " + "★".repeat(star) if star > 0 else "", b.cells[sel]["n"], "  각성" if star >= GameData.AWAKEN_STAR else ""]
 		_sel_name.add_theme_color_override("font_color", GameData.RARITY_COLORS[u["rarity"]])
 		var cell: Dictionary = b.cells[sel]
-		var stats := "공격 %d · %.2f초\n사거리 %d" % [int(b.cell_damage(cell)), u["cd"] / b.cell_speed(cell), int(b.cell_range(cell))]
+		if _sel_desc != null:
+			_sel_desc.text = str(u.get("desc", ""))
+		var stats := "공격력 %d  ·  %.2f초마다  ·  사거리 %d" % [int(b.cell_damage(cell)), u["cd"] / b.cell_speed(cell), int(b.cell_range(cell))]
 		if star < GameData.STAR_MAX:
 			var ch := int(GameData.STAR_CHANCE[star] * 100)
 			var down := int(GameData.STAR_DOWN_CHANCE[star] * 100)
@@ -995,6 +1024,8 @@ func _refresh_selected() -> void:
 		_sel_name.text = "유닛을 눌러 선택"
 		_sel_name.add_theme_color_override("font_color", Color(0.55, 0.6, 0.7))
 		_sel_stats.text = "빈 칸을 누르면 이동"
+		if _sel_desc != null:
+			_sel_desc.text = "전장의 유닛을 누르면 능력과 설명이 여기 나와요"
 		_sel_sell.set_state("", true)
 		_sel_merge.set_state("", true)
 		_sel_up.set_state("", true)

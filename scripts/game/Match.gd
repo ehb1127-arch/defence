@@ -336,11 +336,13 @@ func _start_tutorial(ui: CanvasLayer) -> void:
 		return _lbl_round.get_global_rect()
 	var give_free := func():
 		b.free_summons += 8
+		b.tutorial_rig = 3   # 처음 3번은 같은 유닛 → 합성 단계가 반드시 되게, 튜토리얼 동안 골라 뽑기 끔
 	var three_units := func() -> bool:
 		return units.call() >= 3
 	var merged := func() -> bool:
-		return b.merges_done >= 1 or (b.free_summons == 0 and b.gold < b.summon_cost())
+		return b.merges_done >= 1
 	var done := func():
+		b.tutorial_rig = -1
 		paused = false
 		Session.tutorial = false
 		Profile.mark_tutorial_done()
@@ -480,7 +482,9 @@ func _build_top_bar(ui: CanvasLayer) -> void:
 	var bh := _top_h - 8
 	if not Session.online:
 		_btn_speed = ActionButton.make("speed", Color(0.85, 0.9, 1.0), "배속", _cycle_speed, Vector2(96, bh))
-		_btn_speed.badge = "x1"
+		if not Session.online and not Session.tutorial:
+			speed = clampf(Session.game_speed, 1.0, 3.0)
+		_btn_speed.badge = "x%d" % int(speed)
 		right.add_child(_btn_speed)
 		_btn_pause = ActionButton.make("pause", Color(0.85, 0.9, 1.0), "일시정지", _toggle_pause, Vector2(88, bh))
 		right.add_child(_btn_pause)
@@ -551,7 +555,7 @@ func _process(delta: float) -> void:
 			if h.sheet_kind() == "pick":
 				picking = true
 				break
-		if picking and _pick_slow > 0.0:
+		if picking and _pick_slow > 0.0 and speed <= 1.0:   # 배속 중에는 느리게 하지 않음
 			_pick_slow = maxf(0.0, _pick_slow - delta)
 			dt *= 0.3
 		elif not picking:
@@ -975,6 +979,7 @@ func _handle_key(b: Board, ks: Dictionary, key: int) -> bool:
 
 func _cycle_speed() -> void:
 	speed = {1.0: 2.0, 2.0: 3.0, 3.0: 1.0}[speed]
+	Session.game_speed = speed   # 다음 스테이지·다시 하기에도 배속 유지
 	_btn_speed.badge = "x%d" % int(speed)
 	_btn_speed.queue_redraw()
 

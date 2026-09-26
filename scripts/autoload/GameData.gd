@@ -153,8 +153,9 @@ const MC_GEMS := 4
 const MC_LEGEND_GEMS := 9     # 중간보스(전설이 되는 적) 지배는 더 비싸게
 const MC_COOLDOWN := 35.0
 ## 빼앗은 적 → 얻는 유닛 등급
-const MC_RARITY := {"normal": 1, "fast": 1, "mini": 1, "tank": 1, "shield": 1, "splitter": 1, "healer": 2, "elite": 2, "hero": 2, "midboss": 3}
-const MC_PRIORITY := ["midboss", "hero", "elite", "tank", "healer", "shield", "splitter", "normal", "fast", "mini"]
+## 보스·중간보스는 지배할 수 없다 (적 영웅·정예까지)
+const MC_RARITY := {"normal": 1, "fast": 1, "mini": 1, "tank": 1, "shield": 1, "splitter": 1, "healer": 2, "elite": 2, "hero": 2}
+const MC_PRIORITY := ["hero", "elite", "tank", "healer", "shield", "splitter", "normal", "fast", "mini"]
 
 
 func is_midboss_wave(wave: int) -> bool:
@@ -752,11 +753,12 @@ const BOSS_SKILLS := [
 ]
 const BOSS_SKILL_NAMES := {"dash": "돌진", "roar": "포효", "summon": "부하 소환", "regen": "재생", "shield": "용암 방패", "blast": "화염 폭발", "blink": "순간이동",
 	"frostbite": "서리 감옥", "sandstorm": "모래 폭풍", "sanctuary": "빛의 성역", "shadow": "그림자 분신", "rift": "공허 균열",
-	"chill": "냉기 저주", "petrify": "석화의 눈", "weaken": "쇠약 저주", "split": "분열", "greed": "탐욕", "haste": "진군 명령"}
+	"chill": "냉기 저주", "petrify": "석화의 눈", "weaken": "쇠약 저주", "split": "분열", "greed": "탐욕", "haste": "진군 명령",
+	"evade": "환영 걸음"}
 ## 방해 기술: 뒤로 갈수록(장·라운드·난이도) 보스가 이 중 더 많이 골라 쓰고, 재사용 시간도 짧아진다 (Board._debuff_tier)
 ##  chill 우리 유닛 공격속도 -35% · petrify 유닛 여러 칸 석화(공격 불가) · weaken 우리 피해 -30%
-##  split 보스가 분신 여럿으로 분열 · greed 골드 강탈 · haste 모든 적 이동속도 +45%
-const DEBUFF_POOL := ["chill", "petrify", "weaken", "split", "greed", "haste"]
+##  split 보스가 분신 여럿으로 분열 · greed 골드 강탈 · haste 모든 적 이동속도 +60% · evade 모든 적 공격 35% 회피
+const DEBUFF_POOL := ["chill", "petrify", "weaken", "split", "evade", "greed", "haste"]
 const DEBUFF_MAX := 4
 const BOSS_CAST_TIME := 1.0
 

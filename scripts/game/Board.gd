@@ -37,7 +37,8 @@ var cells: Array = []
 var enemies: Array[EnemyState] = []
 var effects: Array = []
 var _fx_mute := false
-var legend_merge_fails := 0   # 영웅→전설 합성 연속 실패 (천장)   # 효과 이미지가 있을 때 같은 순간의 코드 효과를 끔
+var legend_merge_fails := 0
+var tutorial_rig := -1         # 튜토리얼: >0 이면 같은 유닛 소환, 0 이상이면 골라 뽑기 끔   # 영웅→전설 합성 연속 실패 (천장)   # 효과 이미지가 있을 때 같은 순간의 코드 효과를 끔
 var texts: Array = []
 var chests: Array = []
 
@@ -54,7 +55,8 @@ var free_summons := 0
 var lucky_t := 0.0
 var curse_t := 0.0
 var chill_t := 0.0                # 보스 냉기 저주: 우리 유닛 공격속도 감소
-var weaken_t := 0.0               # 보스 쇠약 저주: 우리 유닛 피해 감소
+var weaken_t := 0.0
+var evade_t := 0.0                # 보스 환영 걸음: 적이 공격을 회피               # 보스 쇠약 저주: 우리 유닛 피해 감소
 var frenzy := false
 var rush_t := 0.0                # 위기: 폭주 (적 속도)
 var eclipse_t := 0.0             # 위기: 일식 (사거리)
@@ -486,8 +488,13 @@ func summon() -> bool:
 	elif pity_epic + 1 >= GameData.PITY_EPIC and rarity < GameData.Rarity.EPIC:
 		rarity = GameData.Rarity.EPIC
 		pity_hit = true
-	var pick := (summons_total + 1) % GameData.PICK_EVERY == 0 and pending_pick.is_empty()
+	var pick := (summons_total + 1) % GameData.PICK_EVERY == 0 and pending_pick.is_empty() and tutorial_rig < 0
 	var id := GameData.random_unit_of(rng, rarity)
+	# 튜토리얼: 처음 3번은 같은 유닛이 나와 바로 합성을 해 볼 수 있게
+	if tutorial_rig > 0:
+		tutorial_rig -= 1
+		id = "sword"
+		rarity = GameData.Rarity.COMMON
 	if not pick and not has_space_for(id):
 		float_text(Vector2(SIZE / 2, 150), "빈 칸이 없어요!", Color(1, 0.4, 0.4))
 		return false
@@ -1139,6 +1146,7 @@ func step(dt: float) -> void:
 	curse_t = maxf(0.0, curse_t - dt)
 	chill_t = maxf(0.0, chill_t - dt)
 	weaken_t = maxf(0.0, weaken_t - dt)
+	evade_t = maxf(0.0, evade_t - dt)
 	_update_waves(dt)
 	_update_enemies(dt)
 	_update_units(dt)
@@ -1416,7 +1424,7 @@ func mc_cost(e: EnemyState = null) -> int:
 
 
 func _mc_target() -> EnemyState:
-	## 가장 강한 적 (중간보스 > 적 영웅 > 정예 > ...), 같은 종류면 체력이 많은 쪽. 보스는 불가
+	## 가장 강한 적 (적 영웅 > 정예 > ...), 같은 종류면 체력이 많은 쪽. 보스·중간보스는 불가
 	var best: EnemyState = null
 	var best_rank := 999
 	for e in enemies:
@@ -1850,6 +1858,11 @@ func _attack(i: int, c: Dictionary, u: Dictionary, target: EnemyState, fx: Dicti
 func _hit(t: EnemyState, dmg: float, id: String, fx: Dictionary, crit: bool) -> void:
 	if not t.alive:
 		return
+	# 환영 걸음: 적이 일정 확률로 공격을 흘려 보냄
+	if evade_t > 0.0 and rng.randf() < 0.35:
+		if rng.randf() < 0.25:
+			float_text(t.pos + Vector2(0, -20), "회피!", Color(0.75, 0.85, 1.0), 13)
+		return
 	var splash: float = fx.get("splash", 0.0)
 	var victims: Array = [t]
 	if splash > 0.0:
@@ -1886,7 +1899,7 @@ func _hit(t: EnemyState, dmg: float, id: String, fx: Dictionary, crit: bool) -> 
 		float_text(t.pos + Vector2(0, -16), "처형!", Color(0.8, 0.4, 1.0), 14)
 		_damage(t, t.hp + t.shield + 1.0, id, false, true)
 	if crit:
-		float_text(t.pos + Vector2(rng.randf_range(-8, 8), -18), str(int(dmg)), Color(1, 0.35, 0.3), 16)
+		float_text(t.pos + Vector2(rng.randf_range(-8, 8), -18), str(int(dmg)), Color(1, 0.35, 0.3), 15)
 		_sparks(t.pos, Color(1, 0.8, 0.3), 6)
 
 
@@ -2678,6 +2691,12 @@ func _boss_skill_fx(e: EnemyState, sid: String) -> void:
 			_boss_callout(e, "탐욕!", Color(1, 0.8, 0.25))
 			if take > 0:
 				float_text(e.pos + Vector2(0, -80), "골드 -%d 강탈!" % take, Color(1, 0.8, 0.3), 16)
+		"evade":
+			# 환영 걸음: 모든 적이 공격 35% 회피
+			evade_t = 5.0 + 0.5 * e.debuff_tier
+			_add_effect({"type": "ring", "pos": e.pos, "r0": 20.0, "r1": SIZE * 0.7, "t": 0.0, "dur": 0.7, "color": Color(0.7, 0.8, 1.0)})
+			_boss_callout(e, "환영 걸음!", Color(0.75, 0.85, 1.0))
+			float_text(e.pos + Vector2(0, -80), "%d초간 적이 공격 35%% 회피" % int(ceil(evade_t)), Color(0.8, 0.9, 1.0), 16)
 		"haste":
 			# 진군 명령: 모든 적 이동속도 증가
 			rush_t = maxf(rush_t, 4.0 + 0.5 * e.debuff_tier)
@@ -2919,6 +2938,11 @@ func show_emote(name: String) -> void:
 
 
 func float_text(p: Vector2, text: String, color: Color, fsize := 14) -> void:
+	# 휴대폰에서도 읽히게: 글자 크게(최소 20), 중요한 알림(16 이상)은 더 오래
+	var important := fsize >= 16
+	if color.get_luminance() < 0.5:
+		color = color.lightened(0.45)   # 어두운 색 글자는 전장 위에서 안 보이므로 밝게
+	fsize = maxi(20, int(fsize * 1.4)) if fsize < 100 else fsize
 	# 같은 자리에 막 뜬 글자가 있으면 아래로 한 줄씩 밀어서 겹치지 않게
 	var pos := p
 	for k in 6:
@@ -2930,7 +2954,8 @@ func float_text(p: Vector2, text: String, color: Color, fsize := 14) -> void:
 		if not clash:
 			break
 		pos.y += fsize + 8
-	texts.append({"pos": pos, "text": text, "color": color, "t": 0.0, "dur": 1.1, "size": fsize})
+	pos.x = clampf(pos.x, 90.0, SIZE - 90.0)
+	texts.append({"pos": pos, "text": text, "color": color, "t": 0.0, "dur": 2.2 if important else 1.5, "size": fsize})
 	if texts.size() > 40:
 		texts.pop_front()
 
@@ -2969,7 +2994,7 @@ func _img_fx(key: String, pos: Vector2, size: float, dur: float, tint := Color.W
 
 
 const SKILL_FX_GLOBAL := ["judgement", "timestop", "plague", "breath"]
-const BOSS_FX_GLOBAL := ["sandstorm", "sanctuary", "rift"]
+const BOSS_FX_GLOBAL := ["sandstorm", "sanctuary", "rift", "chill", "weaken", "haste", "evade"]
 ## 공격 종류 → 타격 이미지 이름
 const HIT_FX := {"slash": "slash", "spin": "slash", "scythe": "slash", "stab": "stab", "thrust": "stab", "lance": "stab",
 	"bash": "bash", "arrow": "arrow", "tracer": "arrow", "fireball": "fire", "ice": "ice", "zap": "zap", "clockwork": "zap",
@@ -3200,6 +3225,8 @@ func _draw_header() -> void:
 		status.append("냉기 %ds" % int(ceil(chill_t)))
 	if weaken_t > 0.0:
 		status.append("쇠약 %ds" % int(ceil(weaken_t)))
+	if evade_t > 0.0:
+		status.append("회피 %ds" % int(ceil(evade_t)))
 	if bless_t > 0.0:
 		status.append("축복 %ds" % int(ceil(bless_t)))
 	if horde:
@@ -3877,8 +3904,10 @@ func _draw_texts() -> void:
 	for t in texts:
 		var k: float = t["t"] / t["dur"]
 		var col: Color = t["color"]
-		col.a = 1.0 - k * k
-		_text(t["pos"] + Vector2(0, -30.0 * k), t["text"], t["size"], col)
+		# 처음 65% 동안은 또렷하게, 그 뒤 사라짐 · 처음엔 살짝 튀어 오르며 커짐
+		col.a = 1.0 if k < 0.65 else 1.0 - (k - 0.65) / 0.35
+		var pop := 1.0 + 0.25 * maxf(0.0, 1.0 - k / 0.12)
+		_text(t["pos"] + Vector2(0, -26.0 * minf(k * 2.0, 1.0)), t["text"], int(t["size"] * pop), col)
 
 
 func _draw_reveal() -> void:
