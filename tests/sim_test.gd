@@ -16,8 +16,55 @@ func _ready() -> void:
 		get_tree().quit()
 		return
 	for r in runs:
-		_run(mode, level, seed0 + r)
+		if mode.begins_with("C") or mode.begins_with("HC"):
+			_run_chapter(int(mode.trim_prefix("H").substr(1)), mode.begins_with("H"), level, seed0 + r)
+		else:
+			_run(mode, level, seed0 + r)
 	get_tree().quit()
+
+
+func _run_chapter(ch: int, hard: bool, level: int, seed_v: int) -> void:
+	## 장 이어하기 시뮬: 한 장의 스테이지를 배치를 이어받아 연속으로 (C<장> / HC<장> = 악몽)
+	var n_st: int = Story.CHAPTERS[ch - 1]["stages"].size()
+	var state := {}
+	var total_t := 0.0
+	var line := []
+	for si in n_st:
+		var id := ("H" if hard else "") + Story.stage_id(ch, si + 1)
+		var b := Board.new()
+		b.setup(0, "Bot", "solo", seed_v + si * 7, false, true)
+		b.apply_stage(id, not state.is_empty())
+		if not state.is_empty():
+			var st := Story.get_stage(id)
+			b.import_state(state, int(int(st["chapter"]["gold"]) * 0.4), int(st["chapter"]["gems"]) / 2)
+		add_child(b)
+		var bot := BotBrain.new(b, null, level)
+		var dt := 1.0 / 30.0
+		var t := 0.0
+		var res := ""
+		var peak := 0
+		while t < 60.0 * 30:
+			t += dt
+			b.step(dt)
+			bot.update(dt)
+			peak = maxi(peak, b.rated_field_count())
+			if b.final_cleared_flag:
+				res = "W%d" % b.stage_stars()
+				break
+			if b.field_count() >= b.enemy_limit or b.boss_failed:
+				res = "L" + ("boss" if b.boss_failed else "") + "@%d" % b.wave
+				break
+		total_t += t
+		var r := [0, 0, 0, 0, 0]
+		for c in b.cells:
+			if c["id"] != "":
+				r[GameData.UNITS[c["id"]]["rarity"]] += c["n"]
+		line.append("%s[R%d-%d %s peak%d boss%s %s myth%d leg%s]" % [id, b.wave_offset + 1, b.wave_offset + b.final_wave, res, peak, str(b.boss_kill_times.values()), str(r), b.mythics_done, str(b.legend_src)])
+		state = b.export_state()
+		b.queue_free()
+		if not res.begins_with("W"):
+			break
+	print("chapter %s%d seed=%d lvl=%d -> %s  (%.1f min)" % ["H" if hard else "", ch, seed_v, level, " ".join(line), total_t / 60.0])
 
 
 var _diff := 0

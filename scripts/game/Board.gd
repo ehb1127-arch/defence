@@ -36,7 +36,8 @@ var event_rng := RandomNumberGenerator.new()
 var cells: Array = []
 var enemies: Array[EnemyState] = []
 var effects: Array = []
-var _fx_mute := false   # 효과 이미지가 있을 때 같은 순간의 코드 효과를 끔
+var _fx_mute := false
+var legend_merge_fails := 0   # 영웅→전설 합성 연속 실패 (천장)   # 효과 이미지가 있을 때 같은 순간의 코드 효과를 끔
 var texts: Array = []
 var chests: Array = []
 
@@ -52,6 +53,8 @@ var kills := 0
 var free_summons := 0
 var lucky_t := 0.0
 var curse_t := 0.0
+var chill_t := 0.0                # 보스 냉기 저주: 우리 유닛 공격속도 감소
+var weaken_t := 0.0               # 보스 쇠약 저주: 우리 유닛 피해 감소
 var frenzy := false
 var rush_t := 0.0                # 위기: 폭주 (적 속도)
 var eclipse_t := 0.0             # 위기: 일식 (사거리)
@@ -104,6 +107,7 @@ var max_star := 0
 var final_wave := GameData.FINAL_WAVE
 var stage_id := ""
 var stage_hp_mult := 1.0
+var wave_offset := 0              # 장 이어하기: 앞 스테이지 라운드 합 (적 체력 계산에만 사용)
 var stage_mods: Array = []
 var stage_chapter := 0           # 스토리 장 번호 (탑/오늘의 결계 0)
 var stage_hard := false
@@ -338,10 +342,12 @@ func merge_protected(i: int, recipe := "?") -> bool:
 # ===========================================================================
 # 라운드 규칙 (무한 모드 / 스토리 스테이지 공통)
 # ===========================================================================
-func apply_stage(id: String) -> void:
+func apply_stage(id: String, continuing := false) -> void:
+	## continuing: 앞 스테이지에서 배치를 이어받아 시작 → 적 체력도 장 전체 라운드 기준으로 계속 오른다
 	var st := Story.get_stage(id)
 	if st.is_empty():
 		return
+	wave_offset = Story.wave_offset(id) if continuing else 0
 	var ch: Dictionary = st["chapter"]
 	var d: Dictionary = st["data"]
 	stage_id = id
@@ -370,9 +376,12 @@ func is_bonus_round(w: int) -> bool:
 
 
 func hp_at(w: int) -> float:
-	var hp: float = GameData.wave_hp(w) * stage_hp_mult * pow(mob_growth, w - 1) * float(GameData.DIFFICULTIES[difficulty]["hp"])
+	var aw := w + wave_offset
+	var hp: float = GameData.wave_hp(aw) * stage_hp_mult * pow(mob_growth, aw - 1) * float(GameData.DIFFICULTIES[difficulty]["hp"])
 	if "swarm" in stage_mods:
 		hp *= 0.75
+	if stage_id != "" and aw > GameData.RUN_SOFT_FROM:
+		hp *= pow(GameData.RUN_SOFT, aw - GameData.RUN_SOFT_FROM)
 	if stage_id == "":
 		hp *= GameData.mob_curve(w)
 		if mode == "coop":
@@ -389,7 +398,9 @@ func _pvp_ramp(w: int) -> float:
 
 func boss_hp_at(w: int) -> float:
 	if stage_id != "":
-		var hp := GameData.wave_hp(w) * stage_hp_mult * GameData.BOSS_HP_MULT * GameData.STAGE_BOSS_HP
+		var hp := GameData.wave_hp(w + wave_offset) * stage_hp_mult * GameData.BOSS_HP_MULT * GameData.STAGE_BOSS_HP
+		if w + wave_offset > GameData.RUN_SOFT_FROM:
+			hp *= pow(GameData.RUN_SOFT, w + wave_offset - GameData.RUN_SOFT_FROM)
 		if stage_boss in Story.FINAL_BOSSES:
 			hp *= 1.5
 		return hp
@@ -709,9 +720,22 @@ func merge_cell(i: int) -> bool:
 	cells[i] = _empty_cell()
 	var new_r := rarity + 1
 	var great_star := 0
+	# 영웅 → 전설 합성은 도박: 실패하면 영웅 하나만 남는다 (연속 실패 천장)
+	if new_r == GameData.Rarity.LEGEND:
+		if legend_merge_fails + 1 < GameData.LEGEND_MERGE_PITY and rng.randf() >= GameData.LEGEND_MERGE_CHANCE:
+			legend_merge_fails += 1
+			var back := _biased_unit_of(rarity)
+			var bi := _place_unit(back, 0, i)
+			show_banner("전설 합성 실패...", "영웅 1개만 남았어요  (다음 %d번 안에 확정)" % (GameData.LEGEND_MERGE_PITY - legend_merge_fails), Color(0.75, 0.6, 1.0))
+			_sfx("fail")
+			if selected == i and cells[i]["id"] == "":
+				selected = bi
+			merges_done += 1
+			return true
+		legend_merge_fails = 0
 	if rng.randf() < GameData.MERGE_GREAT_CHANCE:
-		# 합성 대성공: 두 단계 점프 (전설 이상은 ★1 로)
-		if new_r + 1 <= GameData.Rarity.LEGEND:
+		# 합성 대성공: 두 단계 점프 (전설로는 건너뛰지 않고 ★1 로)
+		if new_r + 1 < GameData.Rarity.LEGEND:
 			new_r += 1
 		else:
 			great_star = 1
@@ -1113,6 +1137,8 @@ func step(dt: float) -> void:
 	mc_cd = maxf(0.0, mc_cd - dt)
 	peak_field = maxi(peak_field, rated_field_count())
 	curse_t = maxf(0.0, curse_t - dt)
+	chill_t = maxf(0.0, chill_t - dt)
+	weaken_t = maxf(0.0, weaken_t - dt)
 	_update_waves(dt)
 	_update_enemies(dt)
 	_update_units(dt)
@@ -1258,6 +1284,7 @@ func _start_wave(w: int) -> void:
 			var mi := (w / 10 + (stage_chapter if stage_id != "" else 0)) % GameData.MIDBOSS_NAMES.size()
 			mb.boss_name = GameData.MIDBOSS_NAMES[mi]
 			mb.art = GameData.MIDBOSS_ART[mi]
+			_setup_midboss_skills(mb, w)
 			boss_warn_t = 1.5
 			show_banner("ROUND %d - 중간보스!" % w, "%s 등장! 오래 두면 적 한도가 빨리 차요" % mb.boss_name, Color(0.85, 0.45, 1.0))
 			_sfx("boss")
@@ -1375,7 +1402,17 @@ func _update_hero(e: EnemyState, dt: float) -> void:
 
 
 func can_mind_control() -> bool:
-	return alive and not is_remote and mc_cd <= 0.0 and gems >= GameData.MC_GEMS and _mc_target() != null and used_cells() < cells.size()
+	var tg := _mc_target()
+	return alive and not is_remote and mc_cd <= 0.0 and tg != null and gems >= mc_cost(tg) and used_cells() < cells.size()
+
+
+## 지배 비용: 전설이 되는 적(중간보스)은 더 비싸다
+func mc_cost(e: EnemyState = null) -> int:
+	if e == null:
+		e = _mc_target()
+	if e != null and int(GameData.MC_RARITY.get(e.kind, 1)) >= GameData.Rarity.LEGEND:
+		return GameData.MC_LEGEND_GEMS
+	return GameData.MC_GEMS
 
 
 func _mc_target() -> EnemyState:
@@ -1397,7 +1434,7 @@ func mind_control() -> bool:
 	if not can_mind_control():
 		if mc_cd > 0.0:
 			float_text(Vector2(SIZE / 2, 150), "지배 대기 %d초" % int(ceil(mc_cd)), Color(0.8, 0.6, 1.0))
-		elif gems < GameData.MC_GEMS:
+		elif gems < mc_cost():
 			float_text(Vector2(SIZE / 2, 150), "보석 부족!", Color(1, 0.4, 0.4))
 		elif used_cells() >= cells.size():
 			float_text(Vector2(SIZE / 2, 150), "빈 칸이 없어요!", Color(1, 0.4, 0.4))
@@ -1407,7 +1444,7 @@ func mind_control() -> bool:
 	var id := GameData.random_unit_of(rng, rarity)
 	var name := e.boss_name if e.boss_name != "" else "적"
 	e.alive = false
-	gems -= GameData.MC_GEMS
+	gems -= mc_cost(e)
 	mc_cd = GameData.MC_COOLDOWN
 	mind_controls += 1
 	var idx := add_unit(id)
@@ -1491,7 +1528,7 @@ func _update_enemies(dt: float) -> void:
 			e.slow_t -= dt
 			if e.slow_t <= 0.0:
 				e.slow = 0.0
-		if e.is_boss:
+		if e.is_boss or (e.kind == "midboss" and not e.skills.is_empty()):
 			_update_boss(e, dt)
 		elif e.hero != "":
 			_update_hero(e, dt)
@@ -1577,6 +1614,8 @@ func cell_damage(c: Dictionary) -> float:
 	var m: float = unit_power(id) * (1.0 + GameData.STAR_DMG * c.get("star", 0))
 	if has_tag(id, "warrior"):
 		m *= 1.0 + syn.get("warrior", 0.0)
+	if weaken_t > 0.0:
+		m *= 0.7
 	return GameData.UNITS[id]["dmg"] * m
 
 
@@ -1648,6 +1687,8 @@ func cell_fx(c: Dictionary) -> Dictionary:
 
 func _update_units(dt: float) -> void:
 	var speed_mult := 0.7 if curse_t > 0.0 else 1.0
+	if chill_t > 0.0:
+		speed_mult *= 0.65
 	if bless_t > 0.0:
 		speed_mult *= 1.35
 	_syn_t -= dt
@@ -2425,10 +2466,52 @@ func _setup_boss_skills(b: EnemyState, w: int) -> void:
 	var set_i := stage_boss if stage_boss >= 0 else _endless_boss(w)
 	set_i = clampi(set_i, 0, GameData.BOSS_SKILLS.size() - 1)
 	var list: Array = GameData.BOSS_SKILLS[set_i].duplicate(true)
+	# 뒤로 갈수록 방해 기술을 더 많이, 더 자주
+	var tier := _debuff_tier(w)
+	var pool: Array = GameData.DEBUFF_POOL.duplicate()
+	for k in pool.size():
+		var j := (k + set_i * 2 + tier) % pool.size()
+		var tmp = pool[k]
+		pool[k] = pool[j]
+		pool[j] = tmp
+	for k in clampi(tier, 0, GameData.DEBUFF_MAX):
+		list.append([pool[k], 13.0 + k * 1.5])
+	var cdm := maxf(0.55, 1.0 - 0.07 * tier)
+	for s2 in list:
+		s2[1] *= cdm
 	b.skills = list
 	b.skill_cd = []
 	for k in list.size():
-		b.skill_cd.append(4.0 + k * 2.5)
+		b.skill_cd.append((4.0 + k * 2.5) * cdm)
+	b.debuff_tier = tier
+
+
+## 방해 기술 단계: 장·누적 라운드·악몽/난이도가 오를수록 커진다 (0 = 없음)
+func _debuff_tier(w: int) -> int:
+	if stage_id.begins_with("T"):
+		return int(stage_id.substr(1)) / 6
+	if stage_id.begins_with("D"):
+		return 2
+	if stage_id != "":
+		return (w + wave_offset) / 15 + (stage_chapter - 1) / 3 + (2 if stage_hard else 0)
+	if mode == "pvp":
+		return w / 10
+	return maxi(0, w / 10 - 2) + difficulty
+
+
+func _setup_midboss_skills(mb: EnemyState, w: int) -> void:
+	## 후반 중간보스도 방해 기술 1~2개
+	var tier := _debuff_tier(w)
+	if tier < 1:
+		return
+	var n := 2 if tier >= 3 else 1
+	for k in n:
+		var sid: String = GameData.DEBUFF_POOL[(w + k * 3) % GameData.DEBUFF_POOL.size()]
+		if sid == "split":
+			sid = "chill"
+		mb.skills.append([sid, maxf(9.0, 15.0 - tier)])
+		mb.skill_cd.append(5.0 + k * 3.0)
+	mb.debuff_tier = tier
 
 
 func _update_boss(e: EnemyState, dt: float) -> void:
@@ -2543,6 +2626,63 @@ func _boss_skill_fx(e: EnemyState, sid: String) -> void:
 			_add_effect({"type": "portal", "pos": from_pos, "t": 0.0, "dur": 0.6, "color": Color(0.6, 0.3, 1.0)})
 			_add_effect({"type": "portal", "pos": e.pos, "t": 0.0, "dur": 0.6, "color": Color(0.6, 0.3, 1.0)})
 			_boss_callout(e, "순간이동!", Color(0.7, 0.45, 1.0))
+		"chill":
+			# 냉기 저주: 우리 유닛 공격속도 -35%
+			chill_t = 4.5 + 0.5 * e.debuff_tier
+			_add_effect({"type": "ring", "pos": e.pos, "r0": 20.0, "r1": SIZE * 0.7, "t": 0.0, "dur": 0.7, "color": Color(0.6, 0.85, 1.0)})
+			_flash(Color(0.5, 0.8, 1.0), 0.3)
+			_boss_callout(e, "냉기 저주!", Color(0.6, 0.85, 1.0))
+			float_text(e.pos + Vector2(0, -80), "%d초간 우리 공격속도 -35%%" % int(ceil(chill_t)), Color(0.6, 0.9, 1.0), 16)
+		"petrify":
+			# 석화의 눈: 가장 강한 유닛들 몇 칸을 돌로 (공격 불가)
+			var ranked: Array = []
+			for k in cells.size():
+				if cells[k]["id"] != "":
+					ranked.append(k)
+			ranked.sort_custom(func(a, b2): return GameData.UNITS[cells[a]["id"]]["rarity"] > GameData.UNITS[cells[b2]["id"]]["rarity"])
+			var cnt := mini(ranked.size(), 2 + e.debuff_tier / 2)
+			for k in cnt:
+				var ci: int = ranked[k]
+				cells[ci]["silence"] = maxf(cells[ci]["silence"], 3.5)
+				_add_effect({"type": "icecell", "pos": cell_center(ci), "t": 0.0, "dur": 3.5, "color": Color(0.7, 0.7, 0.65)})
+				_add_effect({"type": "pierce", "from": e.pos, "to": cell_center(ci), "t": 0.0, "dur": 0.4, "color": Color(0.8, 0.75, 0.5)})
+			_boss_callout(e, "석화의 눈!", Color(0.85, 0.8, 0.6))
+			if cnt > 0:
+				float_text(e.pos + Vector2(0, -80), "강한 유닛 %d칸 석화!" % cnt, Color(0.9, 0.85, 0.6), 16)
+		"weaken":
+			# 쇠약 저주: 우리 피해 -30%
+			weaken_t = 5.0 + 0.5 * e.debuff_tier
+			_add_effect({"type": "ring", "pos": e.pos, "r0": 20.0, "r1": SIZE * 0.7, "t": 0.0, "dur": 0.7, "color": Color(0.6, 0.3, 0.6)})
+			_flash(Color(0.5, 0.2, 0.5), 0.3)
+			_boss_callout(e, "쇠약 저주!", Color(0.8, 0.45, 0.85))
+			float_text(e.pos + Vector2(0, -80), "%d초간 우리 피해 -30%%" % int(ceil(weaken_t)), Color(0.85, 0.55, 0.9), 16)
+		"split":
+			# 분열: 보스 체력 일부를 떼어 분신 여럿 (잡을 때까지 필드를 채움)
+			var parts := 3 + e.debuff_tier / 2
+			var chunk := e.max_hp * 0.05
+			for k in parts:
+				var m := _spawn("tank", chunk / float(GameData.ENEMIES["tank"]["hp"]), e.dist - 22.0 * (k + 1))
+				m.boss_name = "분신"
+				m.color = e.color.darkened(0.2)
+				m.sent = true
+			e.hp = maxf(e.max_hp * 0.05, e.hp - chunk * parts * 0.5)
+			_add_effect({"type": "boom", "pos": e.pos, "r": 70.0, "t": 0.0, "dur": 0.5, "color": Color(0.9, 0.4, 0.3)})
+			_boss_callout(e, "분열!", Color(1, 0.5, 0.35))
+			float_text(e.pos + Vector2(0, -80), "분신 %d마리!" % parts, Color(1, 0.6, 0.4), 16)
+			shake = 8.0
+		"greed":
+			# 탐욕: 골드 강탈
+			var take := mini(int(gold * 0.15), 150 + 50 * e.debuff_tier)
+			gold -= take
+			_add_effect({"type": "pierce", "from": Vector2(SIZE / 2, SIZE / 2), "to": e.pos, "t": 0.0, "dur": 0.5, "color": Color(1, 0.85, 0.2)})
+			_boss_callout(e, "탐욕!", Color(1, 0.8, 0.25))
+			if take > 0:
+				float_text(e.pos + Vector2(0, -80), "골드 -%d 강탈!" % take, Color(1, 0.8, 0.3), 16)
+		"haste":
+			# 진군 명령: 모든 적 이동속도 증가
+			rush_t = maxf(rush_t, 4.0 + 0.5 * e.debuff_tier)
+			_boss_callout(e, "진군 명령!", Color(1, 0.4, 0.3))
+			float_text(e.pos + Vector2(0, -80), "적 전체 이동속도 증가!", Color(1, 0.5, 0.4), 16)
 		"frostbite":
 			# 서리 감옥: 유닛이 가장 많은 가로줄 또는 세로줄 전체를 얼려 침묵
 			var line := _busiest_line()
@@ -3056,6 +3196,10 @@ func _draw_header() -> void:
 		status.append("일식 %ds" % int(ceil(eclipse_t)))
 	if sand_t > 0.0:
 		status.append("모래 %ds" % int(ceil(sand_t)))
+	if chill_t > 0.0:
+		status.append("냉기 %ds" % int(ceil(chill_t)))
+	if weaken_t > 0.0:
+		status.append("쇠약 %ds" % int(ceil(weaken_t)))
 	if bless_t > 0.0:
 		status.append("축복 %ds" % int(ceil(bless_t)))
 	if horde:

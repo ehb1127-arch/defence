@@ -150,6 +150,7 @@ const HERO_FROM_WAVE := 4
 
 ## 지배(마인드 컨트롤): 보석으로 트랙 위의 강한 적 하나를 내 유닛으로 빼앗기
 const MC_GEMS := 4
+const MC_LEGEND_GEMS := 9     # 중간보스(전설이 되는 적) 지배는 더 비싸게
 const MC_COOLDOWN := 35.0
 ## 빼앗은 적 → 얻는 유닛 등급
 const MC_RARITY := {"normal": 1, "fast": 1, "mini": 1, "tank": 1, "shield": 1, "splitter": 1, "healer": 2, "elite": 2, "hero": 2, "midboss": 3}
@@ -180,7 +181,7 @@ const PREP_TIME := 8.0
 const BOSS_HP_MULT := 26.0
 const BOSS_HP_DECAY := 0.7
 ## 무한 모드 10·20·30 라운드 보스 체력 배수 (초반 보스도 제한시간의 상당 부분을 버티게). 40 이후는 BOSS_HP_MULT x DECAY^n
-const EARLY_BOSS_MULTS := [60.0, 40.0, 11.0]
+const EARLY_BOSS_MULTS := [78.0, 45.0, 9.5]
 ## 스토리/탑/오늘의 결계 보스 체력 = 라운드 체력 x BOSS_HP_MULT x 이 값 (최종 보스는 x1.5)
 const STAGE_BOSS_HP := 0.47
 const FINAL_BOSS_TIME := 90.0
@@ -196,10 +197,13 @@ const BASE_HP := 22.0
 const HP_GROWTH := 1.218
 ## 일반 적은 라운드마다 조금 더 단단해져 중반부터 압박이 쌓인다 (보스 체력에는 적용 안 함)
 const MOB_EXTRA_GROWTH := 1.03
+## 스토리 장 이어하기: 누적 라운드가 이 값을 넘으면 체력 증가를 조금 누그러뜨림 (대신 보스 방해 기술이 늘어남)
+const RUN_SOFT_FROM := 24
+const RUN_SOFT := 0.9
 ## 무한·대전 일반 적 체력 보정 [라운드, 배수] (사이는 선형 보간). 중반(15~30)을 더 빡빡하게, 35~40은 느슨하게
-## → 중반에 필드가 차오르는 긴장감, 마지막은 최종 보스에 집중. 연장전(41~)은 44라운드까지 다시 1배로 급상승.
+## → 중반에 필드가 차오르는 긴장감, 후반도 압박을 유지하며 최종 보스로. 연장전(41~)은 44라운드까지 다시 1배로 급상승.
 ## 스토리 스테이지에는 적용 안 함
-const MOB_CURVE := [[1, 1.0], [8, 1.3], [14, 1.95], [19, 2.45], [24, 2.45], [28, 1.75], [31, 1.5], [34, 1.0], [37, 0.55], [40, 0.45], [44, 1.0]]
+const MOB_CURVE := [[1, 1.1], [8, 1.6], [14, 2.25], [19, 2.55], [24, 2.45], [28, 1.85], [31, 1.5], [34, 1.05], [37, 0.75], [40, 0.65], [44, 1.1]]
 ## 무한 모드 난이도: 적 체력·보상 배수, 위기 이벤트 확률
 const DIFFICULTIES := [
 	{"id": "normal", "name": "보통", "hp": 1.0, "reward": 1.0, "crisis": 0.45, "color": Color(0.35, 0.6, 1.0)},
@@ -713,7 +717,10 @@ const STAR_DMG := 0.25            # ★당 공격력 +25%
 const STAR_SPEED := 0.10          # ★당 공속 +10%
 const AWAKEN_STAR := 3            # ★3 각성: 특성 수치 x1.35, 연쇄/다중 +1
 const ENHANCE_TIME := 0.9
-const MERGE_GREAT_CHANCE := 0.05  # 합성 대성공 확률
+const MERGE_GREAT_CHANCE := 0.04  # 합성 대성공 확률 (전설로는 건너뛰지 않음 → 대신 ★1)
+## 영웅 3 → 전설 합성 성공 확률. 실패하면 영웅 1개만 남는다. 연속 실패 천장이면 확정
+const LEGEND_MERGE_CHANCE := 0.45
+const LEGEND_MERGE_PITY := 3
 
 ## 소환 보완 (랜덤이지만 억울하지 않게)
 const PITY_EPIC := 28      # 영웅 이상이 이만큼 안 나오면 다음 소환 영웅 이상 확정
@@ -744,7 +751,13 @@ const BOSS_SKILLS := [
 	[["rift", 12.0], ["summon", 13.0], ["roar", 14.0], ["sanctuary", 15.0], ["frostbite", 16.0], ["blink", 12.0]],   # 9 공허의 왕 (최종)
 ]
 const BOSS_SKILL_NAMES := {"dash": "돌진", "roar": "포효", "summon": "부하 소환", "regen": "재생", "shield": "용암 방패", "blast": "화염 폭발", "blink": "순간이동",
-	"frostbite": "서리 감옥", "sandstorm": "모래 폭풍", "sanctuary": "빛의 성역", "shadow": "그림자 분신", "rift": "공허 균열"}
+	"frostbite": "서리 감옥", "sandstorm": "모래 폭풍", "sanctuary": "빛의 성역", "shadow": "그림자 분신", "rift": "공허 균열",
+	"chill": "냉기 저주", "petrify": "석화의 눈", "weaken": "쇠약 저주", "split": "분열", "greed": "탐욕", "haste": "진군 명령"}
+## 방해 기술: 뒤로 갈수록(장·라운드·난이도) 보스가 이 중 더 많이 골라 쓰고, 재사용 시간도 짧아진다 (Board._debuff_tier)
+##  chill 우리 유닛 공격속도 -35% · petrify 유닛 여러 칸 석화(공격 불가) · weaken 우리 피해 -30%
+##  split 보스가 분신 여럿으로 분열 · greed 골드 강탈 · haste 모든 적 이동속도 +45%
+const DEBUFF_POOL := ["chill", "petrify", "weaken", "split", "greed", "haste"]
+const DEBUFF_MAX := 4
 const BOSS_CAST_TIME := 1.0
 
 

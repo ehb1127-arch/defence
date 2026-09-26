@@ -173,7 +173,7 @@ func _action_buttons(sz: Vector2) -> Array:
 	add.call("slot", "slot", Color(1, 0.35, 0.45), "럭키 슬롯\n골드를 걸고 한 판!", func(): _toggle_sheet("slot"))
 	add.call("upgrade", "upgrade", Color(0.45, 0.95, 0.6), "강화\n등급별 공격력 / 소환 행운", func(): _toggle_sheet("upgrade"))
 	add.call("recipe", "recipe", Color(1, 0.35, 0.4), "조합\n신화 조합표", func(): _toggle_sheet("recipe"))
-	add.call("control", "curse", Color(0.8, 0.5, 1.0), "지배\n보석 %d개로 트랙 위 가장 강한 적을 내 유닛으로!\n중간보스·적 영웅은 전설 유닛이 돼요" % GameData.MC_GEMS, func(): board.mind_control())
+	add.call("control", "curse", Color(0.8, 0.5, 1.0), "지배\n보석 %d개로 트랙 위 가장 강한 적을 내 유닛으로!\n중간보스는 보석 %d개, 전설 유닛이 돼요" % [GameData.MC_GEMS, GameData.MC_LEGEND_GEMS], func(): board.mind_control())
 	_btn["control"].badge_icon = "gem"
 	if board.mode == "pvp":
 		add.call("special", "attack", Color(1, 0.5, 0.4), "공격\n상대에게 적/저주 보내기", func(): _toggle_sheet("attack"))
@@ -941,7 +941,7 @@ func _refresh() -> void:
 		var tgt := b._mc_target()
 		strong = tgt != null and tgt.kind in ["midboss", "hero", "elite"]
 	_btn["control"].progress = (1.0 - b.mc_cd / GameData.MC_COOLDOWN) if b.mc_cd > 0.0 else -1.0
-	_btn["control"].set_state(str(GameData.MC_GEMS), not mc_ready, strong)
+	_btn["control"].set_state(str(board.mc_cost()), not mc_ready, strong)
 	if _btn.has("special"):
 		if b.mode == "coop":
 			_btn["special"].progress = float(b.gauge) / GameData.COOP_BLAST_NEED

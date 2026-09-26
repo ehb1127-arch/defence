@@ -76,8 +76,13 @@ func _ready() -> void:
 	# 이어하기: 같은 장의 다음 스테이지 / 탑 다음 층은 배치를 그대로 가져온다
 	var carry: Dictionary = Session.carry if Session.carry.get("stage", "") == Session.stage and Session.stage != "" else {}
 	Session.carry = {}
+	# 지도에서 골랐거나 져서 다시 하는 경우: 저장된 체크포인트(이 스테이지 시작 상태)에서 이어서
+	var from_save := false
+	if carry.is_empty() and Session.stage != "" and RunSave.has(Session.stage):
+		carry = {"stage": Session.stage, "state": RunSave.get_state(Session.stage)}
+		from_save = true
 	if Session.stage != "":
-		boards[0].apply_stage(Session.stage)
+		boards[0].apply_stage(Session.stage, not carry.is_empty())
 	elif not Session.online and mode != "pvp":
 		for b in boards:
 			b.difficulty = clampi(Session.difficulty, 0, GameData.DIFFICULTIES.size() - 1)
@@ -88,7 +93,9 @@ func _ready() -> void:
 		var gb := int(int(st["chapter"]["gold"]) * 0.4)
 		var gm := int(st["chapter"]["gems"]) / 2
 		boards[0].import_state(carry["state"], gb, gm)
-		boards[0].show_banner("이어하기!", "배치 유지 · 보급 +%dG +%d보석" % [gb, gm], Color(0.5, 1, 0.7))
+		var off: int = boards[0].wave_offset
+		boards[0].show_banner("이어하기!" if not from_save else "체크포인트에서 이어하기!",
+			("배치 유지 · 보급 +%dG +%d보석" % [gb, gm]) + ("  ·  누적 R%d부터" % (off + 1) if off > 0 else ""), Color(0.5, 1, 0.7))
 	_prev_best = int(Profile.stats.get("best_round", 0))
 	var st := Story.get_stage(Session.stage) if Session.stage != "" else {}
 	if not st.is_empty() and not st["data"].get("intro", []).is_empty() and not Profile.story_seen.has(Session.stage):
@@ -1058,6 +1065,8 @@ func _finish(winner: int, text: String, broadcast: bool) -> void:
 	if mode == "solo":
 		won = winner == 0 or _overtime   # 연장전은 40라운드를 이미 넘었으므로 승리로 정산
 	_last_won = won
+	if won:
+		_save_checkpoint()
 	Sfx.play("win" if won else "lose")
 	# 승리·패배 음악이 잘 들리게 배경음악을 멈췄다가 잔잔한 곡으로
 	Music.stop()
@@ -1380,6 +1389,15 @@ func _go_stage(id: String) -> void:
 	if _can_carry(id):
 		Session.carry = {"stage": id, "state": _local_board().export_state()}
 	Campaign.start_stage(id, get_tree())
+
+
+func _save_checkpoint() -> void:
+	## 스테이지를 이기면 다음 스테이지의 시작 상태를 저장 (지도로 나갔다 와도 이어서)
+	if Session.stage == "" or Session.online:
+		return
+	var nxt := Story.next_stage(Session.stage)
+	if nxt != "" and _can_carry(nxt):
+		RunSave.save_state(nxt, _local_board().export_state())
 
 
 func _check_best_record() -> void:

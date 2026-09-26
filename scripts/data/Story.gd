@@ -23,6 +23,7 @@ const CHARACTERS := {
 }
 
 ## hp: 적 체력 배수, gold: 시작 골드, boss: 보스 세트 (0~3, 4 = 최종), mods: 스테이지 규칙
+## 장 체력 배수: 한 장이 이어지는 한 판이라 라운드마다 체력이 계속 오르므로(Board.wave_offset) 장 사이 배수는 완만하게
 const CHAPTERS := [
 	{"id": 1, "name": "변방 마을 에르카", "color": Color(0.45, 0.8, 0.45), "hp": 2.0, "gold": 120, "gems": 2,
 		"desc": "결계의 가장 바깥, 괴물들이 처음 모습을 드러낸 곳.",
@@ -48,7 +49,7 @@ const CHAPTERS := [
 				["arka", "예전보다? ...이상하군. 놈들은 결계를 '알고' 있는 것 같다."],
 				["rina", "숲 쪽이 조용해졌어. 너무 조용해. 망자의 숲으로 가 보자."]]},
 		]},
-	{"id": 2, "name": "망자의 숲", "color": Color(0.6, 0.75, 0.7), "hp": 4.2, "gold": 220, "gems": 3,
+	{"id": 2, "name": "망자의 숲", "color": Color(0.6, 0.75, 0.7), "hp": 2.6, "gold": 220, "gems": 3,
 		"desc": "쓰러진 수호자들이 잠든 숲. 뼈들이 다시 일어나고 있다.",
 		"stages": [
 			{"name": "안개 낀 길", "rounds": 8, "mods": ["armored"], "intro": [
@@ -69,7 +70,7 @@ const CHAPTERS := [
 				["rina", "그분? 누굴 말하는 거야?"],
 				["arka", "......초대 수호자. 설마, 그자가 살아 있단 말인가."]]},
 		]},
-	{"id": 3, "name": "불타는 광산", "color": Color(1, 0.55, 0.3), "hp": 7.2, "gold": 330, "gems": 4,
+	{"id": 3, "name": "불타는 광산", "color": Color(1, 0.55, 0.3), "hp": 3.3, "gold": 330, "gems": 4,
 		"desc": "결계석을 캐던 광산. 지금은 용암과 골렘이 차지했다.",
 		"stages": [
 			{"name": "용암 갱도", "rounds": 10, "mods": ["tank"], "intro": [
@@ -90,7 +91,7 @@ const CHAPTERS := [
 				["kael", "하지만 알아둬. 심연의 문이 열렸다. 거긴 나도 무서워."],
 				["arka", "문 너머에서 초대 수호자의 목소리가 들린다는 소문이 있다. 가자."]]},
 		]},
-	{"id": 4, "name": "심연의 문", "color": Color(0.6, 0.4, 0.95), "hp": 11.0, "gold": 450, "gems": 5,
+	{"id": 4, "name": "심연의 문", "color": Color(0.6, 0.4, 0.95), "hp": 4.1, "gold": 450, "gems": 5,
 		"desc": "결계에 생긴 가장 큰 틈. 이곳에서 모든 괴물이 흘러나온다.",
 		"stages": [
 			{"name": "균열", "rounds": 10, "mods": ["swarm", "fast"], "intro": [
@@ -110,7 +111,7 @@ const CHAPTERS := [
 				["lord", "(멀리서) 잘 왔다, 어린 결계사여. 천 년 만의 손님이구나."],
 				["arka", "......틀림없다. 저 목소리는 초대 수호자, 나의 스승이다."]]},
 		]},
-	{"id": 5, "name": "무너진 왕도", "color": Color(0.95, 0.35, 0.5), "hp": 15.5, "gold": 600, "gems": 6,
+	{"id": 5, "name": "무너진 왕도", "color": Color(0.95, 0.35, 0.5), "hp": 5.0, "gold": 600, "gems": 6,
 		"desc": "천 년 전 첫 결계가 세워진 곳. 모든 것이 시작되고, 끝나는 곳.",
 		"stages": [
 			{"name": "잿빛 성문", "rounds": 10, "mods": ["fast", "armored"], "intro": [
@@ -135,7 +136,7 @@ const CHAPTERS := [
 				["narr", "- 1부 완결. 무한 모드와 대전에서 결계를 계속 지켜주세요 -"]]},
 		]},
 	# ======================= 2부: 새 결계의 주인 =======================
-	{"id": 6, "name": "얼어붙은 북방", "color": Color(0.55, 0.85, 1.0), "hp": 21.0, "gold": 700, "gems": 6,
+	{"id": 6, "name": "얼어붙은 북방", "color": Color(0.55, 0.85, 1.0), "hp": 6.0, "gold": 700, "gems": 6,
 		"desc": "새 결계가 세워진 지 한 달. 북쪽 끝에서 결계가 얼어붙기 시작했다.",
 		"stages": [
 			{"name": "서리 전령", "rounds": 10, "mods": ["fast"], "intro": [
@@ -163,7 +164,7 @@ const CHAPTERS := [
 				["mira", "여제는 내 첫 번째 제자였어. 심연은 약속을 지키거든. 곧 알게 될 거야."],
 				["kael", "저 무녀, 쫓아가자. 남쪽 사막으로 사라졌어."]]},
 		]},
-	{"id": 7, "name": "사막의 신기루", "color": Color(1, 0.8, 0.4), "hp": 28.0, "gold": 800, "gems": 7,
+	{"id": 7, "name": "사막의 신기루", "color": Color(1, 0.8, 0.4), "hp": 7.2, "gold": 800, "gems": 7,
 		"desc": "모래 폭풍 속에 결계의 사본이 떠 있다. 무엇이 진짜 결계인가.",
 		"stages": [
 			{"name": "모래 폭풍", "rounds": 10, "mods": ["swarm", "fast"], "intro": [
@@ -189,7 +190,7 @@ const CHAPTERS := [
 				["kael", "옳든 아니든, 저 괴물들이 마을을 덮치는 건 막아야 해. 그게 결계사다."],
 				["mira", "하늘을 봐. 에테르 섬이 떨어지고 있어. 천사가 울고 있거든."]]},
 		]},
-	{"id": 8, "name": "하늘 섬 에테르", "color": Color(0.95, 0.95, 0.7), "hp": 36.0, "gold": 900, "gems": 8,
+	{"id": 8, "name": "하늘 섬 에테르", "color": Color(0.95, 0.95, 0.7), "hp": 8.5, "gold": 900, "gems": 8,
 		"desc": "결계를 하늘에서 지켜보던 천사들의 섬. 그 섬이 추락하고 있다.",
 		"stages": [
 			{"name": "추락하는 섬", "rounds": 12, "mods": ["fast", "heroes"], "intro": [
@@ -216,7 +217,7 @@ const CHAPTERS := [
 				["kael", "미라! 이제 그만해!"],
 				["mira", "그만할 수 없어, 카엘. 그분이 깨어나고 있거든. 그림자 미궁에서 기다릴게."]]},
 		]},
-	{"id": 9, "name": "그림자 미궁", "color": Color(0.55, 0.45, 0.8), "hp": 46.0, "gold": 1000, "gems": 9,
+	{"id": 9, "name": "그림자 미궁", "color": Color(0.55, 0.45, 0.8), "hp": 10.0, "gold": 1000, "gems": 9,
 		"desc": "결계의 그림자로 만들어진 미궁. 같은 길이 끝없이 반복된다.",
 		"stages": [
 			{"name": "거울 복도", "rounds": 12, "mods": ["swarm", "curse"], "intro": [
@@ -243,7 +244,7 @@ const CHAPTERS := [
 				["kael", "미라!!"],
 				["arka", "공허의 왕. 모든 틈의 주인. 천 년 전 스승님도 이기지 못하고 봉인만 했던 존재다."]]},
 		]},
-	{"id": 10, "name": "공허의 왕좌", "color": Color(0.6, 0.25, 0.85), "hp": 58.0, "gold": 1200, "gems": 10,
+	{"id": 10, "name": "공허의 왕좌", "color": Color(0.6, 0.25, 0.85), "hp": 12.0, "gold": 1200, "gems": 10,
 		"desc": "모든 결계의 바깥. 틈과 틈이 만나는 곳, 공허의 왕이 앉아 있다.",
 		"stages": [
 			{"name": "틈의 바다", "rounds": 12, "mods": ["fast", "swarm", "heroes"], "intro": [
@@ -371,6 +372,20 @@ static func hard_ids() -> Array:
 	for id in all_ids():
 		out.append("H" + id)
 	return out
+
+
+static func wave_offset(id: String) -> int:
+	## 장 이어하기: 이 스테이지 앞 스테이지들의 라운드 합 (적 체력이 한 판처럼 계속 오른다). 탑/오늘의 결계 0
+	if id.begins_with("T") or id.begins_with("D"):
+		return 0
+	var st := get_stage(id)
+	if st.is_empty():
+		return 0
+	var off := 0
+	var stages: Array = CHAPTERS[chapter_of(id) - 1]["stages"]
+	for k in int(st["index"]):
+		off += int(stages[k]["rounds"])
+	return off
 
 
 static func chapter_of(id: String) -> int:

@@ -238,6 +238,12 @@ func _refresh() -> void:
 	hint.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_info_stars.add_child(hint)
 	_info_desc.text = "%s\n%d 라운드%s" % [st["chapter"]["desc"], d["rounds"], "  ·  마지막 라운드에 %s 등장" % Story.BOSS_NAMES[d["boss"]] if boss else "  ·  끝까지 버티면 클리어"]
+	# 장 이어하기: 앞 스테이지를 이기면 배치·강화가 저장돼 여기서 이어진다
+	var off := Story.wave_offset(_stage)
+	if RunSave.has(_stage):
+		_info_desc.text += "\n▶ 이어하기: 앞 스테이지의 배치·강화 그대로 (누적 %d~%d 라운드)" % [off + 1, off + int(d["rounds"])]
+	elif int(st["index"]) > 0:
+		_info_desc.text += "\n처음부터 시작 (앞 스테이지를 이기면 배치가 이어져요)"
 	for c in _info_mods.get_children():
 		c.queue_free()
 	for m in d.get("mods", []):
