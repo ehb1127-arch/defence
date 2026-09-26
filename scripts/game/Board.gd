@@ -36,6 +36,7 @@ var event_rng := RandomNumberGenerator.new()
 var cells: Array = []
 var enemies: Array[EnemyState] = []
 var effects: Array = []
+var _fx_mute := false   # 효과 이미지가 있을 때 같은 순간의 코드 효과를 끔
 var texts: Array = []
 var chests: Array = []
 
@@ -719,7 +720,8 @@ func merge_cell(i: int) -> bool:
 		_sfx("legend")
 	var id := _biased_unit_of(new_r)
 	# 합성 연출: 세 마리가 가운데로 빨려 들어감
-	_add_effect({"type": "merge", "pos": cell_center(i), "t": 0.0, "dur": 0.35, "color": GameData.RARITY_COLORS[new_r]})
+	if not _img_fx("merge", cell_center(i), CELL * 2.2, 0.5, GameData.RARITY_COLORS[new_r]):
+		_add_effect({"type": "merge", "pos": cell_center(i), "t": 0.0, "dur": 0.35, "color": GameData.RARITY_COLORS[new_r]})
 	var idx := _place_unit(id, great_star, i)
 	_count_legend(id, "merge")
 	rarity = new_r - 1
@@ -1761,8 +1763,7 @@ func _attack(i: int, c: Dictionary, u: Dictionary, target: EnemyState, fx: Dicti
 			crit = true
 		var style: String = u.get("atk", ATK_STYLE.get(u["glyph"], "orb"))
 		_sfx(ATK_SFX.get(style, "hit"))
-		_add_effect({"type": "atk", "style": style, "from": center, "to": t.pos, "t": 0.0, "dur": ATK_DUR.get(style, 0.16),
-			"color": col.lightened(0.3) if awake else col, "big": u["rarity"] >= 3 or awake, "seed": rng.randf() * TAU})
+		_atk_fx(style, center, t.pos, col.lightened(0.3) if awake else col, u["rarity"] >= 3 or awake, ATK_DUR.get(style, 0.16))
 		_hit(t, dmg, id, fx, crit)
 		# 관통: 대상 뒤 일직선의 적도 관통
 		if fx.has("pierce"):
@@ -1891,6 +1892,7 @@ func _kill(e: EnemyState) -> void:
 	if combo % GameData.FEVER_EVERY == 0:
 		fever_t = GameData.FEVER_TIME
 		show_banner("FEVER!!", "%d 콤보! 8초 동안 공격속도 +30%%, 골드 +50%%" % combo, Color(1, 0.6, 0.2))
+		_img_fx("fever", Vector2(SIZE / 2, SIZE / 2), SIZE * 0.8, 1.0)
 		_flash(Color(1, 0.7, 0.2), 0.3)
 		_sfx("fever")
 	if combo % GameData.COMBO_STEP == 0:
@@ -1921,6 +1923,7 @@ func _kill(e: EnemyState) -> void:
 				float_text(e.pos + Vector2(0, -80), "간발의 차!! +%d 보석" % GameData.CLUTCH_GEMS, Color(1, 0.95, 0.4), 26)
 			gems += gm
 			show_banner("보스 처치!", "+%d 골드  +%d 보석" % [g, gm], Color(1, 0.85, 0.3))
+			_img_fx("boss_death", e.pos, 420.0, 1.3)
 			_sfx("boom")
 			_sfx("legend")
 			_flash(Color(1, 0.9, 0.5), 0.5)
@@ -1976,6 +1979,18 @@ func _kill(e: EnemyState) -> void:
 
 
 func _cast_skill(i: int, c: Dictionary, u: Dictionary) -> void:
+	## 신화 스킬 이미지(art/fx/skill_<id>)가 있으면 이미지 + 게임 효과만, 코드 그림은 끔
+	var sid: String = u["skill"]["id"]
+	var glob: bool = sid in SKILL_FX_GLOBAL
+	var at := Vector2(SIZE / 2, SIZE / 2) if glob else cell_center(i)
+	var sz: float = SIZE * 0.95 if glob else clampf(float(u["range"]) * 2.2, 220.0, SIZE)
+	if _img_fx("skill_" + sid, at, sz, 1.0):
+		_fx_mute = true
+	_cast_skill_fx(i, c, u)
+	_fx_mute = false
+
+
+func _cast_skill_fx(i: int, c: Dictionary, u: Dictionary) -> void:
 	var center := cell_center(i)
 	var n: int = c["n"]
 	var base: float = u["dmg"] * unit_power(c["id"])
@@ -2367,7 +2382,8 @@ func _update_enhance(dt: float) -> void:
 		_coin_burst(p, 8 + star * 4)
 		float_text(p + Vector2(0, -30), "★%d 성공!" % (star + 1), Color(1, 0.85, 0.3), 20)
 		float_text(p + Vector2(0, -8), "공격력 +%d%% · 공속 +%d%%" % [int(GameData.STAR_DMG * 100), int(GameData.STAR_SPEED * 100)], Color(0.6, 1.0, 0.6), 13)
-		_add_effect({"type": "up", "pos": p, "t": 0.0, "dur": 0.9, "color": Color(1, 0.85, 0.3)})
+		if not _img_fx("levelup", p, 150.0, 0.9, Color.WHITE, 0.0, false):
+			_add_effect({"type": "up", "pos": p, "t": 0.0, "dur": 0.9, "color": Color(1, 0.85, 0.3)})
 		max_star = maxi(max_star, star + 1)
 		if star + 1 == GameData.TRANSCEND_STAR:
 			show_banner("초월!", "%s ★5 - 두 번 공격" % GameData.UNITS[c["id"]]["name"], Color(1, 0.4, 0.9))
@@ -2457,6 +2473,20 @@ func _update_boss(e: EnemyState, dt: float) -> void:
 
 
 func _boss_skill(e: EnemyState, sid: String) -> void:
+	## 보스 기술 이미지(art/fx/boss_<id>)가 있으면 이미지 + 게임 효과만
+	var glob: bool = sid in BOSS_FX_GLOBAL
+	var at := Vector2(SIZE / 2, SIZE / 2) if glob else e.pos
+	var sz: float = SIZE * 0.95 if glob else (170.0 if sid in ["frostbite", "shield", "regen"] else 240.0)
+	var rot := 0.0
+	if sid == "dash":
+		rot = (path_pos(e.dist + 10.0) - path_pos(e.dist)).angle()
+	if _img_fx("boss_" + sid, at, sz, 0.9, Color.WHITE, rot, sid != "dash"):
+		_fx_mute = true
+	_boss_skill_fx(e, sid)
+	_fx_mute = false
+
+
+func _boss_skill_fx(e: EnemyState, sid: String) -> void:
 	_sfx("boom")
 	match sid:
 		"dash":
@@ -2777,8 +2807,52 @@ func _flash(color: Color, dur: float) -> void:
 
 
 func _add_effect(fx: Dictionary) -> void:
+	if _fx_mute and not fx["type"] in ["img", "proj", "coin"]:
+		return
+	# 적 등장 문: 이미지가 있으면 이미지로
+	if fx["type"] == "portal" and FxArt.has("portal"):
+		fx = {"type": "img", "key": "portal", "pos": fx["pos"], "size": 120.0, "t": fx["t"], "dur": fx["dur"], "color": Color.WHITE, "spin": true}
 	if effects.size() < 320:
 		effects.append(fx)
+
+
+## 효과 이미지 한 장 재생 (art/fx/<key>). 이미지가 없으면 false
+func _img_fx(key: String, pos: Vector2, size: float, dur: float, tint := Color.WHITE, rot := 0.0, spin := true) -> bool:
+	if not FxArt.has(key):
+		return false
+	var m := _fx_mute
+	_fx_mute = false
+	_add_effect({"type": "img", "key": key, "pos": pos, "size": size, "t": 0.0, "dur": dur, "color": tint, "rot": rot, "spin": spin})
+	_fx_mute = m
+	return true
+
+
+const SKILL_FX_GLOBAL := ["judgement", "timestop", "plague", "breath"]
+const BOSS_FX_GLOBAL := ["sandstorm", "sanctuary", "rift"]
+## 공격 종류 → 타격 이미지 이름
+const HIT_FX := {"slash": "slash", "spin": "slash", "scythe": "slash", "stab": "stab", "thrust": "stab", "lance": "stab",
+	"bash": "bash", "arrow": "arrow", "tracer": "arrow", "fireball": "fire", "ice": "ice", "zap": "zap", "clockwork": "zap",
+	"holy": "holy", "flask": "poison", "orb": "magic", "note": "magic", "coin": "magic", "lob": "magic"}
+const HIT_FX_COLORED := ["fire", "ice", "zap", "poison"]   # 그림 자체 색을 쓰는 타격
+const MELEE_STYLES := ["slash", "spin", "stab", "thrust", "bash", "lance", "scythe"]
+
+
+## 공격 연출: 타격 이미지가 있으면 이미지(원거리는 투사체 이미지도 있을 때만), 없으면 코드 연출
+func _atk_fx(style: String, from: Vector2, to: Vector2, col: Color, big: bool, dur: float) -> void:
+	var hk: String = HIT_FX.get(style, "magic")
+	var key := "hit_" + hk
+	var tint := Color.WHITE if hk in HIT_FX_COLORED else col.lightened(0.25)
+	var sz := 84.0 if big else 64.0
+	if FxArt.has(key):
+		if style in MELEE_STYLES:
+			_img_fx(key, to, sz, 0.28, tint, (to - from).angle(), false)
+			return
+		if FxArt.has("proj_" + hk):
+			_add_effect({"type": "proj", "key": "proj_" + hk, "from": from, "to": to, "t": 0.0, "dur": maxf(dur, 0.14), "color": tint, "size": sz * 0.7})
+			_add_effect({"type": "img", "key": key, "pos": to, "size": sz, "t": -maxf(dur, 0.14), "dur": 0.28, "color": tint, "rot": 0.0, "spin": false})
+			return
+	_add_effect({"type": "atk", "style": style, "from": from, "to": to, "t": 0.0, "dur": dur,
+		"color": col, "big": big, "seed": rng.randf() * TAU})
 
 
 func _rare_pull_fx(idx: int, rarity: int) -> void:
@@ -2792,7 +2866,8 @@ func _rare_pull_fx(idx: int, rarity: int) -> void:
 		effects.append({"type": "reveal", "id": cells[idx]["id"], "rarity": rarity, "pos": cell_center(idx), "t": 0.0,
 			"dur": [0.0, 0.0, 0.9, 1.3, 1.8][rarity], "color": col})
 	_add_effect({"type": "ring", "pos": cell_center(idx), "r0": 10.0, "r1": 110.0, "t": 0.0, "dur": 0.7, "color": col})
-	_add_effect({"type": "beam", "pos": cell_center(idx), "t": 0.0, "dur": 0.8, "color": col})
+	if not _img_fx("summon_legend" if rarity >= GameData.Rarity.LEGEND else "summon_epic", cell_center(idx), 230.0 if rarity >= GameData.Rarity.LEGEND else 180.0, 1.0, Color.WHITE, 0.0, false) or rarity < GameData.Rarity.EPIC:
+		_add_effect({"type": "beam", "pos": cell_center(idx), "t": 0.0, "dur": 0.8, "color": col})
 	if rarity >= GameData.Rarity.LEGEND:
 		_flash(col, 0.3)
 		shake = maxf(shake, 6.0)
@@ -3106,7 +3181,21 @@ func _draw_unit_stack(center: Vector2, c: Dictionary) -> void:
 
 func _draw_enemy_marks(e: EnemyState, body: Vector2, s: float) -> void:
 	## 그림 적 위 표시: 상태이상(빙결·둔화·기절·화상·중독), 보스 시전(빨간 원)·용암 방패, 이름표
-	if e.freeze_t > 0.0:
+	## 상태이상 이미지(art/fx/status_*)가 있으면 그것으로
+	var st_done := {}
+	if e.freeze_t > 0.0 and FxArt.draw_loop(self, "status_freeze", body, s * 2.7, _anim):
+		st_done["freeze"] = true
+	elif e.freeze_t <= 0.0 and (e.slow_t > 0.0 or e.aura_slow > 0.0) and FxArt.draw_loop(self, "status_slow", body + Vector2(0, s * 0.6), s * 2.4, _anim):
+		st_done["slow"] = true
+	if e.stun_t > 0.0 and e.freeze_t <= 0.0 and FxArt.draw_loop(self, "status_stun", body + Vector2(0, -s * 1.3), s * 1.8, _anim):
+		st_done["stun"] = true
+	if e.burn_t > 0.0 and FxArt.draw_loop(self, "status_burn", body, s * 1.8, _anim):
+		st_done["burn"] = true
+	if e.poison_t > 0.0 and FxArt.draw_loop(self, "status_poison", body + Vector2(0, -s * 0.5), s * 1.6, _anim):
+		st_done["poison"] = true
+	if st_done.has("freeze"):
+		pass
+	elif e.freeze_t > 0.0:
 		# 얼음 덩어리
 		var ib := Rect2(body - Vector2(s, s) * 1.25, Vector2(s, s) * 2.5)
 		var ice := StyleBoxFlat.new()
@@ -3117,21 +3206,21 @@ func _draw_enemy_marks(e: EnemyState, body: Vector2, s: float) -> void:
 		ice.draw(get_canvas_item(), ib)
 		draw_line(ib.position + Vector2(4, 6), ib.position + Vector2(ib.size.x * 0.45, 3), Color(1, 1, 1, 0.8), 2.0)
 		Glyphs.draw(self, "snow", body + Vector2(s * 0.9, -s * 0.9), 6.0, Color(1, 1, 1))
-	elif e.slow_t > 0.0 or e.aura_slow > 0.0:
+	elif (e.slow_t > 0.0 or e.aura_slow > 0.0) and not st_done.has("slow"):
 		for j in 3:
 			var ang := _anim * 3.0 + j * TAU / 3.0
 			var fp := body + Vector2(cos(ang) * s * 1.2, sin(ang) * s * 0.5 + s * 0.6)
 			draw_colored_polygon(PackedVector2Array([fp + Vector2(0, -3), fp + Vector2(3, 0), fp + Vector2(0, 3), fp + Vector2(-3, 0)]), Color(0.7, 0.95, 1.0, 0.9))
-	if e.stun_t > 0.0 and e.freeze_t <= 0.0:
+	if e.stun_t > 0.0 and e.freeze_t <= 0.0 and not st_done.has("stun"):
 		for j in 3:
 			var ang2 := _anim * 6.0 + j * TAU / 3.0
 			Glyphs.draw(self, "star", body + Vector2(cos(ang2) * s * 0.8, -s * 1.3 + sin(ang2) * 4.0), 4.5, Color(1, 0.95, 0.4))
-	if e.burn_t > 0.0:
+	if e.burn_t > 0.0 and not st_done.has("burn"):
 		for j in 2:
 			var fl := body + Vector2((j - 0.5) * s * 0.8, -s * 0.2)
 			var hgt := 8.0 + 4.0 * sin(_anim * 14.0 + j * 2.0)
 			draw_colored_polygon(PackedVector2Array([fl + Vector2(-4, 0), fl + Vector2(4, 0), fl + Vector2(0, -hgt)]), Color(1, 0.5, 0.1, 0.85))
-	if e.poison_t > 0.0:
+	if e.poison_t > 0.0 and not st_done.has("poison"):
 		for j in 3:
 			var bq := fmod(_anim * 0.8 + j * 0.33, 1.0)
 			draw_circle(body + Vector2((j - 1) * s * 0.5, -s * 0.5 - bq * s), 2.5 + bq * 1.5, Color(0.45, 1.0, 0.35, 0.8 * (1.0 - bq)))
@@ -3269,6 +3358,10 @@ func _draw_effects() -> void:
 			continue
 		var col: Color = fx["color"]
 		match fx["type"]:
+			"img":
+				FxArt.draw_burst(self, fx["key"], fx["pos"], fx["size"], k, col, fx.get("rot", 0.0), fx.get("spin", true))
+			"proj":
+				FxArt.draw_projectile(self, fx["key"], fx["from"], fx["to"], k, fx["size"], col)
 			"atk":
 				_draw_atk(fx, k, col)
 			"icecell", "sand", "pillar", "rift", "quake", "bless", "miasma", "rainarrow", "breath", "vortex":
