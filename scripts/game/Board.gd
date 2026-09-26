@@ -74,6 +74,13 @@ var best_combo := 0
 var _combo_t := 0.0
 var combo_pop := 0.0
 var boss_warn_t := 0.0
+var mc_cd := 0.0                 # 지배 쿨타임
+var pity_epic := 0               # 영웅 이상 없이 소환한 횟수
+var pity_legend := 0
+var summons_total := 0
+var pending_pick: Array = []     # 골라 뽑기 후보 3개 (유닛 id)
+var mind_controls := 0           # 이번 판 지배 횟수
+var _hero_t := -1.0              # 적 영웅 등장까지 남은 시간 (-1 = 없음)
 var pending_slot := {}            # 돌아가는 중인 슬롯 {reels, bet, t}
 var last_slot := {}               # 마지막 결과 (UI 표시용)
 var slot_spins := 0
@@ -367,8 +374,17 @@ func summon() -> bool:
 		float_text(Vector2(SIZE / 2, 150), "골드 부족!", Color(1, 0.4, 0.4))
 		return false
 	var rarity := GameData.roll_summon_rarity(rng, upgrades[3])
+	# 천장: 오래 안 나오면 확정
+	var pity_hit := false
+	if pity_legend + 1 >= GameData.PITY_LEGEND and rarity < GameData.Rarity.LEGEND:
+		rarity = GameData.Rarity.LEGEND
+		pity_hit = true
+	elif pity_epic + 1 >= GameData.PITY_EPIC and rarity < GameData.Rarity.EPIC:
+		rarity = GameData.Rarity.EPIC
+		pity_hit = true
+	var pick := (summons_total + 1) % GameData.PICK_EVERY == 0 and pending_pick.is_empty()
 	var id := GameData.random_unit_of(rng, rarity)
-	if not has_space_for(id):
+	if not pick and not has_space_for(id):
 		float_text(Vector2(SIZE / 2, 150), "빈 칸이 없어요!", Color(1, 0.4, 0.4))
 		return false
 	if free:
@@ -376,12 +392,81 @@ func summon() -> bool:
 	else:
 		gold -= cost
 		summon_count += 1
+	summons_total += 1
+	pity_epic = 0 if rarity >= GameData.Rarity.EPIC else pity_epic + 1
+	pity_legend = 0 if rarity >= GameData.Rarity.LEGEND else pity_legend + 1
+	if pity_hit:
+		show_banner("천장 도달!", "%s 등급 확정!" % GameData.RARITY_NAMES[rarity], GameData.RARITY_COLORS[rarity])
+	if pick:
+		# 골라 뽑기: 이번 등급 1장 + 같은 규칙으로 2장 더 → 셋 중 하나 고르기
+		pending_pick = [id]
+		while pending_pick.size() < 3:
+			var r2 := maxi(GameData.roll_summon_rarity(rng, upgrades[3] + 1), GameData.Rarity.RARE)
+			var alt := _biased_unit_of(r2)
+			if not alt in pending_pick:
+				pending_pick.append(alt)
+		show_banner("골라 뽑기!", "마음에 드는 유닛 하나를 고르세요", Color(0.6, 0.9, 1.0))
+		_sfx("rare")
+		return true
 	var idx := add_unit(id)
 	if rarity >= GameData.Rarity.EPIC:
 		_rare_pull_fx(idx, rarity)
 	else:
 		_sfx("summon")
 	return true
+
+
+func choose_pick(i: int) -> bool:
+	if i < 0 or i >= pending_pick.size() or not alive:
+		return false
+	var id: String = pending_pick[i]
+	if not has_space_for(id):
+		float_text(Vector2(SIZE / 2, 150), "빈 칸이 없어요!", Color(1, 0.4, 0.4))
+		return false
+	pending_pick = []
+	var idx := add_unit(id)
+	var r: int = GameData.UNITS[id]["rarity"]
+	if r >= GameData.Rarity.EPIC:
+		_rare_pull_fx(idx, r)
+	else:
+		_sfx("summon")
+	return true
+
+
+func _biased_unit_of(rarity: int) -> String:
+	## 이 등급에서 무작위 유닛. 단, 가장 가까운 신화 조합에 모자란 유닛은 더 잘 나온다 (합성·골라 뽑기용)
+	var pool := GameData.units_of_rarity(rarity)
+	var have := unit_counts()
+	var want := {}
+	var best_missing := 99
+	for m in GameData.RECIPES:
+		var need := {}
+		for ing in GameData.RECIPES[m]:
+			need[ing] = need.get(ing, 0) + 1
+		var missing: Array = []
+		for ing in need:
+			for k in maxi(0, need[ing] - int(have.get(ing, 0))):
+				missing.append(ing)
+		if missing.is_empty() or missing.size() > 3:
+			continue
+		if missing.size() < best_missing:
+			best_missing = missing.size()
+			want = {}
+		if missing.size() == best_missing:
+			for ing in missing:
+				want[ing] = true
+	var weights: Array = []
+	var total := 0.0
+	for id in pool:
+		var w := 1.0 + (GameData.MERGE_BIAS if want.has(id) else 0.0)
+		weights.append(w)
+		total += w
+	var r := rng.randf() * total
+	for i in pool.size():
+		r -= weights[i]
+		if r <= 0.0:
+			return pool[i]
+	return pool[pool.size() - 1]
 
 
 func add_unit(id: String) -> int:
@@ -445,7 +530,9 @@ func merge_cell(i: int) -> bool:
 		show_banner("합성 대성공!", "", Color(1, 0.85, 0.3))
 		_coin_burst(cell_center(i), 16)
 		_sfx("win")
-	var id := GameData.random_unit_of(rng, new_r)
+	var id := _biased_unit_of(new_r)
+	# 합성 연출: 세 마리가 가운데로 빨려 들어감
+	_add_effect({"type": "merge", "pos": cell_center(i), "t": 0.0, "dur": 0.35, "color": GameData.RARITY_COLORS[new_r]})
 	var idx := _place_unit(id, great_star, i)
 	rarity = new_r - 1
 	if selected == i and cells[i]["id"] == "":
@@ -760,6 +847,7 @@ func step(dt: float) -> void:
 		return
 	time_alive += dt
 	lucky_t = maxf(0.0, lucky_t - dt)
+	mc_cd = maxf(0.0, mc_cd - dt)
 	peak_field = maxi(peak_field, field_count())
 	curse_t = maxf(0.0, curse_t - dt)
 	_update_waves(dt)
@@ -799,6 +887,11 @@ func _update_waves(dt: float) -> void:
 	if _alarm_t <= 0.0 and float(field_count() + partner_count) / enemy_limit >= 0.8:
 		_alarm_t = 2.0
 		_sfx("alarm")
+	if _hero_t > 0.0:
+		_hero_t -= dt
+		if _hero_t <= 0.0:
+			_hero_t = -1.0
+			_spawn_hero()
 	if spawn_left > 0:
 		spawn_t -= dt
 		if spawn_t <= 0.0:
@@ -865,10 +958,118 @@ func _start_wave(w: int) -> void:
 		wave_timer = GameData.WAVE_TIME
 		spawn_left = GameData.SPAWN_PER_WAVE * (3 if "swarm" in stage_mods else 2) / 2
 		spawn_t = 0.0
-		show_banner("ROUND %d" % w, "", Color(0.9, 0.9, 1.0))
-		_sfx("round")
+		if GameData.is_midboss_wave(w) and w < final_wave:
+			var mb := _spawn("midboss", hp_at(w), 0.0)
+			mb.boss_name = GameData.MIDBOSS_NAMES[(w / 10) % GameData.MIDBOSS_NAMES.size()]
+			boss_warn_t = 1.5
+			show_banner("ROUND %d - 중간보스!" % w, "%s 등장! 오래 두면 적 한도가 빨리 차요" % mb.boss_name, Color(0.85, 0.45, 1.0))
+			_sfx("boss")
+		else:
+			show_banner("ROUND %d" % w, "", Color(0.9, 0.9, 1.0))
+			_sfx("round")
+		# 적 영웅: 라운드 중간에 난입 (대전은 같은 시드라 두 사람에게 똑같이)
+		if w >= GameData.HERO_FROM_WAVE and not GameData.is_midboss_wave(w) and event_rng.randf() < GameData.HERO_CHANCE:
+			_hero_t = 5.0 + event_rng.randf() * 6.0
 	if GameData.is_event_wave(w):
 		_random_event()
+
+
+func _spawn_hero() -> void:
+	var h: Dictionary = GameData.ENEMY_HEROES[event_rng.randi() % GameData.ENEMY_HEROES.size()]
+	var e := _spawn("hero", hp_at(wave) * h["hp"], 0.0)
+	e.hero = h["id"]
+	e.boss_name = h["name"]
+	e.speed = h["speed"]
+	e.armor = h["armor"]
+	e.color = h["color"]
+	if "fast" in stage_mods:
+		e.speed *= 1.25
+	boss_warn_t = 1.2
+	show_banner("적 영웅 출현!", "%s - %s" % [h["name"], h["desc"]], Color(1, 0.45, 0.3))
+	_flash(Color(1, 0.3, 0.2), 0.25)
+	_sfx("alarm")
+
+
+func _update_hero(e: EnemyState, dt: float) -> void:
+	## 적 영웅 능력
+	match e.hero:
+		"thief":
+			var lap := int(e.dist / LOOP)
+			if lap > e.lap:
+				e.lap = lap
+				var steal := mini(gold, 10 + wave * 2)
+				if steal > 0:
+					gold -= steal
+					float_text(e.pos + Vector2(0, -24), "-%dG 도둑맞음!" % steal, Color(1, 0.45, 0.45), 17)
+					_sfx("fail")
+		"berserker":
+			var base: float = GameData.enemy_hero("berserker")["speed"]
+			e.speed = base * (1.0 + (1.0 - e.hp_ratio()) * 1.3)
+			e.enraged = e.hp_ratio() < 0.5
+		"shaman", "warlord":
+			e.skill_t -= dt
+			if e.skill_t <= 0.0:
+				e.skill_t = 1.0 if e.hero == "shaman" else 3.0
+				for o in enemies:
+					if not o.alive or o == e or o.is_boss or o.pos.distance_to(e.pos) > 120.0:
+						continue
+					if e.hero == "shaman":
+						o.hp = minf(o.max_hp, o.hp + o.max_hp * 0.05)
+					else:
+						o.shield = maxf(o.shield, o.max_hp * 0.12)
+						o.max_shield = maxf(o.max_shield, o.shield)
+				_add_effect({"type": "ring", "pos": e.pos, "r0": 10.0, "r1": 120.0, "t": 0.0, "dur": 0.5, "color": e.color})
+
+
+func can_mind_control() -> bool:
+	return alive and not is_remote and mc_cd <= 0.0 and gems >= GameData.MC_GEMS and _mc_target() != null and used_cells() < cells.size()
+
+
+func _mc_target() -> EnemyState:
+	## 가장 강한 적 (중간보스 > 적 영웅 > 정예 > ...), 같은 종류면 체력이 많은 쪽. 보스는 불가
+	var best: EnemyState = null
+	var best_rank := 999
+	for e in enemies:
+		if not e.alive or e.is_boss or not GameData.MC_RARITY.has(e.kind):
+			continue
+		var rank: int = GameData.MC_PRIORITY.find(e.kind)
+		if rank < best_rank or (rank == best_rank and e.hp > best.hp):
+			best = e
+			best_rank = rank
+	return best
+
+
+func mind_control() -> bool:
+	## 지배: 보석으로 트랙 위의 가장 강한 적을 빼앗아 내 유닛으로 (스타크래프트 마인드 컨트롤처럼)
+	if not can_mind_control():
+		if mc_cd > 0.0:
+			float_text(Vector2(SIZE / 2, 150), "지배 대기 %d초" % int(ceil(mc_cd)), Color(0.8, 0.6, 1.0))
+		elif gems < GameData.MC_GEMS:
+			float_text(Vector2(SIZE / 2, 150), "보석 부족!", Color(1, 0.4, 0.4))
+		elif used_cells() >= cells.size():
+			float_text(Vector2(SIZE / 2, 150), "빈 칸이 없어요!", Color(1, 0.4, 0.4))
+		return false
+	var e := _mc_target()
+	var rarity: int = GameData.MC_RARITY[e.kind]
+	var id := GameData.random_unit_of(rng, rarity)
+	var name := e.boss_name if e.boss_name != "" else "적"
+	e.alive = false
+	gems -= GameData.MC_GEMS
+	mc_cd = GameData.MC_COOLDOWN
+	mind_controls += 1
+	var idx := add_unit(id)
+	if idx < 0:
+		return false
+	var to := cell_center(idx)
+	_add_effect({"type": "pierce", "from": e.pos, "to": to, "t": 0.0, "dur": 0.6, "color": Color(0.8, 0.4, 1.0)})
+	_add_effect({"type": "ring", "pos": e.pos, "r0": 8.0, "r1": 60.0, "t": 0.0, "dur": 0.5, "color": Color(0.8, 0.4, 1.0)})
+	show_banner("지배 성공!", "%s → %s" % [name, GameData.UNITS[id]["name"]], Color(0.8, 0.5, 1.0))
+	_flash(Color(0.7, 0.3, 1.0), 0.3)
+	if rarity >= GameData.Rarity.LEGEND:
+		_rare_pull_fx(idx, rarity)
+	else:
+		_sfx("rare")
+	return true
 
 
 func _random_event() -> void:
@@ -933,6 +1134,8 @@ func _update_enemies(dt: float) -> void:
 				e.slow = 0.0
 		if e.is_boss:
 			_update_boss(e, dt)
+		elif e.hero != "":
+			_update_hero(e, dt)
 		e.freeze_t = maxf(0.0, e.freeze_t - dt)
 		var spd: float = e.speed * (1.0 - maxf(e.slow, e.aura_slow))
 		if e.buff_t > 0.0:
@@ -1249,7 +1452,7 @@ func _hit(t: EnemyState, dmg: float, id: String, fx: Dictionary, crit: bool) -> 
 		var kb: float = fx["knockback"] * (0.25 if t.is_boss else 1.0)
 		t.dist = maxf(0.0, t.dist - kb)
 		t.pos = path_pos(t.dist)
-	if fx.has("execute") and t.alive and not t.is_boss and t.kind != "elite" and t.hp_ratio() <= fx["execute"]:
+	if fx.has("execute") and t.alive and not t.is_boss and not t.kind in ["elite", "midboss", "hero"] and t.hp_ratio() <= fx["execute"]:
 		float_text(t.pos + Vector2(0, -16), "처형!", Color(0.8, 0.4, 1.0), 14)
 		_damage(t, t.hp + t.shield + 1.0, id, false, true)
 	if crit:
@@ -1330,6 +1533,19 @@ func _kill(e: EnemyState) -> void:
 		"elite":
 			g = 40
 			gems += 1
+		"midboss":
+			g = 50 + wave * 4
+			gems += 2
+			_coin_burst(e.pos, 16)
+			show_banner("중간보스 처치!", "+%d 골드  +2 보석" % g, Color(0.85, 0.55, 1.0))
+			_sfx("win")
+			shake = 8.0
+		"hero":
+			g = 30 + wave * 2
+			gems += 1
+			_coin_burst(e.pos, 10)
+			show_banner("적 영웅 처치!", "%s  +%d 골드  +1 보석" % [e.boss_name, g], Color(1, 0.6, 0.35))
+			_sfx("rare")
 		"goblin":
 			g = 80 + wave * 5
 			gems += 2
@@ -1398,7 +1614,7 @@ func _cast_skill(i: int, c: Dictionary, u: Dictionary) -> void:
 				if reaped >= 3 * n:
 					break
 				_add_effect({"type": "pop", "pos": e.pos, "r": 30.0, "t": 0.0, "dur": 0.5, "color": Color(0.6, 0.2, 0.8)})
-				if e.is_boss or e.kind == "elite":
+				if e.is_boss or e.kind in ["elite", "midboss", "hero"]:
 					_damage(e, base * 8.0, c["id"], true)
 				else:
 					_damage(e, e.hp + e.shield + 1.0, c["id"], false, true)
@@ -2117,7 +2333,7 @@ func _draw_header() -> void:
 	if free_summons > 0:
 		status.append("무료 %d" % free_summons)
 	if not status.is_empty():
-		draw_string(font, Vector2(10, y0 + 28), " ".join(status), HORIZONTAL_ALIGNMENT_LEFT, 150, 11, Color(1, 0.85, 0.5))
+		draw_string(font, Vector2(10, y0 + 28), " ".join(status), HORIZONTAL_ALIGNMENT_LEFT, 150, 13, Color(1, 0.85, 0.5))
 	# 적 수 게이지
 	var count := field_count()
 	var shown := count + (partner_count if mode == "coop" else 0)
@@ -2130,7 +2346,7 @@ func _draw_header() -> void:
 	draw_rect(Rect2(bar.position, Vector2(bar.size.x * ratio, bar.size.y)), bc)
 	draw_rect(bar, Color(1, 1, 1, 0.3), false, 1.0)
 	var label := ("적 %d / %d" % [shown, enemy_limit]) if mode != "coop" else ("합산 %d / %d" % [shown, enemy_limit])
-	_text(bar.get_center(), label, 13, Color.WHITE)
+	_text(bar.get_center(), label, 15, Color.WHITE)
 	# 보스 체력 (없으면 처치 수)
 	var r := Rect2(390, y0 + 5, SIZE - 396, HEADER - 13)
 	var boss: EnemyState = null
@@ -2138,13 +2354,18 @@ func _draw_header() -> void:
 		if e.alive and e.is_boss:
 			boss = e
 			break
+	if boss == null:
+		for e in enemies:
+			if e.alive and (e.kind == "midboss" or e.kind == "hero") and (boss == null or e.kind == "midboss"):
+				boss = e
 	if boss != null:
+		var bar_col := Color(0.85, 0.15, 0.4) if boss.is_boss else (Color(0.65, 0.3, 0.95) if boss.kind == "midboss" else Color(0.95, 0.45, 0.2))
 		draw_rect(r, Color(0.12, 0.02, 0.06))
-		draw_rect(Rect2(r.position, Vector2(r.size.x * boss.hp_ratio(), r.size.y)), Color(0.85, 0.15, 0.4))
+		draw_rect(Rect2(r.position, Vector2(r.size.x * boss.hp_ratio(), r.size.y)), bar_col)
 		draw_rect(r, Color(1, 0.5, 0.6, 0.5), false, 1.0)
-		_text(r.get_center(), boss.boss_name if boss.boss_name != "" else "보스", 12, Color(1, 0.9, 0.92))
+		_text(r.get_center(), boss.boss_name if boss.boss_name != "" else "보스", 14, Color(1, 0.9, 0.92))
 	else:
-		_text(r.get_center(), "처치 %d" % kills, 13, Color(0.75, 0.8, 0.9), false)
+		_text(r.get_center(), "처치 %d" % kills, 15, Color(0.85, 0.9, 1.0), false)
 
 
 func _draw_grid() -> void:
@@ -2154,14 +2375,21 @@ func _draw_grid() -> void:
 		var rect := Rect2(center - Vector2(CELL, CELL) / 2 + Vector2(2.5, 2.5), Vector2(CELL - 5, CELL - 5))
 		var c: Dictionary = cells[i]
 		if cell_tex != null:
-			draw_texture_rect(cell_tex, rect, false)
+			# 칸 그림은 배경 역할: 유닛이 먼저 보이도록 어둡고 반투명하게
+			draw_texture_rect(cell_tex, rect, false, Color(0.62, 0.66, 0.78, 0.55))
 		else:
 			draw_rect(rect, Color(0.16, 0.18, 0.24))
 			draw_rect(Rect2(rect.position, Vector2(rect.size.x, 3)), Color(1, 1, 1, 0.04))
 		if c["id"] != "":
 			var rc: Color = GameData.RARITY_COLORS[GameData.UNITS[c["id"]]["rarity"]]
-			draw_rect(rect, Color(rc, 0.1))
-			draw_rect(Rect2(rect.position + Vector2(0, rect.size.y - 4), Vector2(rect.size.x, 4)), Color(rc, 0.7))
+			var tile := StyleBoxFlat.new()
+			tile.bg_color = Color(0.03, 0.04, 0.1, 0.72)
+			tile.border_color = Color(rc, 0.95)
+			tile.set_border_width_all(2)
+			tile.border_width_bottom = 5
+			tile.set_corner_radius_all(9)
+			tile.draw(get_canvas_item(), rect.grow(-1.0))
+			draw_rect(Rect2(rect.position + Vector2(4, 4), Vector2(rect.size.x - 8, rect.size.y * 0.45)), Color(rc, 0.1))
 		if not is_remote and mergeable(i):
 			var pulse := 0.5 + 0.5 * sin(_anim * 6.0)
 			draw_rect(rect, Color(1, 0.9, 0.4, 0.4 + 0.5 * pulse), false, 3.0)
@@ -2197,12 +2425,17 @@ func _draw_unit_stack(center: Vector2, c: Dictionary) -> void:
 		if st >= GameData.TRANSCEND_STAR:
 			aura = Color.from_hsv(fmod(_anim * 0.3, 1.0), 0.6, 1.0)
 		draw_circle(p, CELL * (0.3 + 0.02 * st), Color(aura, 0.15 + 0.05 * st + 0.05 * sin(_anim * 4.0)))
-	Glyphs.draw_unit_token(self, c["id"], p, CELL * 0.26 * (1.0 + 0.035 * st) * (1.0 + c.get("kick", 0.0) * 1.2), _anim)
+	# 그림자 + 크게 (칸의 약 90%)
+	draw_set_transform(center + Vector2(0, CELL * 0.3), 0.0, Vector2(1.0, 0.32))
+	draw_circle(Vector2.ZERO, CELL * 0.3, Color(0, 0, 0, 0.45))
+	draw_set_transform(Vector2.ZERO)
+	Glyphs.draw_unit_token(self, c["id"], p, CELL * 0.33 * (1.0 + 0.035 * st) * (1.0 + c.get("kick", 0.0) * 1.2), _anim)
 	# 마릿수: 하단 점 (1~3)
 	for k in n:
 		var x := (k - (n - 1) / 2.0) * 11.0
-		var q := center + Vector2(x, CELL * 0.36)
-		draw_colored_polygon(PackedVector2Array([q + Vector2(0, -4), q + Vector2(4, 0), q + Vector2(0, 4), q + Vector2(-4, 0)]), rc)
+		var q := center + Vector2(x, CELL * 0.37)
+		draw_colored_polygon(PackedVector2Array([q + Vector2(0, -6), q + Vector2(6, 0), q + Vector2(0, 6), q + Vector2(-6, 0)]), Color(0, 0, 0, 0.8))
+		draw_colored_polygon(PackedVector2Array([q + Vector2(0, -4), q + Vector2(4, 0), q + Vector2(0, 4), q + Vector2(-4, 0)]), rc.lightened(0.2))
 	if u.has("skill"):
 		var ratio := clampf(c["skill_t"] / u["skill"]["cd"], 0.0, 1.0)
 		draw_arc(p, CELL * 0.4, -PI / 2, -PI / 2 + TAU * ratio, 24, Color(1, 1, 1, 0.55), 2.5)
@@ -2211,12 +2444,35 @@ func _draw_unit_stack(center: Vector2, c: Dictionary) -> void:
 		# 각성 오라
 		draw_arc(p, CELL * 0.36, _anim * 2.0, _anim * 2.0 + PI * 1.4, 20, Color(1, 0.75, 0.3, 0.8), 3.0)
 	for k in star:
-		Glyphs.draw(self, "star", center + Vector2(-CELL * 0.4 + 7 + k * 10, -CELL * 0.4 + 7), 5.5, Color(1, 0.85, 0.3))
+		var sp := center + Vector2(-CELL * 0.4 + 8 + k * 12, -CELL * 0.4 + 8)
+		Glyphs.draw(self, "star", sp, 7.5, Color(0, 0, 0, 0.7))
+		Glyphs.draw(self, "star", sp, 6.2, Color(1, 0.85, 0.3))
 	if c.get("silence", 0.0) > 0.0:
 		draw_rect(Rect2(center - Vector2(CELL, CELL) * 0.46, Vector2(CELL, CELL) * 0.92), Color(0.3, 0.1, 0.45, 0.55))
 		Glyphs.draw(self, "close", center, 14.0, Color(0.85, 0.5, 1.0))
 	if Art.show_unit_labels:
-		_text(center + Vector2(0, CELL * 0.3), u["name"], 11, rc)
+		_text(center + Vector2(0, CELL * 0.3), u["name"], 13, rc)
+
+
+func _draw_enemy_marks(e: EnemyState, body: Vector2, s: float) -> void:
+	## 그림 적 위 표시: 보스 시전(빨간 원)·용암 방패, 이름표 (보스/중간보스/적 영웅)
+	if e.is_boss:
+		if e.casting != "":
+			var cr := s * 1.4 + 10 + 8 * sin(_anim * 16.0)
+			draw_arc(body, cr, 0, TAU, 28, Color(1, 0.2, 0.2, 0.95), 4.0)
+			draw_arc(body, cr + 8, 0, TAU * (1.0 - e.cast_t / GameData.BOSS_CAST_TIME), 28, Color(1, 0.8, 0.3, 0.95), 4.0)
+		if e.shield_t > 0.0:
+			draw_arc(body, s * 1.4 + 6, 0, TAU, 28, Color(1, 0.6, 0.1, 0.9), 5.0)
+	if e.shield > 0.0:
+		draw_arc(body, s * 1.3, 0, TAU, 20, Color(0.5, 0.8, 1.0, 0.9), 2.5)
+	if e.boss_name != "":
+		var fs := 13
+		var w := font.get_string_size(e.boss_name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var tp := body + Vector2(-w * 0.5, -s * 1.55 - 12)
+		tp.y = maxf(tp.y, 16.0)
+		tp.x = clampf(tp.x, 4.0, SIZE - w - 4.0)
+		draw_string_outline(font, tp, e.boss_name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 4, Color(0, 0, 0, 0.9))
+		draw_string(font, tp, e.boss_name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, e.color.lightened(0.5) if not e.is_boss else Color(1, 0.75, 0.8))
 
 
 func _draw_tag(i: int) -> void:
@@ -2248,15 +2504,27 @@ func _draw_enemies() -> void:
 			var s: float = e.size
 			var body := p + Vector2(0, sin(_anim * 8.0 + e.wobble) * 1.5)
 			var etex := Art.enemy(e.kind)
+			var tint := Color(1, 1, 1)
+			if etex == null and (e.kind == "midboss" or e.kind == "hero"):
+				# 전용 그림이 없으면 보스/정예 그림을 색만 바꿔서
+				etex = Art.enemy("boss" if e.kind == "midboss" else "elite")
+				tint = e.color.lightened(0.35)
 			if etex != null:
-				var mod := Color(1, 1, 1)
+				var mod := tint
 				if e.flash > 0.0:
 					mod = Color(2, 2, 2)
 				elif e.stun_t > 0.0:
 					mod = Color(1, 1, 0.6)
 				elif e.slow_t > 0.0 or e.aura_slow > 0.0:
 					mod = Color(0.7, 0.9, 1.2)
+				draw_set_transform(body + Vector2(0, s * 1.05), 0.0, Vector2(1.0, 0.35))
+				draw_circle(Vector2.ZERO, s * 1.0, Color(0, 0, 0, 0.4))
+				draw_set_transform(Vector2.ZERO)
+				if e.is_boss or e.kind == "midboss" or e.kind == "hero":
+					var ring := Color(1, 0.2, 0.3) if e.is_boss else (Color(0.75, 0.4, 1.0) if e.kind == "midboss" else Color(1, 0.55, 0.2))
+					draw_arc(body, s * 1.35, 0, TAU, 32, Color(ring, 0.55 + 0.3 * sin(_anim * 5.0)), 3.0)
 				draw_texture_rect(etex, Rect2(body - Vector2(s, s) * 1.4, Vector2(s, s) * 2.8), false, mod)
+				_draw_enemy_marks(e, body, s)
 				_draw_enemy_bar(e, body, s)
 				continue
 			draw_circle(body + Vector2(2, 3), s, Color(0, 0, 0, 0.3))
@@ -2306,9 +2574,10 @@ func _draw_enemies() -> void:
 func _draw_enemy_bar(e: EnemyState, body: Vector2, s: float) -> void:
 	var hr: float = e.hp_ratio()
 	if hr < 0.999 or e.is_boss:
-		var w := s * 2.2
-		draw_rect(Rect2(body + Vector2(-w / 2, -s - 8), Vector2(w, 3)), Color(0, 0, 0, 0.7))
-		draw_rect(Rect2(body + Vector2(-w / 2, -s - 8), Vector2(w * hr, 3)), Color(0.3, 1.0, 0.3).lerp(Color(1, 0.2, 0.2), 1.0 - hr))
+		var w := s * 2.4
+		var y := -s * 1.35 - 6
+		draw_rect(Rect2(body + Vector2(-w / 2 - 1, y - 1), Vector2(w + 2, 6)), Color(0, 0, 0, 0.8))
+		draw_rect(Rect2(body + Vector2(-w / 2, y), Vector2(w * hr, 4)), Color(0.3, 1.0, 0.3).lerp(Color(1, 0.2, 0.2), 1.0 - hr))
 
 
 func _draw_effects() -> void:
@@ -2355,6 +2624,13 @@ func _draw_effects() -> void:
 				draw_arc(fx["pos"], 18 + 20 * k, 0, TAU, 24, Color(col, 0.7 * (1.0 - k)), 2.0)
 			"pierce":
 				draw_line(fx["from"], fx["to"], Color(col.lightened(0.4), 0.9 * (1.0 - k)), 3.0 * (1.0 - k) + 1.0)
+			"merge":
+				var mp: Vector2 = fx["pos"]
+				for q in 3:
+					var from := mp + Vector2.from_angle(-PI / 2 + q * TAU / 3.0) * CELL * 0.45
+					draw_circle(from.lerp(mp, k), 9.0 * (1.0 - k * 0.5), Color(col.lightened(0.3), 1.0 - k * 0.4))
+				draw_circle(mp, CELL * 0.5 * k, Color(col, 0.35 * (1.0 - k)))
+				draw_arc(mp, CELL * 0.55 * k + 4, 0, TAU, 24, Color(1, 1, 1, 0.8 * (1.0 - k)), 3.0)
 			"beam":
 				var h := 200.0 * (1.0 - k)
 				draw_rect(Rect2(fx["pos"] + Vector2(-8, -h), Vector2(16, h)), Color(col, 0.5 * (1.0 - k)))
@@ -2463,4 +2739,4 @@ func _draw_banner() -> void:
 	col.a = a
 	_text(Vector2(SIZE / 2, y - 10), banner, int(30 * scale_in), col)
 	if banner_sub != "":
-		_text(Vector2(SIZE / 2, y + 22), banner_sub, 15, Color(1, 1, 1, a))
+		_text(Vector2(SIZE / 2, y + 22), banner_sub, 17, Color(1, 1, 1, a))

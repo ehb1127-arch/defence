@@ -1,4 +1,20 @@
 extends Node
+
+## 게임 이름 변경(사각 디펜스 → 결계 수호대)으로 저장 폴더가 바뀌어서, 예전 폴더의 저장 파일을 한 번 옮긴다.
+## (안드로이드는 앱 내부 폴더라 이름과 무관)
+const _OLD_USER_DIR := "godot/app_userdata/사각 디펜스 (Square Defense)"
+const _USER_FILES := ["profile.cfg", "online.cfg", "server_db.json", "server_iap.json"]
+
+
+func _init() -> void:
+	var old := OS.get_data_dir().path_join(_OLD_USER_DIR)
+	if not DirAccess.dir_exists_absolute(old):
+		return
+	for f in _USER_FILES:
+		var src := old.path_join(f)
+		if FileAccess.file_exists(src) and not FileAccess.file_exists("user://" + f):
+			DirAccess.copy_absolute(src, ProjectSettings.globalize_path("user://" + f))
+
 ## 게임 전체에서 쓰는 정적 데이터: 유닛, 등급, 조합식, 적, 웨이브, 경제 수치.
 
 enum Rarity { COMMON, RARE, EPIC, LEGEND, MYTHIC }
@@ -89,8 +105,41 @@ const ENEMIES := {
 	"elite":    {"hp": 14.0, "speed": 55.0, "armor": 15.0, "weight": 5, "size": 15.0, "color": Color(0.9, 0.1, 0.1)},
 	"goblin":   {"hp": 6.0, "speed": 150.0, "armor": 0.0, "weight": 0, "size": 9.0, "color": Color(1.0, 0.85, 0.1)},
 	"bonus":    {"hp": 5.0, "speed": 52.0, "armor": 0.0, "weight": 0, "size": 13.0, "color": Color(1.0, 0.68, 0.75)},
+	"midboss":  {"hp": 30.0, "speed": 46.0, "armor": 20.0, "weight": 10, "size": 18.0, "color": Color(0.75, 0.3, 0.95)},
+	"hero":     {"hp": 1.0, "speed": 60.0, "armor": 10.0, "weight": 3, "size": 14.0, "color": Color(1.0, 0.4, 0.2)},
 }
-const ENEMY_ORDER := ["normal", "fast", "tank", "shield", "splitter", "mini", "healer", "boss", "elite", "goblin", "bonus"]
+const ENEMY_ORDER := ["normal", "fast", "tank", "shield", "splitter", "mini", "healer", "boss", "elite", "goblin", "bonus", "midboss", "hero"]
+
+## 중간보스: 7·17·27·37 라운드 (제한시간 없음, 대신 무게 10 - 오래 두면 한도가 빨리 참)
+const MIDBOSS_NAMES := ["늑대 두목", "독거미 여왕", "얼음 거인", "그림자 기사"]
+
+## 적 영웅: 4라운드부터 일반 라운드에 가끔 등장. 각자 특수 능력으로 긴장감을 준다
+const ENEMY_HEROES := [
+	{"id": "thief", "name": "그림자 도적", "hp": 7.0, "speed": 118.0, "armor": 0.0, "color": Color(0.55, 0.45, 0.95), "desc": "한 바퀴 돌 때마다 골드를 훔쳐요"},
+	{"id": "shaman", "name": "역병 주술사", "hp": 9.0, "speed": 58.0, "armor": 5.0, "color": Color(0.45, 0.9, 0.35), "desc": "주변 적의 체력을 회복시켜요"},
+	{"id": "berserker", "name": "피의 광전사", "hp": 11.0, "speed": 62.0, "armor": 10.0, "color": Color(1.0, 0.3, 0.25), "desc": "체력이 줄수록 빨라져요"},
+	{"id": "warlord", "name": "철갑 장군", "hp": 13.0, "speed": 50.0, "armor": 35.0, "color": Color(0.75, 0.75, 0.85), "desc": "주변 적에게 방어막을 씌워요"},
+]
+const HERO_CHANCE := 0.3        # 일반 라운드마다 적 영웅 등장 확률
+const HERO_FROM_WAVE := 4
+
+## 지배(마인드 컨트롤): 보석으로 트랙 위의 강한 적 하나를 내 유닛으로 빼앗기
+const MC_GEMS := 3
+const MC_COOLDOWN := 35.0
+## 빼앗은 적 → 얻는 유닛 등급
+const MC_RARITY := {"normal": 1, "fast": 1, "mini": 1, "tank": 2, "shield": 2, "splitter": 2, "healer": 2, "elite": 3, "hero": 3, "midboss": 3}
+const MC_PRIORITY := ["midboss", "hero", "elite", "tank", "healer", "shield", "splitter", "normal", "fast", "mini"]
+
+
+func is_midboss_wave(wave: int) -> bool:
+	return wave % 10 == 7
+
+
+func enemy_hero(id: String) -> Dictionary:
+	for h in ENEMY_HEROES:
+		if h["id"] == id:
+			return h
+	return {}
 
 const BOSS_NAMES := ["오우거 대장", "해골 군주", "화염 골렘", "심연의 눈"]
 
@@ -540,6 +589,12 @@ const STAR_SPEED := 0.10          # ★당 공속 +10%
 const AWAKEN_STAR := 3            # ★3 각성: 특성 수치 x1.35, 연쇄/다중 +1
 const ENHANCE_TIME := 0.9
 const MERGE_GREAT_CHANCE := 0.08  # 합성 대성공 확률
+
+## 소환 보완 (랜덤이지만 억울하지 않게)
+const PITY_EPIC := 20      # 영웅 이상이 이만큼 안 나오면 다음 소환 영웅 이상 확정
+const PITY_LEGEND := 60    # 전설 확정
+const PICK_EVERY := 10     # 10번째 소환마다 3장 중 골라 뽑기
+const MERGE_BIAS := 2.0    # 합성 결과: 가까운 신화 조합에 필요한 유닛이 나올 가중치 (+배)
 
 
 func enhance_cost(rarity: int, star: int) -> int:

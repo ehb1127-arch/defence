@@ -31,6 +31,13 @@ func _think() -> void:
 	if not b.chests.is_empty():
 		b.open_chest(0)
 		return
+	if not b.pending_pick.is_empty():
+		var bi := 0
+		for i in b.pending_pick.size():
+			if GameData.UNITS[b.pending_pick[i]]["rarity"] > GameData.UNITS[b.pending_pick[bi]]["rarity"]:
+				bi = i
+		if b.choose_pick(bi):
+			return
 	var m := b.first_combinable()
 	if m != "":
 		b.combine(m)
@@ -56,6 +63,12 @@ func _think() -> void:
 			return
 		if b.gold > 220 + b.summon_cost() and _rng.randf() < 0.4:
 			b.request_attack("swarm")
+			return
+	# 지배: 중간보스/적 영웅이 나오면 빼앗기
+	if level >= 1 and b.can_mind_control():
+		var tgt := b._mc_target()
+		if tgt != null and tgt.kind in ["midboss", "hero"]:
+			b.mind_control()
 			return
 	# 도박
 	if level >= 1:

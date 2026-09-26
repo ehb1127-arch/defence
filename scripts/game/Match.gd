@@ -92,7 +92,24 @@ func _ready() -> void:
 		Net.disconnected.connect(_on_net_disconnected)
 
 
-const TOP_BAR := 52.0
+const TOP_BAR := 66.0
+## 한 전장 화면: 전장이 화면 높이를 가득 채우는 배율 (상단 바를 오른쪽으로 옮김)
+const BIG_SCALE := (900.0 - 12.0) / (Board.SIZE + Board.HEADER)
+var _top_bar: PanelContainer
+
+
+func _dock_top_bar(x: float) -> void:
+	## 상단 바를 오른쪽 조작 패널 위로만 (전장이 위쪽까지 쓰도록)
+	_top_bar.position = Vector2(x, 0)
+	_top_bar.size = Vector2(1600 - x, TOP_BAR)
+	_lbl_left.visible = false
+	_top_right.custom_minimum_size = Vector2.ZERO
+	var sb: StyleBoxFlat = _top_bar.get_theme_stylebox("panel").duplicate()
+	sb.corner_radius_bottom_left = 16
+	sb.border_width_left = 3
+	_top_bar.add_theme_stylebox_override("panel", sb)
+	# 레이아웃 정리 뒤에 폭이 다시 늘어나는 것을 막기 위해 한 번 더 맞춘다
+	(func(): _top_bar.size = Vector2(1600 - x, TOP_BAR); _top_bar.position = Vector2(x, 0)).call_deferred()
 
 
 func _layout(ui: CanvasLayer) -> void:
@@ -106,15 +123,17 @@ func _layout(ui: CanvasLayer) -> void:
 	if n == 2 and human_count == 1 and (Platform.is_mobile() or Profile.settings.get("focus_layout", false)):
 		_layout_focus(ui)
 	elif n == 1:
-		var s := 1.41
+		# 전장을 화면 높이 가득 (상단 바는 오른쪽 조작 패널 위로만)
+		var s := BIG_SCALE
 		var b: Board = boards[0]
 		b.scale = Vector2(s, s)
-		b.position = Vector2(14, TOP_BAR + 6 + Board.HEADER * s)
+		b.position = Vector2(10, 6 + Board.HEADER * s)
 		var hud := _make_hud(0, human_count)
 		hud.sheet_rect = Rect2(b.position, Vector2(Board.SIZE, Board.SIZE) * s)
-		var x := 14 + Board.SIZE * s + 14
+		var x := 10 + Board.SIZE * s + 10
+		_dock_top_bar(x)
 		hud.position = Vector2(x, TOP_BAR + 8)
-		hud.size = Vector2(1600 - x - 14, 900 - TOP_BAR - 16)
+		hud.size = Vector2(1600 - x - 10, 900 - TOP_BAR - 16)
 		ui.add_child(hud)
 	else:
 		var s := 1.08
@@ -147,22 +166,23 @@ func _layout_focus(ui: CanvasLayer) -> void:
 	## 휴대폰: 사람 1명 vs 봇/원격 → 내 전장을 크게. 상대 전장은 위쪽 [상대 보기] 버튼으로 같은 자리에 바꿔 보기
 	var me := 0 if not (boards[0].is_bot or boards[0].is_remote) else 1
 	_peek_me = me
-	var s := 1.41
+	var s := BIG_SCALE
+	var x := 10 + Board.SIZE * s + 10
+	_dock_top_bar(x)
 	for i in 2:
 		var b: Board = boards[i]
 		b.scale = Vector2(s, s)
-		b.position = Vector2(14, TOP_BAR + 6 + Board.HEADER * s)
+		b.position = Vector2(10, 6 + Board.HEADER * s)
 		b.visible = i == me
 		var hud := _make_hud(i, 1, i == me)
 		if i == me:
 			hud.sheet_rect = Rect2(b.position, Vector2(Board.SIZE, Board.SIZE) * s)
-			var x := 14 + Board.SIZE * s + 14
 			hud.position = Vector2(x, TOP_BAR + 8)
-			hud.size = Vector2(1600 - x - 14, 900 - TOP_BAR - 16)
+			hud.size = Vector2(1600 - x - 10, 900 - TOP_BAR - 16)
 		else:
 			hud.visible = false
 		ui.add_child(hud)
-	_btn_peek = ActionButton.make("attack", Color(1, 0.55, 0.45), "상대 전장 보기 (필드 적 수)", _toggle_peek, Vector2(90, 44))
+	_btn_peek = ActionButton.make("attack", Color(1, 0.55, 0.45), "상대 전장 보기 (필드 적 수)", _toggle_peek, Vector2(96, 58))
 	_btn_peek.tone = Color(0.7, 0.25, 0.22)
 	_btn_peek.radius = 10
 	_top_right.add_child(_btn_peek)
@@ -357,6 +377,7 @@ func _apply_loadout() -> void:
 func _build_top_bar(ui: CanvasLayer) -> void:
 	## 유즈맵 스타일 상단 바: [모드·경과시간] [ROUND · 남은 시간] [배속/일시정지/메뉴]
 	var bar := PanelContainer.new()
+	_top_bar = bar
 	bar.theme = GameData.ui_theme()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.06, 0.08, 0.18, 0.97)
@@ -386,6 +407,8 @@ func _build_top_bar(ui: CanvasLayer) -> void:
 	_lbl_round.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_lbl_round.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_lbl_round.add_theme_font_size_override("font_size", 28)
+	_lbl_round.clip_text = true
+	_lbl_round.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_lbl_round.add_theme_color_override("font_outline_color", Color.BLACK)
 	_lbl_round.add_theme_constant_override("outline_size", 6)
 	h.add_child(_lbl_round)
@@ -396,18 +419,19 @@ func _build_top_bar(ui: CanvasLayer) -> void:
 	h.add_child(right)
 	right.add_theme_constant_override("separation", 6)
 	if not Session.online:
-		_btn_speed = ActionButton.make("speed", Color(0.85, 0.9, 1.0), "배속", _cycle_speed, Vector2(64, 44))
+		_btn_speed = ActionButton.make("speed", Color(0.85, 0.9, 1.0), "배속", _cycle_speed, Vector2(84, 58))
 		_btn_speed.badge = "x1"
 		right.add_child(_btn_speed)
-		_btn_pause = ActionButton.make("pause", Color(0.85, 0.9, 1.0), "일시정지 (Esc)", _toggle_pause, Vector2(52, 44))
+		_btn_pause = ActionButton.make("pause", Color(0.85, 0.9, 1.0), "일시정지 (Esc)", _toggle_pause, Vector2(70, 58))
 		right.add_child(_btn_pause)
-	_btn_sound = ActionButton.make("sound" if Profile.settings["sound"] else "mute", Color(0.85, 0.9, 1.0), "소리 켜기/끄기", _toggle_sound, Vector2(52, 44))
+	_btn_sound = ActionButton.make("sound" if Profile.settings["sound"] else "mute", Color(0.85, 0.9, 1.0), "소리 켜기/끄기", _toggle_sound, Vector2(70, 58))
 	right.add_child(_btn_sound)
-	right.add_child(ActionButton.make("home", Color(0.85, 0.9, 1.0), "메인 메뉴", _to_menu, Vector2(52, 44)))
+	right.add_child(ActionButton.make("home", Color(0.85, 0.9, 1.0), "메인 메뉴", _to_menu, Vector2(70, 58)))
 	for c in right.get_children():
 		if c is ActionButton:
+			c.caption = ""
 			c.tone = UIKit.NAVY
-			c.radius = 10
+			c.radius = 14
 
 
 func _toggle_sound() -> void:
@@ -534,6 +558,10 @@ func _update_center_label() -> void:
 	if b.wave_timer <= 5.0 and b.wave_timer > 0.0 and not (mode != "pvp" and b.final_cleared_flag):
 		if fmod(b.wave_timer, 0.5) < 0.25:
 			col = Color(1, 1, 0.4) if not b.is_boss_round(b.wave) else Color(1, 0.15, 0.15)
+	if not _lbl_left.visible:
+		# 좁은 상단 바(전장 옆): 짧게
+		for pair in [["ROUND ", "R"], ["보스 제한시간", "보스"], ["보너스 라운드", "보너스"], ["다음 라운드  ", ""], ["남은 시간  ", ""], ["게임 시작까지", "시작"], ["  ·  ", "  "]]:
+			text = text.replace(pair[0], pair[1])
 	_lbl_round.text = text
 	_lbl_round.add_theme_color_override("font_color", col)
 
@@ -955,9 +983,17 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 	place.call_deferred()
 	ui_layer().add_child(holder)
 	_over_panel.set_meta("holder", holder)
+	# 글자가 잘 보이도록 안쪽은 어두운 판 (결과 패널 그림이 밝아도 가독성 유지)
+	var inner := PanelContainer.new()
+	var isb := StyleBoxFlat.new()
+	isb.bg_color = Color(0.04, 0.06, 0.14, 0.86)
+	isb.set_corner_radius_all(16)
+	isb.set_content_margin_all(16)
+	inner.add_theme_stylebox_override("panel", isb)
+	_over_panel.add_child(inner)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 14)
-	_over_panel.add_child(v)
+	inner.add_child(v)
 	var top := HBoxContainer.new()
 	top.alignment = BoxContainer.ALIGNMENT_CENTER
 	v.add_child(top)

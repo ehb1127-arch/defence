@@ -46,15 +46,14 @@ func setup(b: Board, p_interactive: bool, p_keys_hint: String, p_tall := false) 
 	keys_hint = p_keys_hint
 	tall = p_tall
 	theme = GameData.ui_theme()
-	var sb: StyleBox = Art.stylebox("hud_panel")
-	if sb == null:
-		var f := StyleBoxFlat.new()
-		f.bg_color = Color(0.09, 0.1, 0.14, 0.97)
-		f.border_color = b.accent.darkened(0.25)
-		f.set_border_width_all(2)
-		f.set_corner_radius_all(10)
-		f.set_content_margin_all(10 if tall else 8)
-		sb = f
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.06, 0.08, 0.17, 0.94)
+	sb.border_color = Color(0.4, 0.52, 0.95, 0.55) if interactive else b.accent.darkened(0.3)
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(20)
+	sb.set_content_margin_all(14 if tall else 8)
+	sb.shadow_color = Color(0, 0, 0, 0.4)
+	sb.shadow_size = 10
 	add_theme_stylebox_override("panel", sb)
 	if not interactive:
 		_build_readonly()
@@ -88,7 +87,7 @@ func _chips(big: bool) -> HBoxContainer:
 		else:
 			_chip_gems = l
 	_chip_extra = Label.new()
-	_chip_extra.add_theme_font_size_override("font_size", 14)
+	_chip_extra.add_theme_font_size_override("font_size", 17)
 	_chip_extra.add_theme_color_override("font_color", Color(0.6, 0.65, 0.75))
 	_chip_extra.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_chip_extra.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -135,7 +134,8 @@ func _refresh_synergy() -> void:
 			break
 		e[1].text = "%d/%d" % [n, need] if n < GameData.SYNERGIES[tag]["tiers"][-1][0] else "MAX"
 		e[1].add_theme_color_override("font_color", GameData.SYNERGIES[tag]["color"] if on else Color(0.45, 0.47, 0.55))
-		e[2].modulate = Color(1, 1, 1, 1.0 if on or n > 0 else 0.45)
+		e[2].modulate = Color(1, 1, 1, 1.0 if on else 0.8)
+		e[2].visible = n > 0
 		e[0].color = GameData.SYNERGIES[tag]["color"] if on else Color(0.4, 0.42, 0.5)
 		e[0].queue_redraw()
 
@@ -151,20 +151,22 @@ func _action_buttons(sz: Vector2) -> Array:
 		list.append(ab)
 	add.call("summon", "summon", Color(0.45, 0.9, 0.5), "소환 (Q)\n골드로 무작위 유닛 소환", func(): board.summon())
 	_btn["summon"].badge_icon = "gold"
-	add.call("merge", "merge", Color(1, 0.85, 0.4), "자동 합성 (E)\n같은 유닛 3마리 → 상위 등급", func(): board.auto_merge())
+	add.call("merge", "merge", Color(1, 0.85, 0.4), "합성 (E)\n같은 유닛 3마리 → 상위 등급", func(): board.auto_merge())
 	add.call("gamble", "gamble", Color(0.75, 0.45, 1.0), "도박\n보석으로 영웅/전설 뽑기", func(): _toggle_sheet("gamble"))
 	add.call("slot", "slot", Color(1, 0.35, 0.45), "럭키 슬롯\n골드를 걸고 한 판!", func(): _toggle_sheet("slot"))
 	add.call("upgrade", "upgrade", Color(0.45, 0.95, 0.6), "강화\n등급별 공격력 / 소환 행운", func(): _toggle_sheet("upgrade"))
-	add.call("recipe", "recipe", Color(1, 0.35, 0.4), "신화 조합표", func(): _toggle_sheet("recipe"))
+	add.call("recipe", "recipe", Color(1, 0.35, 0.4), "조합\n신화 조합표", func(): _toggle_sheet("recipe"))
+	add.call("control", "curse", Color(0.8, 0.5, 1.0), "지배\n보석 %d개로 트랙 위 가장 강한 적을 내 유닛으로!\n중간보스·적 영웅은 전설 유닛이 돼요" % GameData.MC_GEMS, func(): board.mind_control())
+	_btn["control"].badge_icon = "gem"
 	if board.mode == "pvp":
 		add.call("special", "attack", Color(1, 0.5, 0.4), "공격\n상대에게 적/저주 보내기", func(): _toggle_sheet("attack"))
 	elif board.mode == "coop":
 		add.call("special", "gift", Color(0.5, 0.95, 0.8), "협동\n골드 선물 / 합동 폭격", func(): _toggle_sheet("coop"))
-	add.call("mission", "mission", Color(0.5, 1.0, 0.6), "도전 과제 / 조작법", func(): _toggle_sheet("mission"))
+	add.call("mission", "mission", Color(0.5, 1.0, 0.6), "미션\n도전 과제 · 조작법", func(): _toggle_sheet("mission"))
 	if emotes_enabled:
 		add.call("emote", "emote", Color(1, 0.8, 0.2), "이모티콘", func(): _toggle_sheet("emote"))
 	if ad_available:
-		add.call("ad", "ad", Color(0.35, 0.6, 1.0), "광고 보고 무료 소환 3회 (판당 1회)", func(): ad_summon_requested.emit(self))
+		add.call("ad", "ad", Color(0.35, 0.6, 1.0), "무료 소환\n광고 보고 무료 소환 3회 (판당 1회)", func(): ad_summon_requested.emit(self))
 		_btn["ad"].badge_icon = ""
 	return list
 
@@ -179,24 +181,26 @@ func _selected_card(portrait: float) -> HBoxContainer:
 	v.add_theme_constant_override("separation", 0)
 	h.add_child(v)
 	_sel_name = Label.new()
-	_sel_name.add_theme_font_size_override("font_size", 18 if tall else 15)
+	_sel_name.add_theme_font_size_override("font_size", 24 if tall else 17)
 	_sel_name.clip_text = true
 	v.add_child(_sel_name)
 	_sel_stats = Label.new()
-	_sel_stats.add_theme_font_size_override("font_size", 14 if tall else 12)
+	_sel_stats.add_theme_font_size_override("font_size", 18 if tall else 14)
 	_sel_stats.add_theme_color_override("font_color", Color(0.7, 0.75, 0.85))
 	if tall:
 		_sel_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	else:
 		_sel_stats.clip_text = true
 	v.add_child(_sel_stats)
-	var bsz := Vector2(56, 56) if tall else Vector2(52, 42)
+	var bsz := Vector2(84, 84) if tall else Vector2(52, 42)
 	_sel_up = ActionButton.make("hammer", Color(1, 0.8, 0.4), "★ 강화 시도\n성공하면 공격력·공속 상승, ★3 각성\n높은 ★에서 실패하면 하락 위험", func(): board.enhance_try(board.selected), bsz * Vector2(1.5, 1))
 	_sel_up.badge_icon = "gold"
 	h.add_child(_sel_up)
 	_sel_merge = ActionButton.make("merge", Color(1, 0.85, 0.4), "이 칸 합성", func(): board.merge_cell(board.selected), bsz)
+	_sel_merge.caption = "합성"
 	h.add_child(_sel_merge)
 	_sel_sell = ActionButton.make("sell", Color(1, 0.85, 0.3), "1마리 판매 (X)", func(): board.sell_one(board.selected), bsz)
+	_sel_sell.caption = "판매"
 	h.add_child(_sel_sell)
 	if board.mode == "coop":
 		_sel_gift = ActionButton.make("gift", Color(0.5, 0.95, 0.8), "파트너에게 1마리 선물", func(): board.request_gift_unit(board.selected), bsz)
@@ -223,37 +227,55 @@ func _build_compact() -> void:
 
 
 func _build_tall() -> void:
+	## 한 전장 화면의 오른쪽 패널 (상위 디펜스 게임식):
+	##  재화 → 시너지 → 선택한 유닛 → 보조 버튼(둥근 색 버튼) → 맨 아래 큰 [소환] [합성]
 	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 10)
+	root.add_theme_constant_override("separation", 12)
 	add_child(root)
-	root.add_child(_chips(true))
-	root.add_child(_synergy_row(30))
-	var grid := GridContainer.new()
-	grid.columns = 4
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
-	root.add_child(grid)
-	for ab in _action_buttons(Vector2(174, 84)):
-		ab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		grid.add_child(ab)
+	var res := PanelContainer.new()
+	res.add_theme_stylebox_override("panel", _inner_box())
+	res.add_child(_chips(true))
+	root.add_child(res)
+	root.add_child(_synergy_row(34))
+	var sp := Control.new()
+	sp.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(sp)
+	root.add_child(_preview_panel())
 	var card_panel := PanelContainer.new()
 	card_panel.add_theme_stylebox_override("panel", _inner_box())
-	card_panel.add_child(_selected_card(84))
+	card_panel.custom_minimum_size = Vector2(0, 124)
+	card_panel.add_child(_selected_card(100))
 	root.add_child(card_panel)
-	# 신화 조합표 상시 표시 (재료 그림 나열)
-	var head := HBoxContainer.new()
-	head.add_child(UIIcon.make("recipe", 26, Color(1, 0.35, 0.4)))
-	var hl := Label.new()
-	hl.text = "신화 조합"
-	hl.add_theme_font_size_override("font_size", 18)
-	hl.add_theme_color_override("font_color", Color(1, 0.6, 0.6))
-	head.add_child(hl)
-	root.add_child(head)
-	var rp := PanelContainer.new()
-	rp.add_theme_stylebox_override("panel", _inner_box())
-	rp.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	rp.add_child(_recipe_list(52, _recipe_rows))
-	root.add_child(rp)
+	var buttons := _action_buttons(Vector2(150, 92))
+	var grid := GridContainer.new()
+	grid.columns = 4
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	root.add_child(grid)
+	for ab in buttons:
+		if ab == _btn["summon"] or ab == _btn["merge"]:
+			continue
+		ab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		ab.radius = 20
+		grid.add_child(ab)
+	var main := HBoxContainer.new()
+	main.add_theme_constant_override("separation", 12)
+	root.add_child(main)
+	var sm: ActionButton = _btn["summon"]
+	sm.custom_minimum_size = Vector2(0, 128)
+	sm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sm.size_flags_stretch_ratio = 1.7
+	sm.wide = true
+	sm.radius = 24
+	sm.tone = Color(0.2, 0.62, 0.28)
+	main.add_child(sm)
+	var mg: ActionButton = _btn["merge"]
+	mg.custom_minimum_size = Vector2(0, 128)
+	mg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mg.wide = true
+	mg.radius = 24
+	mg.tone = Color(0.85, 0.52, 0.1)
+	main.add_child(mg)
 
 
 func _build_readonly() -> void:
@@ -293,14 +315,81 @@ func _build_readonly() -> void:
 		_info_myth.append([m, ic, l])
 
 
+var _preview_items: Array = []   # [[UIIcon, Label(이름), Label(남은 라운드)], ...]
+
+
+func _preview_panel() -> Control:
+	## 다가오는 특별 라운드 예고 (보스 · 중간보스 · 보너스) - 긴장감과 준비 시간을 준다
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", _inner_box())
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	p.add_child(v)
+	var t := Label.new()
+	t.text = "다가오는 라운드"
+	t.add_theme_font_size_override("font_size", 18)
+	t.add_theme_color_override("font_color", Color(0.7, 0.78, 0.95))
+	v.add_child(t)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 10)
+	v.add_child(h)
+	for i in 3:
+		var box := HBoxContainer.new()
+		box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		box.add_theme_constant_override("separation", 8)
+		var ic := UIIcon.make("skull", 46)
+		box.add_child(ic)
+		var tv := VBoxContainer.new()
+		tv.add_theme_constant_override("separation", -2)
+		var nl := Label.new()
+		nl.add_theme_font_size_override("font_size", 20)
+		tv.add_child(nl)
+		var rl := Label.new()
+		rl.add_theme_font_size_override("font_size", 16)
+		rl.add_theme_color_override("font_color", Color(0.75, 0.8, 0.9))
+		tv.add_child(rl)
+		box.add_child(tv)
+		h.add_child(box)
+		_preview_items.append([ic, nl, rl, box])
+	return p
+
+
+func _refresh_preview() -> void:
+	if _preview_items.is_empty():
+		return
+	var b := board
+	var list: Array = []
+	var w := b.wave + 1
+	while list.size() < 3 and w <= b.final_wave + 20:
+		if b.is_boss_round(w):
+			list.append([w, "skull", "보스" if w < b.final_wave else "최종 보스", Color(1, 0.4, 0.45)])
+		elif b.is_bonus_round(w):
+			list.append([w, "gold", "보너스", Color(1, 0.8, 0.4)])
+		elif GameData.is_midboss_wave(w) and w < b.final_wave:
+			list.append([w, "elite", "중간보스", Color(0.8, 0.55, 1.0)])
+		if w >= b.final_wave and b.mode != "pvp":
+			break
+		w += 1
+	for i in _preview_items.size():
+		var it: Array = _preview_items[i]
+		it[3].visible = i < list.size()
+		if i >= list.size():
+			continue
+		var e: Array = list[i]
+		it[0].set_icon(e[1], e[3])
+		it[1].text = e[2]
+		it[1].add_theme_color_override("font_color", e[3])
+		var left: int = e[0] - b.wave
+		it[2].text = "R%d · %s" % [e[0], "다음 라운드!" if left == 1 else "%d라운드 뒤" % left]
+
+
 func _inner_box() -> StyleBox:
-	var sb: StyleBox = Art.stylebox("hud_inner")
-	if sb != null:
-		return sb
 	var f := StyleBoxFlat.new()
-	f.bg_color = Color(0.13, 0.14, 0.19)
-	f.set_corner_radius_all(8)
-	f.set_content_margin_all(8)
+	f.bg_color = Color(0.02, 0.03, 0.09, 0.6)
+	f.border_color = Color(1, 1, 1, 0.06)
+	f.set_border_width_all(1)
+	f.set_corner_radius_all(16)
+	f.set_content_margin_all(10)
 	return f
 
 
@@ -324,7 +413,8 @@ func _recipe_list(icon_sz: float, out: Array) -> Control:
 		spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(spacer)
 		var mm: String = m
-		var btn := ActionButton.make("check", Color(1, 0.4, 0.45), "%s 조합 (T)\n%s" % [GameData.UNITS[m]["name"], GameData.UNITS[m]["desc"]], func(): board.combine(mm), Vector2(icon_sz * 1.3, icon_sz))
+		var btn := ActionButton.make("check", Color(1, 0.4, 0.45), "%s 조합 (T)\n%s" % [GameData.UNITS[m]["name"], GameData.UNITS[m]["desc"]], func(): board.combine(mm), Vector2(icon_sz * 1.5, icon_sz))
+		btn.caption = "조합"
 		row.add_child(btn)
 		v.add_child(row)
 		out.append([m, icons, res, btn])
@@ -351,7 +441,7 @@ func _toggle_sheet(kind: String) -> void:
 	if same or sheet_parent == null:
 		return
 	_sheet_kind = kind
-	var key: String = {"emote": "emote", "slot": "slot", "gamble": "gamble", "upgrade": "upgrade", "recipe": "recipe", "attack": "special", "coop": "special", "mission": "mission"}[kind]
+	var key: String = {"pick": "summon", "emote": "emote", "slot": "slot", "gamble": "gamble", "upgrade": "upgrade", "recipe": "recipe", "attack": "special", "coop": "special", "mission": "mission"}[kind]
 	if _btn.has(key):
 		_btn[key].selected = true
 	_sheet = PanelContainer.new()
@@ -378,6 +468,7 @@ func _toggle_sheet(kind: String) -> void:
 	var head := HBoxContainer.new()
 	v.add_child(head)
 	var info: Array = {
+		"pick": ["summon", "골라 뽑기 - 하나를 고르세요", Color(0.6, 0.9, 1.0)],
 		"slot": ["slot", "럭키 슬롯", Color(1, 0.35, 0.45)],
 		"emote": ["emote", "이모티콘", Color(1, 0.8, 0.2)],
 		"gamble": ["gamble", "도박", Color(0.75, 0.45, 1.0)], "upgrade": ["upgrade", "강화", Color(0.45, 0.95, 0.6)],
@@ -392,6 +483,24 @@ func _toggle_sheet(kind: String) -> void:
 	head.add_child(tl)
 	head.add_child(ActionButton.make("close", Color(0.85, 0.85, 0.9), "닫기 (Esc)", close_sheet, Vector2(44, 44)))
 	match kind:
+		"pick":
+			var cards: Array = []
+			for i in board.pending_pick.size():
+				var pid: String = board.pending_pick[i]
+				var pu: Dictionary = GameData.UNITS[pid]
+				var ii := i
+				var choose := func():
+					if board.choose_pick(ii):
+						close_sheet()
+				var c := _card("", GameData.RARITY_COLORS[pu["rarity"]], "%s\n%s" % [GameData.RARITY_NAMES[pu["rarity"]], pu["name"]], "%s\n%s" % [pu["name"], pu["desc"]], choose)
+				var ic := UnitIcon.make(pid, 110)
+				ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				ic.position = Vector2(4, 4)
+				c[1].add_child(ic)
+				c[1].tone = GameData.RARITY_COLORS[pu["rarity"]].darkened(0.55)
+				c[2].add_theme_color_override("font_color", GameData.RARITY_COLORS[pu["rarity"]].lightened(0.3))
+				cards.append(c)
+			_sheet_cards(v, cards)
 		"slot":
 			_slot_sheet(v)
 		"emote":
@@ -429,11 +538,12 @@ func _card(icon: String, col: Color, title: String, tip: String, cb: Callable) -
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 4)
 	var ab := ActionButton.make(icon, col, tip, cb, Vector2(118, 118))
+	ab.caption = ""
 	box.add_child(ab)
 	var l := Label.new()
 	l.text = title
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	l.add_theme_font_size_override("font_size", 14)
+	l.add_theme_font_size_override("font_size", 17)
 	l.custom_minimum_size = Vector2(118, 0)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(l)
@@ -472,7 +582,7 @@ func _slot_sheet(v: VBoxContainer) -> void:
 	var pay := Label.new()
 	pay.text = "골드x3 = 8배   보석x3 · 소환x3 · 별x3 = 특별 보상   두 개 = 1.5배"
 	pay.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	pay.add_theme_font_size_override("font_size", 13)
+	pay.add_theme_font_size_override("font_size", 16)
 	pay.add_theme_color_override("font_color", Color(0.6, 0.65, 0.75))
 	v.add_child(pay)
 	_sheet_refresh = func():
@@ -562,7 +672,7 @@ func _mission_sheet(v: VBoxContainer) -> void:
 		row.add_child(ic)
 		var l := Label.new()
 		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		l.add_theme_font_size_override("font_size", 15)
+		l.add_theme_font_size_override("font_size", 18)
 		row.add_child(l)
 		var rw := Label.new()
 		var parts: Array = []
@@ -575,11 +685,11 @@ func _mission_sheet(v: VBoxContainer) -> void:
 		row.add_child(rw)
 		v.add_child(row)
 		labels.append([m, l, ic])
-	if keys_hint != "":
+	if keys_hint != "" and not Platform.is_mobile():
 		var k := Label.new()
 		k.text = keys_hint
 		k.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		k.add_theme_font_size_override("font_size", 13)
+		k.add_theme_font_size_override("font_size", 15)
 		k.add_theme_color_override("font_color", Color(0.55, 0.6, 0.7))
 		v.add_child(k)
 	_sheet_refresh = func():
@@ -617,6 +727,21 @@ func _refresh() -> void:
 	var free := b.free_summons > 0
 	_btn["summon"].badge_icon = "summon" if free else "gold"
 	_btn["summon"].set_state(("x%d" % b.free_summons) if free else str(b.summon_cost()), not ok or (not free and b.gold < b.summon_cost()), free)
+	# 천장 게이지 + 골라 뽑기까지 + 확률 공개 (길게 누르기)
+	var to_pick := GameData.PICK_EVERY - b.summons_total % GameData.PICK_EVERY
+	var sm: ActionButton = _btn["summon"]
+	sm.sub = "영웅 확정 %d" % (GameData.PITY_EPIC - b.pity_epic) if to_pick > 1 else "다음: 골라 뽑기!"
+	sm.progress = float(b.pity_epic) / GameData.PITY_EPIC
+	var probs := GameData.summon_probs(b.upgrades[3])
+	var tot := 0.0
+	for pv in probs:
+		tot += pv
+	var rates: Array = []
+	for r in probs.size():
+		rates.append("%s %.1f%%" % [GameData.RARITY_NAMES[r], probs[r] / tot * 100.0])
+	sm.tooltip_text = "소환 (Q)\n%s\n영웅 이상 %d회 · 전설 %d회 안에 확정\n%d번째 소환마다 3장 중 골라 뽑기" % ["  ".join(rates), GameData.PITY_EPIC, GameData.PITY_LEGEND, GameData.PICK_EVERY]
+	if not b.pending_pick.is_empty() and _sheet_kind == "" and sheet_parent != null:
+		_toggle_sheet("pick")
 	var merges := 0
 	for i in b.cells.size():
 		if b.mergeable(i):
@@ -634,6 +759,13 @@ func _refresh() -> void:
 		if b.can_combine(m):
 			combos += 1
 	_btn["recipe"].set_state("", not ok, combos > 0, combos)
+	var mc_ready := b.can_mind_control()
+	var strong := false
+	if mc_ready:
+		var tgt := b._mc_target()
+		strong = tgt != null and tgt.kind in ["midboss", "hero", "elite"]
+	_btn["control"].progress = (1.0 - b.mc_cd / GameData.MC_COOLDOWN) if b.mc_cd > 0.0 else -1.0
+	_btn["control"].set_state(str(GameData.MC_GEMS), not mc_ready, strong)
 	if _btn.has("special"):
 		if b.mode == "coop":
 			_btn["special"].progress = float(b.gauge) / GameData.COOP_BLAST_NEED
@@ -646,6 +778,7 @@ func _refresh() -> void:
 		_btn["ad"].set_state("", not ok, ad_available)
 	_refresh_selected()
 	_refresh_synergy()
+	_refresh_preview()
 	if not _recipe_rows.is_empty():
 		_refresh_recipes(_recipe_rows)
 	if _sheet_refresh.is_valid():
@@ -664,12 +797,12 @@ func _refresh_selected() -> void:
 		_sel_name.text = "%s%s  x%d%s" % [u["name"], "  " + "★".repeat(star) if star > 0 else "", b.cells[sel]["n"], "  각성" if star >= GameData.AWAKEN_STAR else ""]
 		_sel_name.add_theme_color_override("font_color", GameData.RARITY_COLORS[u["rarity"]])
 		var cell: Dictionary = b.cells[sel]
-		var stats := "공격 %d · %.2f초 · 사거리 %d" % [int(b.cell_damage(cell)), u["cd"] / b.cell_speed(cell), int(b.cell_range(cell))]
+		var stats := "공격 %d  ·  %.2f초  ·  사거리 %d" % [int(b.cell_damage(cell)), u["cd"] / b.cell_speed(cell), int(b.cell_range(cell))]
 		if star < GameData.STAR_MAX:
 			var ch := int(GameData.STAR_CHANCE[star] * 100)
 			var down := int(GameData.STAR_DOWN_CHANCE[star] * 100)
-			stats += "  |  ★%d 확률 %d%%%s" % [star + 1, ch, (" (실패 시 %d%% 하락)" % down) if down > 0 else ""]
-		_sel_stats.text = (stats + "\n" + u["desc"]) if tall else (stats + " · " + u["desc"])
+			stats += "\n★%d 강화 %d%%%s" % [star + 1, ch, (" · 실패 시 %d%% 하락" % down) if down > 0 else ""]
+		_sel_stats.text = stats
 		var r: int = u["rarity"]
 		var sell := ("+%dG" % GameData.SELL_GOLD[r]) if GameData.SELL_GOLD[r] > 0 else ("+%d" % GameData.SELL_GEMS[r] if GameData.SELL_GEMS[r] > 0 else "")
 		_sel_sell.set_state(sell, not b.alive or r >= GameData.Rarity.MYTHIC)
@@ -681,9 +814,9 @@ func _refresh_selected() -> void:
 		_sel_up.set_state("MAX" if maxed else ("..." if busy else str(b.enhance_cost_of(sel))), maxed or busy or not b.can_enhance(sel), not busy and b.can_enhance(sel) and star < 3)
 	else:
 		_sel_icon.set_unit("")
-		_sel_name.text = "칸을 눌러 유닛 선택"
+		_sel_name.text = "유닛을 눌러 선택"
 		_sel_name.add_theme_color_override("font_color", Color(0.55, 0.6, 0.7))
-		_sel_stats.text = "다른 칸을 누르면 이동 · 사거리 짧은 유닛은 바깥쪽"
+		_sel_stats.text = "빈 칸을 누르면 이동"
 		_sel_sell.set_state("", true)
 		_sel_merge.set_state("", true)
 		_sel_up.set_state("", true)

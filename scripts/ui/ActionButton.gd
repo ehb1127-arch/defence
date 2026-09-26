@@ -3,7 +3,7 @@ extends Button
 ## 아이콘 중심 버튼: 큰 아이콘 + 하단 비용 뱃지 + 우상단 카운트 + 진행 링.
 ## 설명은 tooltip 으로. 글자 캡션은 설정(show_captions)이 켜졌을 때만 작게 표시.
 
-static var show_captions := false
+static var show_captions := true
 
 var icon_name := ""
 var icon_color := Color.WHITE
@@ -16,7 +16,9 @@ var glow := false            # 사용 가능 강조
 var selected := false
 var tone := Color(0, 0, 0, 0)  # 설정하면 이 색의 입체 버튼으로 직접 그림 (강조 버튼)
 var radius := 14.0
-var font_px := 0               # 가운데 글자 크기 강제 (0 = 버튼 크기에 맞춤)
+var font_px := 0
+var wide := false
+var sub := ""                  # 가로형 버튼 오른쪽 위 작은 글 (예: "영웅 확정 7")              # 가로형 큰 버튼: 왼쪽 아이콘 + 오른쪽 큰 이름과 비용 (소환/합성)               # 가운데 글자 크기 강제 (0 = 버튼 크기에 맞춤)
 var _t := 0.0
 var _hold := -1.0            # 누르고 있는 시간 (터치 길게 누르기 → 설명 말풍선)
 const LONG_PRESS := 0.45
@@ -28,11 +30,21 @@ static func make(p_icon: String, p_color: Color, p_tip: String, cb: Callable, sz
 	b.icon_name = p_icon
 	b.icon_color = p_color
 	b.tooltip_text = p_tip
-	b.caption = p_tip.split("\n")[0]
+	b.caption = short_caption(p_tip)
 	b.custom_minimum_size = sz
 	b.focus_mode = Control.FOCUS_NONE
+	b.tone = UIKit.NAVY   # 기본: 코드로 그린 입체 버튼 (그림 버튼 스킨은 글자 버튼용)
 	b.pressed.connect(cb)
 	return b
+
+
+static func short_caption(tip: String) -> String:
+	## 설명 첫 줄에서 괄호(단축키 등)를 뗀 짧은 이름: "소환 (Q)\n..." → "소환"
+	var c := tip.split("\n")[0]
+	var i := c.find(" (")
+	if i > 0:
+		c = c.substr(0, i)
+	return c
 
 
 func _ready() -> void:
@@ -166,13 +178,20 @@ func _draw() -> void:
 	if tone.a > 0.0:
 		# 입체 버튼: 윗면 가운데에 내용 (눌리면 같이 내려감)
 		draw_set_transform(Vector2(0, (4.0 if pressed_now else 0.0) - 3.0))
+	# 가로로 넉넉한 버튼에 이름과 비용이 둘 다 있으면 가로형 배치 (아이콘 | 이름 / 비용)
+	if wide or (show_captions and caption != "" and badge != "" and icon_name != "" and sz.x >= sz.y * 1.6 \
+			and font.get_string_size(caption, HORIZONTAL_ALIGNMENT_LEFT, -1, int(sz.y * 0.28)).x <= sz.x - sz.y - 12):
+		_draw_wide(font, sz, a)
+		if count > 0:
+			UIKit.draw_badge_dot(self, font, Vector2(sz.x - 6, 6), count)
+		return
 	if icon_name == "":
 		# 아이콘 없는 버튼: 뱃지를 크게 가운데
 		_draw_center_badge(font, sz)
 		return
 	var has_bottom := badge != "" or (show_captions and caption != "")
 	var icon_c := Vector2(sz.x * 0.5, sz.y * (0.42 if has_bottom else 0.5))
-	var icon_r := minf(sz.x, sz.y) * (0.27 if has_bottom else 0.33)
+	var icon_r := minf(sz.x, sz.y) * (0.3 if has_bottom else 0.36)
 	var col := icon_color
 	col.a = a
 	var t := Art.icon(icon_name)
@@ -183,7 +202,7 @@ func _draw() -> void:
 	if progress >= 0.0:
 		draw_arc(icon_c, icon_r + 5, -PI / 2, -PI / 2 + TAU * clampf(progress, 0, 1), 32, Color(1, 0.85, 0.3, a), 3.0)
 	# 하단: 비용 뱃지 또는 캡션
-	var fs := int(clampf(sz.y * 0.19, 11, 18))
+	var fs := int(clampf(sz.y * 0.22, 14, 24))
 	if badge != "":
 		var tw := font.get_string_size(badge, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		var iw := fs * 1.1 if badge_icon != "" else 0.0
@@ -193,9 +212,12 @@ func _draw() -> void:
 			Glyphs.draw_icon(self, badge_icon, Vector2(x0 + fs * 0.45, y - fs * 0.35), fs * 0.45, Color.WHITE)
 		UIKit.draw_text_outlined(self, font, Vector2(x0 + iw, y), badge, fs, Color(1, 1, 1, a), 4)
 	elif show_captions and caption != "":
-		var cs := fs - 2
+		var cs := fs
 		var tw := font.get_string_size(caption, HORIZONTAL_ALIGNMENT_LEFT, -1, cs).x
-		draw_string(font, Vector2((sz.x - tw) * 0.5, sz.y - cs * 0.5), caption, HORIZONTAL_ALIGNMENT_LEFT, -1, cs, Color(0.85, 0.88, 0.95, a))
+		while tw > sz.x - 8 and cs > 11:
+			cs -= 1
+			tw = font.get_string_size(caption, HORIZONTAL_ALIGNMENT_LEFT, -1, cs).x
+		UIKit.draw_text_outlined(self, font, Vector2((sz.x - tw) * 0.5, sz.y - cs * 0.55), caption, cs, Color(1, 1, 1, a), 4)
 	if count > 0:
 		UIKit.draw_badge_dot(self, font, Vector2(sz.x - 6, 6), count)
 
@@ -210,3 +232,36 @@ func _draw_center_badge(font: Font, sz: Vector2) -> void:
 	if badge_icon != "":
 		Glyphs.draw_icon(self, badge_icon, Vector2(x0 + fs * 0.5, sz.y * 0.5), fs * 0.5, Color.WHITE)
 	UIKit.draw_text_outlined(self, font, Vector2(x0 + iw, y), badge, fs, Color(1, 1, 1, a), maxi(4, fs / 6))
+
+
+func _draw_wide(font: Font, sz: Vector2, a: float) -> void:
+	var h := sz.y
+	var r := h * 0.3
+	var ic := Vector2(h * 0.5 + 6, h * 0.5)
+	var t := Art.icon(icon_name)
+	if t != null:
+		draw_texture_rect(t, Rect2(ic - Vector2(r, r) * 1.15, Vector2(r, r) * 2.3), false, Color(1, 1, 1, a))
+	else:
+		Glyphs.draw(self, icon_name, ic, r, Color(icon_color, a))
+	var x := h + 4
+	if sub != "":
+		var ss := int(h * 0.15)
+		var sw := font.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, ss).x
+		UIKit.draw_text_outlined(self, font, Vector2(sz.x - sw - 16, h * 0.3), sub, ss, Color(0.85, 0.95, 1.0, a), 4)
+	if progress >= 0.0:
+		var bw := sz.x - x - 18
+		var by := h - 20.0
+		draw_rect(Rect2(x, by, bw, 7), Color(0, 0, 0, 0.45))
+		draw_rect(Rect2(x, by, bw * clampf(progress, 0.0, 1.0), 7), Color(1, 0.85, 0.3, a))
+	var title := caption
+	var fs := int(h * 0.28)
+	if badge == "":
+		UIKit.draw_text_outlined(self, font, Vector2(x, h * 0.5 + fs * 0.36), title, fs, Color(1, 1, 1, a), 6)
+		return
+	UIKit.draw_text_outlined(self, font, Vector2(x, h * 0.44), title, fs, Color(1, 1, 1, a), 6)
+	var bs := int(h * 0.2)
+	var bx := x
+	if badge_icon != "":
+		Glyphs.draw_icon(self, badge_icon, Vector2(bx + bs * 0.5, h * 0.72 - bs * 0.32), bs * 0.5, Color.WHITE)
+		bx += bs * 1.2
+	UIKit.draw_text_outlined(self, font, Vector2(bx, h * 0.72 + bs * 0.05), badge, bs, Color(1, 0.95, 0.7, a), 5)

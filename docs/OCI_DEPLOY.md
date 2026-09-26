@@ -1,6 +1,6 @@
 # OCI(오라클 클라우드) 서버 배포 가이드
 
-사각 디펜스의 온라인 서버를 **OCI 평생 무료(Always Free)** 인스턴스에 올리는 방법입니다.
+결계 수호대의 온라인 서버를 **OCI 평생 무료(Always Free)** 인스턴스에 올리는 방법입니다.
 서버는 게임과 같은 Godot 프로젝트를 화면 없이(`--headless -- --server`) 실행하며,
 방 목록 / 방 만들기 / 참가 / 빠른 매칭 / 두 플레이어 사이 메시지 중계를 담당합니다.
 
@@ -132,7 +132,7 @@ Godot 바이너리 + 프로젝트 폴더 대신 **단일 실행 파일**로 올�
 - **백업** (하루 1번 이상 권장):
 
 ```bash
-D="/opt/sqdefense/.local/share/godot/app_userdata/사각 디펜스 (Square Defense)"
+D="/opt/sqdefense/.local/share/SquareGuardians"
 sudo tar czf /opt/sqdefense-backup-$(date +%F).tgz -C "$D" server_db.json server_iap.json
 ```
 

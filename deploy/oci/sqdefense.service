@@ -1,5 +1,5 @@
 [Unit]
-Description=Square Defense (사각 디펜스) game server
+Description=Square Guardians (결계 수호대) game server
 After=network-online.target
 Wants=network-online.target
 

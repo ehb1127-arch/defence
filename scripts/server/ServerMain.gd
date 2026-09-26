@@ -9,7 +9,7 @@ var _t := 0.0
 
 func _ready() -> void:
 	Engine.max_fps = 60
-	print("사각 디펜스 전용 서버 준비 완료. 종료: Ctrl+C / systemctl stop sqdefense")
+	print("결계 수호대 전용 서버 준비 완료. 종료: Ctrl+C / systemctl stop sqdefense")
 
 
 func _process(delta: float) -> void:

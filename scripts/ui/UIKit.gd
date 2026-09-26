@@ -200,3 +200,17 @@ static func dress_screen(root: Control) -> void:
 			lbl.reparent(h)
 			lbl.custom_minimum_size = Vector2(100, 0)
 			outline(lbl, 28, Color.WHITE)
+
+
+class Shade:
+	extends Control
+	## 그림 배경 위 가독성용 그늘: 위·아래 진하게, 양옆 약하게
+	func _draw() -> void:
+		var d := Color(0.02, 0.03, 0.08, 0.78)
+		var n := Color(0.02, 0.03, 0.08, 0.0)
+		draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(1600, 0), Vector2(1600, 150), Vector2(0, 150)]), PackedColorArray([d, d, n, n]))
+		draw_polygon(PackedVector2Array([Vector2(0, 540), Vector2(1600, 540), Vector2(1600, 900), Vector2(0, 900)]), PackedColorArray([n, n, d, d]))
+		var side := Color(0.02, 0.03, 0.08, 0.55)
+		draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(170, 0), Vector2(170, 900), Vector2(0, 900)]), PackedColorArray([side, n, n, side]))
+		draw_polygon(PackedVector2Array([Vector2(1430, 0), Vector2(1600, 0), Vector2(1600, 900), Vector2(1430, 900)]), PackedColorArray([n, side, side, n]))
+		draw_rect(Rect2(0, 0, 1600, 900), Color(0.02, 0.03, 0.08, 0.12))

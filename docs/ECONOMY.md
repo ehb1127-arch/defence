@@ -59,4 +59,4 @@
 | `server_db.json` | 기기(계정)별 이름·레이팅·전적 + `profile`(재화 전체) |
 | `server_iap.json` | 사용한 결제 영수증 (중복 지급 방지) |
 
-위치: `~/.local/share/godot/app_userdata/사각 디펜스 (Square Defense)/` — **정기 백업 필수** (docs/OCI_DEPLOY.md).
+위치: `~/.local/share/SquareGuardians/` — **정기 백업 필수** (docs/OCI_DEPLOY.md).

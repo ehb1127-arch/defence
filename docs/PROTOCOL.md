@@ -2,7 +2,7 @@
 
 전송: WebSocket (`ws://` 또는 리버스 프록시 뒤 `wss://`), Godot High-level Multiplayer RPC.
 서버는 peer id `1`. 모든 RPC 는 `/root/Net` (autoload `scripts/autoload/Net.gd`) 에 정의되어 있습니다.
-버전: `Net.PROTOCOL` (현재 `3`). 다르면 서버가 `_c_error` 후 연결을 끊습니다.
+버전: `Net.PROTOCOL` (현재 `4`). 다르면 서버가 `_c_error` 후 연결을 끊습니다.
 
 ## 흐름
 
@@ -90,6 +90,6 @@
 
 ## 서버 저장
 
-계정 기록은 서버의 `user://server_db.json` (systemd 설치 기준 `/opt/sqdefense/.local/share/godot/app_userdata/사각 디펜스 (Square Defense)/server_db.json`) 에 JSON 으로 저장됩니다.
+계정 기록은 서버의 `user://server_db.json` (systemd 설치 기준 `/opt/sqdefense/.local/share/SquareGuardians/server_db.json`) 에 JSON 으로 저장됩니다.
 계정 재화(`profile` 키)도 같은 파일에 들어 있고, 사용한 결제 영수증은 `server_iap.json` 에 저장됩니다.
 백업은 이 두 파일을 복사하면 됩니다.

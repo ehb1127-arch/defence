@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 사각 디펜스 전용 서버 설치/업데이트 (OCI Ubuntu 22.04/24.04, Oracle Linux, ARM64/x86_64)
+# 결계 수호대 전용 서버 설치/업데이트 (OCI Ubuntu 22.04/24.04, Oracle Linux, ARM64/x86_64)
 #
 # 사용법 (저장소를 서버에 받은 뒤, 저장소 루트에서):
 #   sudo bash deploy/oci/install.sh            # 기본 포트 24680

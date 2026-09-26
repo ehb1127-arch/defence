@@ -348,6 +348,11 @@ func _build_background() -> void:
 		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		tr.size = Vector2(1600, 900)
 		add_child(tr)
+		# 그림 배경은 화려해서 글자가 묻힘 → 위·아래·양옆을 어둡게, 가운데는 살짝
+		var shade := UIKit.Shade.new()
+		shade.size = Vector2(1600, 900)
+		shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(shade)
 		return
 	var deco := ScreenBG.new()
 	deco.size = Vector2(1600, 900)
@@ -425,11 +430,12 @@ func _side_button(icon: String, col: Color, caption: String, tip: String, cb: Ca
 	## 로비 양옆 둥근 아이콘 + 아래 이름표
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", -6)
-	var b := ActionButton.make(icon, col, tip, cb, Vector2(88, 84))
+	var b := ActionButton.make(icon, col, tip, cb, Vector2(96, 90))
+	b.caption = ""
 	b.tone = tone
 	b.radius = 20
 	v.add_child(b)
-	var l := UIKit.label(caption, 17)
+	var l := UIKit.label(caption, 21)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(l)
 	return v
@@ -468,7 +474,7 @@ func _build_top() -> void:
 	_name_edit.add_theme_constant_override("outline_size", 4)
 	_name_edit.tooltip_text = "눌러서 닉네임 바꾸기"
 	pv.add_child(_name_edit)
-	var sub := UIKit.label("대전 %d점  ·  최고 R%d" % [Profile.rating, int(Profile.stats.get("best_round", 0))], 14, Color(0.7, 0.8, 1.0), 3)
+	var sub := UIKit.label("대전 %d점  ·  최고 R%d" % [Profile.rating, int(Profile.stats.get("best_round", 0))], 17, Color(0.75, 0.85, 1.0), 4)
 	pv.add_child(sub)
 	# ---- 오른쪽 위: 재화 + 설정 ----
 	var right := HBoxContainer.new()
@@ -558,11 +564,17 @@ func _build_mode_cards() -> void:
 	_hero.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_hero)
 	var u: Dictionary = GameData.UNITS[_hero.unit_id]
-	var plate := UIKit.label("%s  %s  Lv.%d" % [GameData.RARITY_NAMES[u["rarity"]], u["name"], Profile.unit_level(_hero.unit_id) + 1], 20, GameData.RARITY_COLORS[u["rarity"]].lightened(0.3))
+	var plate_box := PanelContainer.new()
+	plate_box.add_theme_stylebox_override("panel", UIKit.pill(Color(0.03, 0.04, 0.1, 0.8)))
+	plate_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var plate := UIKit.label("%s  %s  Lv.%d" % [GameData.RARITY_NAMES[u["rarity"]], u["name"], Profile.unit_level(_hero.unit_id) + 1], 22, GameData.RARITY_COLORS[u["rarity"]].lightened(0.35))
 	plate.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	plate.position = Vector2(600, 470)
-	plate.size = Vector2(400, 30)
-	add_child(plate)
+	plate_box.add_child(plate)
+	add_child(plate_box)
+	var place_plate := func():
+		plate_box.size = plate_box.get_combined_minimum_size()
+		plate_box.position = Vector2(800 - plate_box.size.x * 0.5, 462)
+	place_plate.call_deferred()
 	# 모드 선택 (◀ 모드 ▶)
 	var sel := PanelContainer.new()
 	var ssb := UIKit.panel_box(Color(0.08, 0.1, 0.22, 0.88), Color(0.45, 0.58, 1.0), 20)
@@ -574,7 +586,9 @@ func _build_mode_cards() -> void:
 	var sh := HBoxContainer.new()
 	sh.add_theme_constant_override("separation", 12)
 	sel.add_child(sh)
-	var prev := ActionButton.make("back", Color.WHITE, "이전 모드", func(): _cycle_mode(-1), Vector2(60, 80))
+	var prev := ActionButton.make("", Color.WHITE, "이전 모드", func(): _cycle_mode(-1), Vector2(64, 80))
+	prev.badge = "◀"
+	prev.font_px = 34
 	prev.tone = UIKit.BLUE
 	sh.add_child(prev)
 	_mode_icon = UIIcon.make("star", 70)
@@ -586,9 +600,11 @@ func _build_mode_cards() -> void:
 	sh.add_child(mv)
 	_mode_name = UIKit.label("", 32)
 	mv.add_child(_mode_name)
-	_mode_sub = UIKit.label("", 16, Color(0.75, 0.82, 1.0), 3)
+	_mode_sub = UIKit.label("", 19, Color(0.8, 0.87, 1.0), 4)
 	mv.add_child(_mode_sub)
-	var nxt := ActionButton.make("play", Color.WHITE, "다음 모드", func(): _cycle_mode(1), Vector2(60, 80))
+	var nxt := ActionButton.make("", Color.WHITE, "다음 모드", func(): _cycle_mode(1), Vector2(64, 80))
+	nxt.badge = "▶"
+	nxt.font_px = 34
 	nxt.tone = UIKit.BLUE
 	sh.add_child(nxt)
 	# 전투 시작
@@ -597,7 +613,7 @@ func _build_mode_cards() -> void:
 	_battle.radius = 24
 	_battle.glow = true
 	_battle.font_px = 44
-	_battle.position = Vector2(600, 630)
+	_battle.position = Vector2(600, 626)
 	add_child(_battle)
 	# AI 난이도 (협동/대전 AI 일 때)
 	_diff_row = HBoxContainer.new()
@@ -703,7 +719,7 @@ func _build_two_player() -> void:
 func _build_idle() -> void:
 	## 방치 보상: 접속하지 않은 동안 쌓인 코인 (최대 8시간) - 전투 버튼 왼쪽 상자
 	var box := HBoxContainer.new()
-	box.position = Vector2(372, 640)
+	box.position = Vector2(372, 636)
 	box.add_theme_constant_override("separation", 8)
 	add_child(box)
 	_idle_btn = ActionButton.make("chest", Color.WHITE, "방치 보상 받기\n접속하지 않아도 10분마다 코인이 쌓여요 (최대 8시간)", _claim_idle, Vector2(120, 96))
@@ -756,8 +772,8 @@ func _build_bottom() -> void:
 	bsb.border_color = Color(0.4, 0.52, 0.95, 0.8)
 	bsb.border_width_top = 3
 	bar.add_theme_stylebox_override("panel", bsb)
-	bar.position = Vector2(0, 790)
-	bar.size = Vector2(1600, 110)
+	bar.position = Vector2(0, 772)
+	bar.size = Vector2(1600, 128)
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bar)
 	var tabs := [
@@ -771,12 +787,12 @@ func _build_bottom() -> void:
 	for i in tabs.size():
 		var tb: Array = tabs[i]
 		var home: bool = i == 2
-		var b := ActionButton.make(tb[0], tb[1], tb[2], tb[3], Vector2(w - 24, 100 if home else 88))
+		var b := ActionButton.make(tb[0], tb[1], tb[2], tb[3], Vector2(w - 24, 118 if home else 104))
 		b.tone = Color(0.95, 0.65, 0.12) if home else Color(0.16, 0.2, 0.38)
 		b.radius = 18
 		b.caption = tb[2]
 		b.badge = tb[2]
-		b.position = Vector2(i * w + 12, 782 if home else 802)
+		b.position = Vector2(i * w + 12, 766 if home else 786)
 		add_child(b)
 		if i == 1:
 			var up := 0
@@ -879,7 +895,7 @@ func _build_settings() -> void:
 	_settings = _panel(Vector2(540, 190), Vector2(520, 480), "설정")
 	_settings.visible = false
 	var v: VBoxContainer = _settings.get_child(0)
-	for spec in [["sound", "효과음"], ["captions", "버튼 이름 표시 (이미지 적용 전 도움)"], ["vibrate", "진동"], ["focus_layout", "대전: 내 전장 크게 (휴대폰은 항상)"], ["account_sync", "시작할 때 서버 계정과 동기화"]]:
+	for spec in [["sound", "효과음"], ["labels", "버튼 이름 표시"], ["vibrate", "진동"], ["focus_layout", "대전: 내 전장 크게 (휴대폰은 항상)"], ["account_sync", "시작할 때 서버 계정과 동기화"]]:
 		var cb := CheckButton.new()
 		cb.text = spec[1]
 		cb.button_pressed = Profile.settings.get(spec[0], true)
@@ -922,95 +938,128 @@ func _show_help() -> void:
 	_show_panel(_help)
 
 
+var _help_body: VBoxContainer
+var _help_tabs := {}
+
+
 func _build_help() -> void:
-	_help = PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.07, 0.1, 0.98)
-	sb.border_color = Color(1, 0.85, 0.35)
-	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(12)
-	sb.set_content_margin_all(20)
-	_help.add_theme_stylebox_override("panel", sb)
-	_help.position = Vector2(150, 60)
-	_help.size = Vector2(1300, 780)
+	## 게임 방법: 탭 + 그림 카드 (아이콘 · 제목 · 한 줄). 긴 글 대신 핵심만
+	_help = _panel(Vector2(170, 64), Vector2(1260, 780), "게임 방법")
 	_help.visible = false
-	add_child(_help)
-	var v := VBoxContainer.new()
-	_help.add_child(v)
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	v.add_child(scroll)
-	var rt := RichTextLabel.new()
-	rt.bbcode_enabled = true
-	rt.fit_content = true
-	rt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rt.add_theme_font_size_override("normal_font_size", 16)
-	rt.add_theme_font_size_override("bold_font_size", 18)
-	rt.text = _help_text()
-	scroll.add_child(rt)
-	var close := Button.new()
-	close.text = "닫기"
-	close.custom_minimum_size = Vector2(0, 44)
-	close.pressed.connect(func(): _help.visible = false)
-	var replay := Button.new()
-	replay.text = "튜토리얼 다시 하기"
-	replay.custom_minimum_size = Vector2(0, 44)
-	replay.pressed.connect(_replay_tutorial)
-	v.add_child(replay)
-	v.add_child(close)
+	var v: VBoxContainer = _help.get_child(0)
+	v.add_theme_constant_override("separation", 16)
+	var tabs := HBoxContainer.new()
+	tabs.alignment = BoxContainer.ALIGNMENT_CENTER
+	tabs.add_theme_constant_override("separation", 12)
+	v.add_child(tabs)
+	for spec in [["basic", "star", "기본"], ["grow", "upgrade", "성장"], ["mythic", "recipe", "신화 조합"], ["modes", "play", "모드"], ["keys", "gear", "조작"]]:
+		var key: String = spec[0]
+		var b := ActionButton.make(spec[1], Color(1, 0.9, 0.6), spec[2], func(): _help_tab(key), Vector2(200, 78))
+		b.wide = true
+		b.radius = 18
+		tabs.add_child(b)
+		_help_tabs[key] = b
+	_help_body = VBoxContainer.new()
+	_help_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_help_body.add_theme_constant_override("separation", 14)
+	v.add_child(_help_body)
+	var bottom := HBoxContainer.new()
+	bottom.add_theme_constant_override("separation", 16)
+	v.add_child(bottom)
+	var replay := ActionButton.make("", Color.WHITE, "튜토리얼 다시 하기", _replay_tutorial, Vector2(0, 70))
+	replay.badge = "튜토리얼 다시 하기"
+	replay.font_px = 24
+	replay.tone = UIKit.BLUE
+	replay.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bottom.add_child(replay)
+	var close := ActionButton.make("", Color.WHITE, "닫기", func(): _help.visible = false, Vector2(0, 70))
+	close.badge = "닫기"
+	close.font_px = 26
+	close.tone = UIKit.GREEN
+	close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bottom.add_child(close)
+	_help_tab("basic")
 
 
-func _help_text() -> String:
-	var s := "[b][color=#ffd84d]기본 규칙[/color][/b]\n"
-	s += "• 적은 사각형 테두리 길을 시계방향으로 계속 돕니다. 필드에 적이 [b]%d마리[/b] 쌓이면 패배!\n" % GameData.ENEMY_LIMIT
-	s += "• 유닛은 사각형 안쪽 칸에 배치되어 사거리 안의 적을 자동 공격합니다. 칸을 클릭 → 다른 칸 클릭으로 위치를 바꿀 수 있어요. (사거리 짧은 유닛은 바깥쪽에!)\n"
-	s += "• %d초마다 라운드가 바뀌고 적은 계속 쏟아집니다. 10라운드마다 [color=#ff5577]보스[/color]: 제한시간(%d초, 최종 보스 %d초) 안에 못 잡으면 [b]즉시 패배[/b]!\n" % [int(GameData.WAVE_TIME), int(GameData.BOSS_WAVE_TIME), int(GameData.FINAL_BOSS_TIME)]
-	s += "• 5·15·25·35 라운드는 [color=#ffb0c0]보너스 라운드[/color]: %d초 안에 보물 돼지를 잡아 골드 획득 (전부 잡으면 보석). %d라운드 보스를 잡으면 승리.\n" % [int(GameData.BONUS_WAVE_TIME), GameData.FINAL_WAVE]
-	s += "\n[b][color=#ffd84d]소환 · 합성 · 조합[/color][/b]\n"
-	s += "• [b]소환[/b]: 골드로 무작위 유닛 소환 (쓸 때마다 비용 +1). 같은 유닛은 한 칸에 3마리까지 쌓입니다.\n"
-	s += "• [b]합성[/b]: 같은 유닛 3마리가 쌓인 칸(반짝임) → 한 단계 높은 등급 무작위 유닛. (일반→희귀→영웅→전설)\n"
-	s += "• [b]도박[/b]: 보석으로 영웅(60%%) / 전설(25%%) 유닛에 도전! 실패하면 꽝.\n"
-	s += "• [b]강화[/b]: 등급군별 공격력 강화, [b]소환 행운[/b]은 고등급 소환 확률 증가.\n"
-	s += "• [b][color=#ff4050]신화 조합[/color][/b]: 특정 유닛들을 모으면 강력한 신화 유닛으로 조합! 신화는 자동 발동 스킬을 가집니다.\n"
-	for m in GameData.RECIPES:
-		s += "    - [color=#ff6070]%s[/color] = %s  ([i]%s[/i])\n" % [GameData.UNITS[m]["name"], GameData.recipe_text(m), GameData.UNITS[m]["desc"]]
-	s += "\n[b][color=#ffd84d]★ 강화 시도 · 합성 대성공[/color][/b]\n"
-	s += "• 칸을 선택하고 망치 버튼: 골드로 ★ 강화 시도. ★당 공격력 +25%%, 공속 +10%%\n"
-	s += "• 성공률 85%% → 65%% → 45%% → 30%% → 20%%. ★3 이상에서 실패하면 한 단계 하락할 수 있어요\n"
-	s += "• [color=#ffb050]★3 각성[/color]: 특성 수치 1.35배, 연쇄/다중사격 +1   ·   [color=#ff80ff]★5 초월[/color]: 한 번에 두 번 공격\n"
-	s += "• 합성하면 8%% 확률로 [b]대성공[/b] - 한 단계를 더 건너뜁니다\n"
-	s += "• 등급 강화도 레벨마다 공격력 +12%%, 공속 +3%%\n"
-	s += "\n[b][color=#ffd84d]시너지[/color][/b] (서로 다른 유닛 종류 수)\n"
-	for tag in GameData.SYNERGY_ORDER:
-		var d: Dictionary = GameData.SYNERGIES[tag]
-		var tiers: Array = []
-		for t in d["tiers"]:
-			tiers.append("%d종 %s" % [t[0], d["desc"] % int(t[1] * 100 if tag != "lightning" else t[1])])
-		s += "• [color=#%s]%s[/color]: %s\n" % [d["color"].to_html(false), d["name"], " / ".join(tiers)]
-	s += "\n[b][color=#ffd84d]보스 스킬[/color][/b]\n"
-	s += "• 보스는 돌진·포효(유닛 침묵)·부하 소환·재생·용암 방패·화염 폭발·순간이동을 씁니다\n"
-	s += "• 시전 중(빨간 원)에 [b]기절시키면 스킬이 끊깁니다[/b] - 기사·투석병·수호천사·뇌신이 핵심!\n"
-	s += "• 최종 보스는 체력 50%%에서 2페이즈로 광폭화\n"
-	s += "\n[b][color=#ffd84d]유닛 도감[/color][/b]\n"
-	for r in 4:
-		var names: Array = []
-		for id in GameData.units_of_rarity(r):
-			names.append("%s(%s)" % [GameData.UNITS[id]["name"], GameData.UNITS[id]["desc"]])
-		s += "• [color=#%s]%s[/color]: %s\n" % [GameData.RARITY_COLORS[r].to_html(false), GameData.RARITY_NAMES[r], ", ".join(names)]
-	s += "\n[b][color=#ffd84d]재미 요소[/color][/b]\n"
-	s += "• 3·8·13… 라운드마다 [b]랜덤 이벤트[/b]: 황금 고블린, 행운의 시간, 광란, 보급품, 번개 폭풍, 보석비\n"
-	s += "• 적을 잡으면 가끔 [b]보물상자[/b]가 떨어집니다. 사라지기 전에 클릭!\n"
-	s += "• 음유시인은 주변 8칸 공속 버프, 수호천사는 사거리 내 적 둔화 → [b]배치가 전략[/b]\n"
-	s += "• [b]도전 과제[/b]를 달성하면 보상 지급 (도박 3연속 실패도 위로금이 있어요)\n"
-	s += "\n[b][color=#ffd84d]협동 모드[/color][/b]\n"
-	s += "• 두 전장의 적 수 [b]합계 %d[/b]에 닿으면 함께 패배. 둘 다 최종 보스를 잡으면 승리.\n" % GameData.COOP_ENEMY_LIMIT
-	s += "• 골드 선물, 유닛 선물(칸 선택 → 선물)로 조합 재료를 몰아주세요. 처치 게이지를 모아 [b]합동 폭격[/b]!\n"
-	s += "\n[b][color=#ffd84d]대전 모드[/color][/b]\n"
-	s += "• 상대에게 [b]잡몹 떼[/b], [b]정예 괴수[/b], [b]저주[/b](공속 -30%%)를 보내 먼저 무너뜨리세요. 보스를 놓쳐도 패배! 40라운드 이후 적이 급격히 강해집니다.\n"
-	s += "\n[b][color=#ffd84d]조작[/color][/b]\n"
-	s += "• 마우스: 칸 클릭 선택/이동, 우클릭 선택 해제, 패널 버튼으로 모든 행동\n"
-	s += "• 1P: WASD 커서, Space 선택, Q 소환, E 합성, R 영웅도박, T 신화조합, F 공격/폭격, X 판매\n"
-	s += "• 2P: 방향키 커서, Enter 선택, U 소환, I 합성, O 영웅도박, P 신화조합, L 공격/폭격, K 판매 (숫자패드 1~5, 0 도 가능)\n"
-	s += "• Esc 일시정지, 배속 버튼으로 x1/x2/x3\n"
-	return s
+func _help_tab(key: String) -> void:
+	for k in _help_tabs:
+		_help_tabs[k].selected = k == key
+		_help_tabs[k].tone = Color(0.95, 0.62, 0.12) if k == key else UIKit.NAVY
+		_help_tabs[k].queue_redraw()
+	for c in _help_body.get_children():
+		c.queue_free()
+	match key:
+		"basic":
+			_help_cards([
+				["skull", Color(1, 0.45, 0.45), "적 %d마리면 패배" % GameData.ENEMY_LIMIT, "적은 사각 길을 계속 돌아요"],
+				["summon", Color(0.5, 1, 0.6), "소환", "골드로 랜덤 유닛 뽑기"],
+				["merge", Color(1, 0.85, 0.4), "합성", "같은 유닛 3마리 → 상위 등급"],
+				["clock", Color(1, 0.6, 0.6), "보스", "10라운드마다 · 시간 안에 처치!"],
+			])
+		"grow":
+			_help_cards([
+				["hammer", Color(1, 0.8, 0.4), "★ 강화", "★3 각성 · ★5 초월"],
+				["upgrade", Color(0.5, 1, 0.65), "등급 강화", "등급별 공격력 올리기"],
+				["gamble", Color(0.8, 0.55, 1), "도박", "보석으로 영웅·전설 도전"],
+				["synergy", Color(0.5, 0.85, 1), "시너지", "다른 종류를 모으면 발동"],
+			])
+		"mythic":
+			for m in GameData.RECIPES:
+				var row := HBoxContainer.new()
+				row.alignment = BoxContainer.ALIGNMENT_CENTER
+				row.add_theme_constant_override("separation", 8)
+				for ing in GameData.RECIPES[m]:
+					row.add_child(UnitIcon.make(ing, 78))
+				var arrow := UIIcon.make("play", 34, Color(1, 0.85, 0.4))
+				arrow.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+				row.add_child(arrow)
+				row.add_child(UnitIcon.make(m, 96))
+				var nm := UIKit.label(GameData.UNITS[m]["name"], 28, GameData.RARITY_COLORS[4].lightened(0.3))
+				nm.custom_minimum_size = Vector2(170, 0)
+				nm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+				row.add_child(nm)
+				_help_body.add_child(row)
+		"modes":
+			_help_cards([
+				["book", Color(1, 0.8, 0.45), "스토리", "5장 20스테이지 · ★ 모으기"],
+				["star", Color(1, 0.85, 0.35), "무한 모드", "%d라운드 버티기" % GameData.FINAL_WAVE],
+				["heart", Color(0.5, 0.95, 0.8), "협동", "둘이 합쳐 적 %d마리 전에!" % GameData.COOP_ENEMY_LIMIT],
+				["attack", Color(1, 0.5, 0.4), "대전", "적을 보내 먼저 무너뜨리기"],
+			])
+		"keys":
+			_help_cards([
+				["play", Color(0.7, 0.85, 1), "터치", "유닛 누르기 → 빈 칸 누르면 이동"],
+				["help", Color(0.7, 0.85, 1), "길게 누르기", "버튼을 길게 누르면 설명"],
+				["gear", Color(0.7, 0.85, 1), "키보드 1P", "WASD · Space · Q 소환 · E 합성"],
+				["gear", Color(0.7, 0.85, 1), "키보드 2P", "방향키 · Enter · U 소환 · I 합성"],
+			])
+
+
+func _help_cards(cards: Array) -> void:
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 18)
+	grid.add_theme_constant_override("v_separation", 18)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_help_body.add_child(grid)
+	for c in cards:
+		var card := PanelContainer.new()
+		var sb := UIKit.panel_box(Color(0.1, 0.13, 0.26, 0.95), Color(c[1], 0.6), 20)
+		sb.set_content_margin_all(18)
+		sb.shadow_size = 6
+		card.add_theme_stylebox_override("panel", sb)
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		card.custom_minimum_size = Vector2(0, 150)
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 18)
+		card.add_child(h)
+		h.add_child(UIIcon.make(c[0], 104, c[1]))
+		var tv := VBoxContainer.new()
+		tv.alignment = BoxContainer.ALIGNMENT_CENTER
+		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		h.add_child(tv)
+		tv.add_child(UIKit.label(c[2], 34, c[1].lightened(0.35)))
+		var d := UIKit.label(c[3], 22, Color(0.88, 0.92, 1.0), 4)
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tv.add_child(d)
+		grid.add_child(card)

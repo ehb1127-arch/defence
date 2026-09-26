@@ -27,7 +27,7 @@ var chests := {}         # "장-단계" -> 받음
 var story_seen := {}     # 스테이지 id -> 대사 봄
 var streak := 0          # 연승
 var idle_last := 0       # 방치 보상 마지막 수령 (유닉스 초)
-var settings := {"sound": true, "captions": false, "vibrate": true, "account_sync": true, "focus_layout": false}
+var settings := {"sound": true, "labels": true, "vibrate": true, "account_sync": true, "focus_layout": false}
 var device_id := ""
 var unit_levels := {}    # 유닛 id -> 영구 레벨
 var discovered := {}     # 도감: 한 번이라도 얻은 유닛
@@ -139,7 +139,7 @@ func from_dict(d: Dictionary) -> void:
 
 func apply_settings() -> void:
 	Sfx.muted = not settings["sound"]
-	ActionButton.show_captions = settings["captions"]
+	ActionButton.show_captions = settings.get("labels", true)
 
 
 func set_setting(key: String, value: Variant) -> void:

@@ -42,6 +42,10 @@ var buff_t := 0.0               # 돌진 (이동속도 증가)
 var shield_t := 0.0             # 용암 방패 (피해 감소)
 var phase2 := false
 var freeze_t := 0.0             # 빙결 (표시용)
+# 적 영웅
+var hero := ""                  # 적 영웅 종류 id (thief/shaman/berserker/warlord)
+var lap := 0                    # 도적: 몇 바퀴 돌았나
+var skill_t := 0.0              # 주술사/장군: 능력 주기
 
 
 func setup(k: String, base_hp: float) -> void:

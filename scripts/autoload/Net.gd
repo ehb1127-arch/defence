@@ -27,7 +27,7 @@ signal account_synced                          # 서버 계정(재화)과 동기
 signal iap_result(req_id: int, ok: bool, product_id: String, msg: String)
 
 const DEFAULT_PORT := 24680
-const PROTOCOL := 3
+const PROTOCOL := 4
 const MAX_ROOMS := 200
 const MAX_NAME := 12
 const SETTINGS_PATH := "user://online.cfg"
