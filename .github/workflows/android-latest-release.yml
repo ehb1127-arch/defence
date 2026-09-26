@@ -1,5 +1,14 @@
 name: Android Latest Release
 
+# 푸시할 때마다(또는 수동 실행) 안드로이드 빌드를 만들어 "latest" 릴리즈에 올린다.
+#  - 테스트용 디버그 APK: 폰에 바로 설치해서 확인
+#  - 출시용 AAB: Play Console 업로드용 (그래들 빌드, 대상 SDK 36, 16KB 페이지 지원 엔진)
+# 업로드 키 서명: 저장소 Settings > Secrets and variables > Actions 에 아래 시크릿을 넣으면 그 키로 서명한다.
+#   ANDROID_UPLOAD_KEYSTORE_BASE64  업로드 키스토어 파일을 base64 로 인코딩한 값
+#   ANDROID_UPLOAD_KEY_ALIAS        키 별칭 (예: upload)
+#   ANDROID_UPLOAD_KEY_PASSWORD     키스토어/키 비밀번호
+# 시크릿이 없으면 임시 키로 서명한 AAB 를 만든다 (빌드 확인용, 스토어 업로드 불가). 자세한 방법: docs/ANDROID.md
+
 on:
   workflow_dispatch:
   push:
@@ -13,51 +22,151 @@ concurrency:
 permissions:
   contents: write
 
+env:
+  GODOT_VERSION: "4.7.2"
+
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
     container:
-      image: barichello/godot-ci:4.3
+      image: barichello/godot-ci:4.7.2
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure Godot Android export
+      - name: 준비 - 내보내기 템플릿, 안드로이드 SDK, 에디터 설정
         shell: bash
         run: |
           set -euo pipefail
+          VER="${GODOT_VERSION}.stable"
 
-          TEMPLATE_FILE="$(find /root -type f -path "*/4.3.stable/android_debug.apk" -print -quit)"
-          test -n "$TEMPLATE_FILE"
-          TEMPLATE_DIR="$(dirname "$TEMPLATE_FILE")"
-          TARGET_TEMPLATE_DIR="$HOME/.local/share/godot/export_templates/4.3.stable"
-          mkdir -p "$TARGET_TEMPLATE_DIR"
-          cp "$TEMPLATE_DIR/android_debug.apk" "$TARGET_TEMPLATE_DIR/"
-          cp "$TEMPLATE_DIR/android_release.apk" "$TARGET_TEMPLATE_DIR/"
+          # 1) 내보내기 템플릿을 Godot 가 찾는 위치로 연결 (android_source.zip 은 그래들 빌드에 필요)
+          SRC_ZIP="$(find / -type f -path "*/${VER}/android_source.zip" 2>/dev/null | head -n1 || true)"
+          test -n "$SRC_ZIP" || { echo "::error::${VER} 안드로이드 템플릿을 찾지 못했습니다"; exit 1; }
+          SRC_DIR="$(dirname "$SRC_ZIP")"
+          DST_DIR="$HOME/.local/share/godot/export_templates/${VER}"
+          mkdir -p "$(dirname "$DST_DIR")"
+          if [ "$(readlink -f "$SRC_DIR")" != "$(readlink -f "$DST_DIR" 2>/dev/null || true)" ]; then
+            rm -rf "$DST_DIR"
+            ln -s "$SRC_DIR" "$DST_DIR"
+          fi
+          ls "$DST_DIR"
 
+          # 2) 안드로이드 빌드 템플릿 설치 (에디터의 '안드로이드 빌드 템플릿 설치'와 같음)
+          rm -rf android/build
+          mkdir -p android/build
+          unzip -q "$SRC_ZIP" -d android/build
+          touch android/build/.gdignore
+          echo -n "$VER" > android/.build_version
+
+          # 3) 대상 SDK 36 에 맞춰 compileSdk 도 36 이상으로 (Play 2026년 요구 사항)
+          CFG=android/build/config.gradle
+          CUR_COMPILE="$(grep -oE 'compileSdk *: *[0-9]+' "$CFG" | grep -oE '[0-9]+' | head -n1 || echo 0)"
+          if [ "${CUR_COMPILE:-0}" -lt 36 ]; then
+            sed -i -E 's/(compileSdk *: *)[0-9]+/\136/' "$CFG"
+          fi
+          BUILD_TOOLS="$(grep -oE "buildTools *: *'[0-9.]+'" "$CFG" | grep -oE '[0-9.]+' | head -n1 || true)"
+          grep -E 'compileSdk|targetSdk|buildTools|minSdk' "$CFG" | head
+
+          # 4) 필요한 SDK 구성요소 설치
+          export ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/lib/android-sdk}}"
+          SDKM="$(command -v sdkmanager || find "$ANDROID_HOME" -path '*cmdline-tools*/bin/sdkmanager' -type f 2>/dev/null | head -n1 || true)"
+          if [ -n "$SDKM" ]; then
+            yes | "$SDKM" --sdk_root="$ANDROID_HOME" --licenses > /dev/null || true
+            PKGS=("platforms;android-36" "platform-tools" "build-tools;36.0.0")
+            [ -n "$BUILD_TOOLS" ] && PKGS+=("build-tools;${BUILD_TOOLS}")
+            "$SDKM" --sdk_root="$ANDROID_HOME" "${PKGS[@]}" > /dev/null
+          else
+            echo "::warning::sdkmanager 를 찾지 못했습니다. 그래들이 필요한 SDK 를 스스로 받도록 둡니다."
+          fi
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+
+          # 5) 디버그 키 + 에디터 설정 (Godot 4.x 버전별 파일 이름 모두)
           JAVA_HOME_DIR="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
           mkdir -p "$HOME/.android" "$HOME/.config/godot"
-          keytool -genkeypair             -keystore "$HOME/.android/debug.keystore"             -storepass android             -alias androiddebugkey             -keypass android             -keyalg RSA             -keysize 2048             -validity 10000             -dname "CN=Android Debug,O=Android,C=US"
-
-          cat > "$HOME/.config/godot/editor_settings-4.tres" <<SETTINGS
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android \
+              -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          MINOR="$(echo "$GODOT_VERSION" | cut -d. -f1-2)"
+          for NAME in "editor_settings-${MINOR}.tres" "editor_settings-4.tres"; do
+            cat > "$HOME/.config/godot/$NAME" <<SETTINGS
           [gd_resource type="EditorSettings" format=3]
 
           [resource]
           export/android/android_sdk_path = "$ANDROID_HOME"
           export/android/java_sdk_path = "$JAVA_HOME_DIR"
           export/android/debug_keystore = "$HOME/.android/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
           SETTINGS
+          done
 
-      - name: Build Android debug APK
+          # 6) 빌드마다 버전 번호 자동 증가 (Play 는 versionCode 가 계속 커져야 함)
+          sed -i -E "s/^version\/code=.*/version\/code=${GITHUB_RUN_NUMBER}/" export_presets.cfg
+          sed -i -E "s/^version\/name=.*/version\/name=\"0.1.${GITHUB_RUN_NUMBER}\"/" export_presets.cfg
+          echo "APP_VERSION=0.1.${GITHUB_RUN_NUMBER} (${GITHUB_RUN_NUMBER})" >> "$GITHUB_ENV"
+
+      - name: 업로드 키 준비
+        shell: bash
+        env:
+          KS_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          KS_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          KS_PASS: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KS="$HOME/upload.keystore"
+          if [ -n "${KS_B64}" ] && [ -n "${KS_ALIAS}" ] && [ -n "${KS_PASS}" ]; then
+            echo "${KS_B64}" | base64 -d > "$KS"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_PATH=$KS" >> "$GITHUB_ENV"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_USER=${KS_ALIAS}" >> "$GITHUB_ENV"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=${KS_PASS}" >> "$GITHUB_ENV"
+            echo "SIGN_NOTE=업로드 키로 서명됨 - Play Console 에 바로 올릴 수 있습니다." >> "$GITHUB_ENV"
+          else
+            keytool -genkeypair -keystore "$KS" -storepass temp-upload-pass -alias temp \
+              -keypass temp-upload-pass -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Temporary,O=SquareGuardians,C=KR"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_PATH=$KS" >> "$GITHUB_ENV"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_USER=temp" >> "$GITHUB_ENV"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=temp-upload-pass" >> "$GITHUB_ENV"
+            echo "SIGN_NOTE=⚠️ 임시 키로 서명됨 - 빌드 확인용입니다. Play Console 에 올리려면 업로드 키 시크릿을 설정하세요 (docs/ANDROID.md)." >> "$GITHUB_ENV"
+            echo "::warning::업로드 키 시크릿이 없어 임시 키로 AAB 를 서명합니다 (스토어 업로드 불가)."
+          fi
+
+      - name: 리소스 가져오기 (import)
+        shell: bash
+        run: |
+          godot --version
+          timeout 900 godot --headless --path . --import || echo "::warning::import 가 0 이 아닌 코드로 끝났습니다 (계속 진행)"
+
+      - name: 테스트용 디버그 APK
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p build/android
-          godot --version
-          godot --headless --verbose --path . --export-debug "Android" build/android/SquareDefense.apk
-          test -s build/android/SquareDefense.apk
-          sha256sum build/android/SquareDefense.apk
+          godot --headless --path . --export-debug "Android" build/android/SquareGuardians-debug.apk
+          test -s build/android/SquareGuardians-debug.apk
+          sha256sum build/android/SquareGuardians-debug.apk
+
+      - name: 출시용 AAB (Play Console 업로드용)
+        id: aab
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --headless --verbose --path . --export-release "Android AAB" build/android/SquareGuardians.aab
+          test -s build/android/SquareGuardians.aab
+          sha256sum build/android/SquareGuardians.aab
+
+      - name: 빌드 결과 보관 (Actions 아티팩트)
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ github.run_number }}
+          path: build/android/*
+          if-no-files-found: warn
 
       - name: Remove previous releases
         uses: actions/github-script@v7
@@ -86,15 +195,21 @@ jobs:
               if (error.status !== 404 && error.status !== 422) throw error;
             }
 
-      - name: Publish latest APK
+      - name: Publish latest APK + AAB
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           target_commitish: ${{ github.sha }}
-          name: Latest Android Build
+          name: 결계 수호대 ${{ env.APP_VERSION }}
           body: |
-            Latest automated Android debug build.
-            Source commit: ${{ github.sha }}
+            결계 수호대 자동 빌드 (Godot ${{ env.GODOT_VERSION }})
+            버전: ${{ env.APP_VERSION }} · 소스 커밋: ${{ github.sha }}
+
+            - `SquareGuardians-debug.apk` : 테스트용. 폰에 바로 설치해서 확인하세요.
+            - `SquareGuardians.aab` : 출시용. Play Console 에 업로드합니다. (AAB 빌드 결과: ${{ steps.aab.outcome }})
+              ${{ env.SIGN_NOTE }}
           make_latest: true
-          fail_on_unmatched_files: true
-          files: build/android/SquareDefense.apk
+          fail_on_unmatched_files: false
+          files: |
+            build/android/SquareGuardians-debug.apk
+            build/android/SquareGuardians.aab
