@@ -9,7 +9,12 @@ Ads.show_rewarded("placement 이름", func(): 보상_지급())
 | provider | 언제 | 동작 |
 | --- | --- | --- |
 | `admob` | 안드로이드/iOS + `addons/admob` 플러그인 설치됨 | 실제 AdMob 보상형 광고 (미리 불러 두고, 실패하면 20초 후 재시도) |
-| `mock` | PC, 에디터, 플러그인 없음 | 테스트 광고 (5초 카운트다운 → 보상 받기) |
+| `mock` | **디버그 빌드만** (PC, 에디터, 디버그 APK) | 테스트 광고 (5초 카운트다운 → 보상 받기) |
+| `none` | 출시(release) 빌드인데 광고 플러그인이 없음 | 광고 버튼을 숨기고, 호출되면 "광고를 불러오지 못했어요" 알림만 (보상 없음) |
+
+출시 빌드에서는 테스트 광고로 보상이 나가지 않습니다 (`OS.is_debug_build()` 검사). `Ads.available()` 이 false 면
+메뉴·상점·룰렛·결과 화면의 광고 버튼이 숨겨지거나 비활성화됩니다.
+판 결과 "광고 보고 코인 2배"는 `Profile.result_ads_left() > 0`, 방치 보상 2배는 `Profile.idle_ads_left() > 0` 일 때만 보입니다.
 
 **광고 제거** 상품(`no_ads`)을 산 계정은 광고 없이 바로 보상을 받습니다.
 하루 광고 횟수 제한과 보상은 서버 계정 기준입니다 (docs/ECONOMY.md).
@@ -44,12 +49,14 @@ Ads.show_rewarded("placement 이름", func(): 보상_지급())
 `RewardedAd.full_screen_content_callback`, `RewardedAd.show(OnUserEarnedRewardListener)`.
 다른 플러그인을 쓰면 `Ads.gd` 의 `_find_admob / _preload / _show_admob` 세 함수만 바꾸면 됩니다.
 
-개인정보: 한국/EU 출시 시 UMP(동의 팝업) 처리와 개인정보처리방침 링크가 필요합니다.
+개인정보: 한국/EU 출시 시 UMP(동의 팝업) 처리가 필요합니다 (아직 TODO).
+이용약관·개인정보처리방침 링크는 설정 창에 있고, 주소는 project.godot 의
+`application/legal/terms_url`, `application/legal/privacy_url` 입니다 (지금은 example.com 자리 표시 → 출시 전에 교체).
 Play Console 의 "데이터 보안" 항목에 광고 ID 수집을 표시하세요.
 
 ## 테스트
 
-- PC 에서는 항상 테스트 광고가 뜹니다. 자동 테스트에서는 `Ads.auto_claim = true` 로 즉시 보상 처리할 수 있습니다.
+- PC(디버그)에서는 테스트 광고가 뜹니다. 자동 테스트에서는 `Ads.auto_claim = true` 로 즉시 보상 처리할 수 있습니다 (디버그 빌드만).
 - 하루 제한은 `Profile.ads_left()` (날짜가 바뀌면 초기화). 저장 위치: `user://profile.cfg`
 
 ## 주의

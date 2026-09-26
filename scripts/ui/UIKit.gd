@@ -243,3 +243,195 @@ static func coin_fly(from_pos: Vector2, target: Control, n := 8, icon := "coin")
 	pop.tween_property(target, "scale", Vector2(1.25, 1.25), 0.08)
 	pop.tween_property(target, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK)
 	tree.create_timer(2.0).timeout.connect(layer.queue_free)
+
+
+# ===========================================================================
+# 공통 테마 (글자 크기를 휴대폰에 맞게 키운 판)
+# ===========================================================================
+const FONT_BODY := 22       # 기본 글자 (라벨·버튼·목록)
+static var _theme: Theme
+
+
+static func theme() -> Theme:
+	## GameData.ui_theme() 를 바탕으로 기본 글자만 키운 테마 (6인치 휴대폰에서 읽히는 크기)
+	if _theme == null:
+		_theme = GameData.ui_theme().duplicate()
+		_theme.default_font_size = FONT_BODY
+		# 켜기/끄기 줄: 굵은 그림 버튼(모서리 장식)에 글자가 겹치지 않게 코드로 그린 납작한 줄
+		var row := func(col: Color) -> StyleBoxFlat:
+			var f := StyleBoxFlat.new()
+			f.bg_color = col
+			f.border_color = Color(0.4, 0.52, 0.95, 0.5)
+			f.set_border_width_all(2)
+			f.set_corner_radius_all(14)
+			f.content_margin_left = 20
+			f.content_margin_right = 16
+			f.content_margin_top = 8
+			f.content_margin_bottom = 8
+			return f
+		for st in ["normal", "pressed"]:
+			_theme.set_stylebox(st, "CheckButton", row.call(Color(0.1, 0.13, 0.28, 0.95)))
+		for st in ["hover", "hover_pressed"]:
+			_theme.set_stylebox(st, "CheckButton", row.call(Color(0.14, 0.18, 0.36, 0.95)))
+		_theme.set_stylebox("disabled", "CheckButton", row.call(Color(0.12, 0.13, 0.18, 0.8)))
+		_theme.set_stylebox("focus", "CheckButton", StyleBoxEmpty.new())
+	return _theme
+
+
+# ===========================================================================
+# 이 기기에만 남기는 화면 상태 (NEW 표시 확인, 본 공지, 개발자 메뉴 등)
+# ===========================================================================
+const UI_STATE_PATH := "user://ui_state.cfg"
+static var _state: ConfigFile
+
+
+static func ui_get(key: String, default: Variant = null) -> Variant:
+	if _state == null:
+		_state = ConfigFile.new()
+		_state.load(UI_STATE_PATH)
+	return _state.get_value("ui", key, default)
+
+
+static func ui_set(key: String, value: Variant) -> void:
+	ui_get(key)
+	_state.set_value("ui", key, value)
+	_state.save(UI_STATE_PATH)
+
+
+# ===========================================================================
+# 기능 단계별 열림 (처음엔 소환·합성만, 스토리 진행/계정 레벨에 따라 버튼이 하나씩 열림)
+# ===========================================================================
+## 기능 -> [열리는 스테이지(여기까지 오면 열림), 또는 이 계정 레벨 이상, 안내 문구]
+const UNLOCKS := {
+	"upgrade": ["1-2", 3, "스토리 1-2 에서 열려요"],
+	"enhance": ["1-3", 4, "스토리 1-3 에서 열려요"],
+	"gamble": ["1-4", 5, "스토리 1-4 에서 열려요"],
+	"slot": ["2-1", 6, "스토리 2장에서 열려요"],
+	"control": ["3-1", 8, "스토리 3장에서 열려요"],
+}
+
+
+static func feature_unlocked(key: String) -> bool:
+	if not UNLOCKS.has(key) or Session.online:
+		return true
+	var u: Array = UNLOCKS[key]
+	if Profile.level >= int(u[1]):
+		return true
+	var sid: String = u[0]
+	if Session.stage == sid or Session.stage == "H" + sid:
+		return true
+	return Profile.stage_unlocked(sid)
+
+
+static func feature_is_new(key: String) -> bool:
+	## 새로 열렸는데 아직 한 번도 안 눌러 본 기능 (버튼에 NEW 표시)
+	_init_seen()
+	return UNLOCKS.has(key) and feature_unlocked(key) and not bool(ui_get("seen_" + key, false))
+
+
+static func _init_seen() -> void:
+	## 처음 한 번: 이미 열려 있던 기능은 본 것으로 (업데이트한 기존 플레이어에게 NEW 가 잔뜩 뜨지 않게)
+	if bool(ui_get("seen_init", false)):
+		return
+	_state.set_value("ui", "seen_init", true)
+	for key in UNLOCKS:
+		var u: Array = UNLOCKS[key]
+		if Profile.level >= int(u[1]) or Profile.stage_unlocked(u[0]):
+			_state.set_value("ui", "seen_" + key, true)
+	_state.save(UI_STATE_PATH)
+
+
+static func mark_feature_seen(key: String) -> void:
+	if UNLOCKS.has(key) and not bool(ui_get("seen_" + key, false)):
+		ui_set("seen_" + key, true)
+
+
+# ===========================================================================
+# 확인 창 (구매 확인 · 나가기 확인 등)
+# ===========================================================================
+static func confirm(parent: Node, title: String, body: String, ok_text: String, on_ok: Callable, cancel_text := "취소", on_cancel := Callable(), extra: Control = null) -> Control:
+	## 화면 전체를 어둡게 덮고 가운데 창을 띄운다. 바깥을 누르면 취소.
+	ActionButton.hide_bubble()   # 도움말 말풍선이 창 위에 남지 않게
+	var root := Control.new()
+	root.theme = theme()
+	root.size = Vector2(1600, 900)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.process_mode = Node.PROCESS_MODE_ALWAYS
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.62)
+	dim.size = Vector2(1600, 900)
+	root.add_child(dim)
+	var p := PanelContainer.new()
+	var sb := panel_box(Color(0.09, 0.11, 0.23, 0.98), Color(1, 0.8, 0.35), 24)
+	sb.set_content_margin_all(28)
+	p.add_theme_stylebox_override("panel", sb)
+	p.custom_minimum_size = Vector2(720, 0)
+	root.add_child(p)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 18)
+	p.add_child(v)
+	var t := label(title, 34, Color(1, 0.88, 0.45))
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(t)
+	if body != "":
+		var b := label(body, 24, Color(0.9, 0.93, 1.0), 4)
+		b.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		b.custom_minimum_size = Vector2(660, 0)
+		v.add_child(b)
+	if extra != null:
+		v.add_child(extra)
+	var h := HBoxContainer.new()
+	h.alignment = BoxContainer.ALIGNMENT_CENTER
+	h.add_theme_constant_override("separation", 20)
+	v.add_child(h)
+	var close := func(): root.queue_free()
+	var done := [false]
+	var cancel := func():
+		if done[0]:
+			return
+		done[0] = true
+		close.call()
+		if on_cancel.is_valid():
+			on_cancel.call()
+	if cancel_text != "":
+		var cb := ActionButton.make("", Color.WHITE, cancel_text, cancel, Vector2(260, 92))
+		cb.badge = cancel_text
+		cb.font_px = 28
+		cb.tone = NAVY
+		h.add_child(cb)
+	var ok := func():
+		if done[0]:
+			return
+		done[0] = true
+		close.call()
+		on_ok.call()
+	var ob := ActionButton.make("", Color.WHITE, ok_text, ok, Vector2(260, 92))
+	ob.badge = ok_text
+	ob.font_px = 28
+	ob.tone = Color(0.95, 0.62, 0.12)
+	h.add_child(ob)
+	dim.gui_input.connect(func(e):
+		if e is InputEventMouseButton and e.pressed and cancel_text != "":
+			cancel.call())
+	root.set_meta("cancel", cancel)
+	parent.add_child(root)
+	var place := func():
+		p.size = p.get_combined_minimum_size()
+		p.position = (Vector2(1600, 900) - p.size) * 0.5
+		pop_in(p)
+	place.call_deferred()
+	return root
+
+
+static func keep_words(text: String) -> String:
+	## 한글은 글자마다 줄이 바뀔 수 있어 "있\n어요" 처럼 잘린다 → 띄어쓰기에서만 줄을 바꾸도록
+	## 글자 사이에 WORD JOINER(U+2060, 보이지 않음)를 넣는다
+	var out := ""
+	var prev := " "
+	for ch in text:
+		if ch != " " and ch != "\n" and prev != " " and prev != "\n":
+			out += "⁠"
+		out += ch
+		prev = ch
+	return out

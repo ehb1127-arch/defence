@@ -20,7 +20,7 @@ var _t := 0.0
 func _ready() -> void:
 	size = Vector2(1600, 900)
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	theme = GameData.ui_theme()
+	theme = UIKit.theme()
 	var dim := ColorRect.new()
 	dim.color = Color(0, 0, 0, 0.45)
 	dim.size = size
@@ -41,6 +41,13 @@ func _ready() -> void:
 		f.set_corner_radius_all(16)
 		f.set_content_margin_all(22)
 		sb = f
+	else:
+		# 그림 틀: 이름·대사가 테두리 장식에 붙지 않게 안쪽 여백
+		sb = sb.duplicate()
+		sb.content_margin_left = 44
+		sb.content_margin_right = 44
+		sb.content_margin_top = 26
+		sb.content_margin_bottom = 22
 	box.add_theme_stylebox_override("panel", sb)
 	box.position = Vector2(60, 640)
 	box.size = Vector2(1480, 230)
@@ -54,24 +61,23 @@ func _ready() -> void:
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(head)
 	_name = Label.new()
-	_name.add_theme_font_size_override("font_size", 28)
+	_name.add_theme_font_size_override("font_size", 30)
 	head.add_child(_name)
 	_title = Label.new()
-	_title.add_theme_font_size_override("font_size", 16)
-	_title.add_theme_color_override("font_color", Color(0.6, 0.65, 0.75))
+	_title.add_theme_font_size_override("font_size", 22)
+	_title.add_theme_color_override("font_color", Color(0.72, 0.77, 0.88))
 	_title.size_flags_vertical = Control.SIZE_SHRINK_END
 	head.add_child(_title)
 	_body = Label.new()
 	_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_body.custom_minimum_size = Vector2(1400, 110)
-	_body.add_theme_font_size_override("font_size", 24)
+	_body.custom_minimum_size = Vector2(1380, 110)
+	_body.add_theme_font_size_override("font_size", 27)
 	v.add_child(_body)
-	var skip := Button.new()
-	skip.text = "건너뛰기 ▶▶"
-	skip.focus_mode = Control.FOCUS_NONE
-	skip.position = Vector2(1380, 590)
-	skip.size = Vector2(160, 40)
-	skip.pressed.connect(_finish)
+	var skip := ActionButton.make("", Color.WHITE, "대사 건너뛰기", _finish, Vector2(220, 84))
+	skip.badge = "건너뛰기 ▶▶"
+	skip.font_px = 26
+	skip.tone = Color(0.2, 0.24, 0.42)
+	skip.position = Vector2(1320, 548)
 	add_child(skip)
 	_next()
 

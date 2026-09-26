@@ -6,6 +6,7 @@ var board: Board
 var other: Board        # 협동 파트너 또는 대전 상대 (없을 수 있음)
 var level := 1          # 0 쉬움 / 1 보통 / 2 어려움
 var _t := 0.0
+var _gift_t := 0.0
 var _rng := RandomNumberGenerator.new()
 
 
@@ -17,6 +18,7 @@ func _init(b: Board, o: Board, lvl: int) -> void:
 
 
 func update(dt: float) -> void:
+	_gift_t -= dt
 	_t -= dt
 	if _t > 0.0:
 		return
@@ -32,11 +34,7 @@ func _think() -> void:
 		b.open_chest(0)
 		return
 	if not b.pending_pick.is_empty():
-		var bi := 0
-		for i in b.pending_pick.size():
-			if GameData.UNITS[b.pending_pick[i]]["rarity"] > GameData.UNITS[b.pending_pick[bi]]["rarity"]:
-				bi = i
-		if b.choose_pick(bi):
+		if b.choose_pick(_best_pick()):
 			return
 	var m := b.first_combinable()
 	if m != "":
@@ -53,6 +51,24 @@ func _think() -> void:
 		if other.alive and other.field_count() > b.field_count() + 35 and b.gold > 350:
 			b.request_gift_gold(100)
 			return
+		# 파트너의 신화 조합에 필요한 유닛을 선물 (내 조합에 안 쓰는 것만)
+		if level >= 1 and other.alive and _gift_t <= 0.0 and _gift_recipe_unit():
+			_gift_t = 15.0
+			return
+	# 대전: 어려움은 상대가 위험할 때(보스 라운드·적이 많을 때) 몰아서 공격
+	if b.mode == "pvp" and other != null and level >= 2 and b.wave >= 4 and pressure < 0.6:
+		var o_pressure := float(other.field_count()) / other.enemy_limit
+		var o_boss := other.is_boss_round(other.wave) and other.wave_timer > 10.0
+		if o_pressure > 0.45 or o_boss:
+			if b.gems >= 2 and other.curse_t <= 0.0 and o_boss:
+				b.request_attack("curse")
+				return
+			if b.gold >= 150 + b.summon_cost():
+				b.request_attack("elite")
+				return
+			if b.gold >= 40 + b.summon_cost():
+				b.request_attack("swarm")
+				return
 	# 대전: 여유 있을 때 공격
 	if b.mode == "pvp" and other != null and level >= 1 and b.wave >= 4 and pressure < 0.5:
 		if b.gems >= 4 and other.curse_t <= 0.0 and _rng.randf() < 0.3:
@@ -70,9 +86,10 @@ func _think() -> void:
 		if tgt != null and tgt.kind in ["midboss", "hero"]:
 			b.mind_control()
 			return
-	# 운명 소환
+	# 운명 소환 (어려움: 중간보스 라운드 전에는 지배용 보석을 남긴다)
+	var keep := GameData.MC_GEMS if level >= 2 and b.wave % 10 in [5, 6, 7] else 0
 	if level >= 1:
-		if b.gems >= 4 and b.wave >= 6:
+		if b.gems - keep >= GameData.GAMBLES[1]["gems"] and b.wave >= 6:
 			if b.gamble(1):
 				return
 		elif b.gems >= 2 and b.wave < 6:
@@ -105,34 +122,71 @@ func _think() -> void:
 		_reposition()
 
 
-func _is_outer(i: int) -> bool:
-	var c := i % Board.COLS
-	var r := i / Board.COLS
-	return c == 0 or r == 0 or c == Board.COLS - 1 or r == Board.ROWS - 1
+func _best_pick() -> int:
+	## 골라 뽑기: 보통 이상은 가장 가까운 신화 조합에 모자란 재료를 우선, 아니면 가장 높은 등급
+	var b := board
+	var bi := 0
+	var recipe := b.closest_recipe() if level >= 1 else ""
+	var have := b.unit_counts()
+	var best_score := -1.0
+	for i in b.pending_pick.size():
+		var id: String = b.pending_pick[i]
+		var score: float = GameData.UNITS[id]["rarity"]
+		if recipe != "" and GameData.RECIPES[recipe].count(id) > int(have.get(id, 0)):
+			score += 2.5
+		if score > best_score:
+			best_score = score
+			bi = i
+	return bi
 
 
-func _range_of(i: int) -> float:
-	var id: String = board.cells[i]["id"]
-	return 9999.0 if id == "" else GameData.UNITS[id]["range"]
+func _gift_recipe_unit() -> bool:
+	## 협동: 파트너의 가장 가까운 신화에 모자란 재료를 내가 남는 만큼 가지고 있으면 한 마리 선물
+	var b := board
+	# 내가 더 급하면 선물하지 않는다 (한쪽에만 신화가 몰리고 다른 쪽이 무너지는 것 방지)
+	var my_p := float(b.field_count()) / b.enemy_limit
+	var their_p := float(other.field_count()) / other.enemy_limit
+	if my_p > their_p + 0.05 or my_p > 0.6:
+		return false
+	var theirs := other.closest_recipe()
+	if theirs == "":
+		return false
+	var mine := b.closest_recipe()
+	var their_have := other.unit_counts()
+	var my_have := b.unit_counts()
+	for id in GameData.RECIPES[theirs]:
+		if GameData.UNITS[id]["rarity"] < GameData.Rarity.RARE or GameData.UNITS[id]["rarity"] >= GameData.Rarity.LEGEND:
+			continue   # 전설은 선물하지 않는다
+		if GameData.RECIPES[theirs].count(id) <= int(their_have.get(id, 0)):
+			continue
+		var my_need: int = GameData.RECIPES[mine].count(id) if mine != "" else 0
+		if int(my_have.get(id, 0)) <= my_need:
+			continue
+		for i in b.cells.size():
+			if b.cells[i]["id"] == id and b.cells[i]["star"] == 0:
+				return b.request_gift_unit(i)
+	return false
 
 
 func _reposition() -> void:
-	## 사거리 짧은 유닛은 트랙과 가까운 바깥 칸으로, 긴 유닛은 안쪽으로
+	## 자리 정리: 선호 줄(Board.preferred_ring - 짧은 사거리는 바깥, 긴 사거리·버프는 안쪽)이 아닌 유닛을
+	## 그 줄의 빈 칸으로 옮기거나, 서로 자리가 바뀐 유닛끼리 맞바꾼다
 	var b := board
-	var worst_inner := -1
 	for i in b.cells.size():
-		if not _is_outer(i) and b.cells[i]["id"] != "":
-			if worst_inner < 0 or _range_of(i) < _range_of(worst_inner):
-				worst_inner = i
-	if worst_inner < 0:
-		return
-	var best_outer := -1
-	for i in b.cells.size():
-		if _is_outer(i) and _range_of(i) > _range_of(worst_inner) + 40.0:
-			if best_outer < 0 or _range_of(i) > _range_of(best_outer):
-				best_outer = i
-	if best_outer >= 0:
-		b.swap_cells(worst_inner, best_outer)
+		var id: String = b.cells[i]["id"]
+		if id == "":
+			continue
+		var want := Board.preferred_ring(id)
+		var ring := Board.cell_ring(i)
+		if ring == want:
+			continue
+		for j in b.cells.size():
+			if Board.cell_ring(j) != want:
+				continue
+			var other_id: String = b.cells[j]["id"]
+			if other_id == "" or (other_id != id and Board.preferred_ring(other_id) != want and absi(Board.preferred_ring(other_id) - ring) < absi(Board.preferred_ring(other_id) - want)):
+				b.swap_cells(i, j)
+				return
 
 
 func _count_by_rarity() -> Array:

@@ -14,7 +14,7 @@ var _pending: Dictionary = {}
 
 
 func _ready() -> void:
-	theme = GameData.ui_theme()
+	theme = UIKit.theme()
 	var bg := ColorRect.new()
 	bg.color = Color(0.06, 0.06, 0.1)
 	bg.size = Vector2(1600, 900)
@@ -41,46 +41,73 @@ func _ready() -> void:
 	top.add_child(_coin_lbl)
 
 	# ---- 출석 (위쪽 전체 폭) ----
-	var att := _section(Rect2(30, 110, 1540, 190), "calendar", "7일 출석")
+	var att := _section(Rect2(30, 110, 1540, 236), "calendar", "7일 출석")
 	_att_box = HBoxContainer.new()
 	_att_box.add_theme_constant_override("separation", 10)
 	att.add_child(_att_box)
 	# ---- 일일 미션 (왼쪽) ----
-	var mis := _section(Rect2(30, 320, 800, 560), "mission", "일일 미션")
+	var mis := _section(Rect2(30, 358, 780, 530), "mission", "일일 미션")
 	_missions = VBoxContainer.new()
 	_missions.add_theme_constant_override("separation", 8)
 	mis.add_child(_missions)
 	# ---- 룰렛 (오른쪽) ----
-	var rou := _section(Rect2(850, 320, 720, 560), "wheel", "행운의 룰렛")
+	var rou := _section(Rect2(826, 358, 744, 530), "wheel", "행운의 룰렛")
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 16)
 	rou.add_child(h)
 	_wheel = RouletteWheel.new()
 	_wheel.segments = GameData.ROULETTE
-	_wheel.custom_minimum_size = Vector2(440, 440)
+	_wheel.custom_minimum_size = Vector2(420, 420)
 	_wheel.stopped.connect(_on_wheel_stopped)
 	h.add_child(_wheel)
 	var side := VBoxContainer.new()
-	side.add_theme_constant_override("separation", 14)
+	side.add_theme_constant_override("separation", 10)
 	side.alignment = BoxContainer.ALIGNMENT_CENTER
 	h.add_child(side)
-	_spin_free = ActionButton.make("wheel", Color(1, 0.8, 0.3), "무료 돌리기 (하루 1회)", func(): _spin(false), Vector2(210, 110))
+	_spin_free = ActionButton.make("wheel", Color(1, 0.8, 0.3), "무료 돌리기 (하루 1회)", func(): _spin(false), Vector2(270, 84))
 	_spin_free.tone = Color(1.0, 0.7, 0.1)
 	_spin_free.badge = "무료"
 	side.add_child(_spin_free)
-	_spin_ad = ActionButton.make("wheel", Color(0.4, 0.7, 1.0), "광고 보고 돌리기", func(): _spin(true), Vector2(210, 110))
+	_spin_ad = ActionButton.make("wheel", Color(0.4, 0.7, 1.0), "광고 보고 돌리기", func(): _spin(true), Vector2(270, 84))
 	_spin_ad.tone = UIKit.BLUE
 	_spin_ad.badge_icon = "ad"
+	_spin_ad.badge_px = 22
 	side.add_child(_spin_ad)
 	_result = Label.new()
 	_result.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_result.custom_minimum_size = Vector2(210, 80)
+	_result.custom_minimum_size = Vector2(270, 44)
 	_result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_result.add_theme_font_size_override("font_size", 22)
+	_result.add_theme_font_size_override("font_size", 24)
 	side.add_child(_result)
+	side.add_child(_odds_table())
 	Profile.changed.connect(_refresh)
 	_refresh()
 	UIKit.dress_screen(self)
+
+func _odds_table() -> Control:
+	## 룰렛 확률 공개 (칸 크기도 확률과 같게 그림)
+	var total := 0.0
+	for rw in GameData.ROULETTE:
+		total += float(rw["w"])
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 2)
+	box.add_child(UIKit.label("확률 안내", 20, Color(1, 0.88, 0.5), 4))
+	var g := GridContainer.new()
+	g.columns = 2
+	g.add_theme_constant_override("h_separation", 16)
+	g.add_theme_constant_override("v_separation", 0)
+	box.add_child(g)
+	for rw in GameData.ROULETTE:
+		var nm: String = ("코인 %d" % rw["coins"]) if rw.has("coins") else GameData.shop_item(rw["item"])["name"]
+		var a := UIKit.label(nm, 19, Color(1, 0.9, 0.5) if rw.get("jackpot", false) else Color(0.88, 0.9, 1.0), 3)
+		a.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		g.add_child(a)
+		var pct := 100.0 * float(rw["w"]) / total
+		var b := UIKit.label(("%d%%" % int(round(pct))) if absf(pct - round(pct)) < 0.05 else ("%.1f%%" % pct), 19, Color(0.88, 0.9, 1.0), 3)
+		b.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		g.add_child(b)
+	return box
+
 
 func _section(r: Rect2, icon: String, title: String) -> VBoxContainer:
 	var p := PanelContainer.new()
@@ -96,7 +123,7 @@ func _section(r: Rect2, icon: String, title: String) -> VBoxContainer:
 	p.add_child(v)
 	var h := HBoxContainer.new()
 	h.add_child(UIIcon.make(icon if icon != "calendar" else "star", 30, Color(1, 0.8, 0.35)))
-	h.add_child(UIKit.label(title, 24, Color(1, 0.9, 0.6)))
+	h.add_child(UIKit.label(title, 28, Color(1, 0.9, 0.6)))
 	v.add_child(h)
 	return v
 
@@ -112,7 +139,7 @@ func _refresh() -> void:
 		var rw: Dictionary = GameData.ATTENDANCE[i]
 		var icon: String = GameData.shop_item(rw["item"])["icon"] if rw.has("item") else "coin"
 		var cb := func(): _attend()
-		var b := ActionButton.make(icon, Color.WHITE, "%d일차" % (i + 1), cb, Vector2(170, 110))
+		var b := ActionButton.make(icon, Color.WHITE, "%d일차" % (i + 1), cb, Vector2(206, 134))
 		b.badge = ("%d" % rw["coins"]) if rw.has("coins") else GameData.shop_item(rw["item"])["name"]
 		if rw.has("coins") and rw.has("item"):
 			b.badge = "%d + %s" % [rw["coins"], GameData.shop_item(rw["item"])["name"]]
@@ -125,6 +152,7 @@ func _refresh() -> void:
 		var dl := Label.new()
 		dl.text = "%d일" % (i + 1)
 		dl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		dl.add_theme_font_size_override("font_size", 22)
 		dl.add_theme_color_override("font_color", Color(1, 0.85, 0.4) if can and i == today else Color(0.6, 0.65, 0.75))
 		box.add_child(dl)
 		box.add_child(b)
@@ -135,12 +163,12 @@ func _refresh() -> void:
 	for m in GameData.DAILY_MISSIONS:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
-		row.add_child(UIIcon.make(m["icon"], 38, Color(0.7, 0.85, 1.0)))
+		row.add_child(UIIcon.make(m["icon"], 44, Color(0.7, 0.85, 1.0)))
 		var col := VBoxContainer.new()
 		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var nl := Label.new()
 		nl.text = m["name"]
-		nl.add_theme_font_size_override("font_size", 17)
+		nl.add_theme_font_size_override("font_size", 23)
 		col.add_child(nl)
 		var bar := ProgressBar.new()
 		bar.max_value = m["goal"]
@@ -151,11 +179,12 @@ func _refresh() -> void:
 		row.add_child(col)
 		var prog := Label.new()
 		prog.text = "%d/%d" % [Profile.daily_progress(m), m["goal"]]
-		prog.custom_minimum_size = Vector2(90, 0)
+		prog.custom_minimum_size = Vector2(110, 0)
+		prog.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		prog.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		row.add_child(prog)
 		var mm: Dictionary = m
-		var claim := ActionButton.make("coin", Color.WHITE, "받기", func(): _claim(mm), Vector2(110, 52))
+		var claim := ActionButton.make("coin", Color.WHITE, "받기", func(): _claim(mm), Vector2(124, 58))
 		claim.tone = UIKit.GREEN
 		claim.icon_name = ""
 		claim.badge_icon = "coin"
@@ -170,7 +199,9 @@ func _refresh() -> void:
 	bl.text = "모두 완료 보너스"
 	bl.add_theme_color_override("font_color", Color(1, 0.85, 0.4))
 	brow.add_child(bl)
-	_bonus_btn = ActionButton.make("", Color.WHITE, "모두 완료 보너스", _claim_bonus, Vector2(140, 52))
+	bl.add_theme_font_size_override("font_size", 22)
+	bl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_bonus_btn = ActionButton.make("", Color.WHITE, "모두 완료 보너스", _claim_bonus, Vector2(150, 58))
 	_bonus_btn.tone = Color(1.0, 0.7, 0.1)
 	_bonus_btn.badge_icon = "coin"
 	_bonus_btn.badge = "받음" if Profile.daily.get("all", false) else str(GameData.DAILY_ALL_BONUS)
@@ -182,7 +213,7 @@ func _refresh() -> void:
 	_spin_free.disabled = not Profile.roulette_free_left() or _wheel.spinning
 	_spin_free.glow = not _spin_free.disabled
 	_spin_ad.badge = "%d회 남음" % Profile.roulette_ads_left()
-	_spin_ad.disabled = Profile.roulette_ads_left() <= 0 or _wheel.spinning or Profile.roulette_free_left()
+	_spin_ad.disabled = Profile.roulette_ads_left() <= 0 or _wheel.spinning or Profile.roulette_free_left() or not Ads.available()
 	_spin_free.queue_redraw()
 	_spin_ad.queue_redraw()
 
@@ -190,20 +221,20 @@ func _refresh() -> void:
 func _claim_bonus() -> void:
 	if Profile.claim_daily_bonus():
 		Sfx.play("win")
-		UIKit.coin_fly(get_viewport().get_mouse_position(), _coin_lbl, 12)
+		UIKit.coin_fly(Platform.design_pos(get_viewport().get_mouse_position()), _coin_lbl, 12)
 
 
 func _attend() -> void:
 	var r := Profile.attend()
 	if not r.is_empty():
 		Sfx.play("win")
-		UIKit.coin_fly(get_viewport().get_mouse_position(), _coin_lbl, 10)
+		UIKit.coin_fly(Platform.design_pos(get_viewport().get_mouse_position()), _coin_lbl, 10)
 
 
 func _claim(m: Dictionary) -> void:
 	if Profile.claim_daily(m):
 		Sfx.play("merge")
-		UIKit.coin_fly(get_viewport().get_mouse_position(), _coin_lbl, 6)
+		UIKit.coin_fly(Platform.design_pos(get_viewport().get_mouse_position()), _coin_lbl, 6)
 
 
 func _spin(by_ad: bool) -> void:

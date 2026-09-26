@@ -1,6 +1,7 @@
 class_name RouletteWheel
 extends Control
 ## 돌림판. spin(target_index) 로 목표 칸에 멈추도록 감속 회전한다.
+## 칸 크기는 확률(segments[i]["w"])에 비례한다 (보이는 크기 = 실제 확률).
 
 signal stopped(index: int)
 
@@ -22,11 +23,11 @@ func spin(target: int) -> void:
 		return
 	_target = target
 	_result = -1
-	var n := segments.size()
-	var seg := TAU / n
+	var a0 := seg_start(target)
+	var seg := seg_width(target)
 	# 포인터는 위쪽(-PI/2). 목표 칸 가운데 + 약간의 흔들림이 포인터에 오도록
 	var inside := randf_range(-0.35, 0.35) * seg
-	var target_angle := -PI / 2 - (target + 0.5) * seg + inside
+	var target_angle := -PI / 2 - (a0 + seg * 0.5) + inside
 	var base := angle - fposmod(angle, TAU)
 	_from = angle
 	_to = base + TAU * 6 + fposmod(target_angle, TAU)
@@ -53,10 +54,31 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
+func _total_w() -> float:
+	var t := 0.0
+	for sg in segments:
+		t += float(sg.get("w", 1))
+	return maxf(t, 0.001)
+
+
+func seg_start(i: int) -> float:
+	## i 번째 칸이 시작하는 각도 (바퀴 기준, 0 부터 시계 방향)
+	var acc := 0.0
+	for k in i:
+		acc += float(segments[k].get("w", 1))
+	return acc / _total_w() * TAU
+
+
+func seg_width(i: int) -> float:
+	return float(segments[i].get("w", 1)) / _total_w() * TAU
+
+
 func _pointer_segment() -> int:
-	var n := segments.size()
 	var rel := fposmod(-PI / 2 - angle, TAU)
-	return int(rel / (TAU / n)) % n
+	for i in segments.size():
+		if rel < seg_start(i) + seg_width(i):
+			return i
+	return segments.size() - 1
 
 
 func _draw() -> void:
@@ -65,26 +87,38 @@ func _draw() -> void:
 	var n := segments.size()
 	if n == 0:
 		return
-	var seg := TAU / n
 	draw_circle(c, r + 10, Color(0.95, 0.8, 0.3))
 	draw_circle(c, r + 4, Color(0.2, 0.12, 0.05))
+	var font := get_theme_font("font")
 	for i in n:
-		var a0 := angle + i * seg
+		var a0 := angle + seg_start(i)
+		var seg := seg_width(i)
 		var pts := PackedVector2Array([c])
-		for j in 13:
-			pts.append(c + Vector2.from_angle(a0 + seg * j / 12.0) * r)
+		var steps := maxi(3, int(seg / TAU * 64))
+		for j in steps + 1:
+			pts.append(c + Vector2.from_angle(a0 + seg * j / float(steps)) * r)
 		var col: Color = segments[i]["color"]
 		if i == _result and _glow > 0.0 and fmod(_glow * 6.0, 1.0) < 0.5:
 			col = col.lightened(0.5)
 		draw_colored_polygon(pts, col)
 		draw_line(c, c + Vector2.from_angle(a0) * r, Color(0, 0, 0, 0.35), 2.0)
-		var mid := c + Vector2.from_angle(a0 + seg * 0.5) * r * 0.66
+		var am := a0 + seg * 0.5
+		var mid := c + Vector2.from_angle(am) * r * 0.66
 		var rw: Dictionary = segments[i]
-		if rw.has("item"):
+		if seg < 0.4:
+			# 좁은 칸 (낮은 확률): 글자를 바깥쪽 방향으로 눕혀서
+			var txt: String = str(rw["coins"]) if rw.has("coins") else GameData.shop_item(rw["item"])["name"]
+			var fs := int(r * 0.1)
+			var w := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			draw_set_transform(c, am)
+			var p := Vector2(r * 0.92 - w, fs * 0.36)
+			draw_string_outline(font, p, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 4, Color.BLACK)
+			draw_string(font, p, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 0.95, 0.6) if rw.get("jackpot", false) else Color.WHITE)
+			draw_set_transform(Vector2.ZERO)
+		elif rw.has("item"):
 			Glyphs.draw_icon(self, GameData.shop_item(rw["item"])["icon"], mid, r * 0.13, Color.WHITE)
 		else:
 			Glyphs.draw_icon(self, "coin", mid + Vector2(0, -r * 0.05), r * 0.1, Color.WHITE)
-			var font := get_theme_font("font")
 			var txt := str(rw["coins"])
 			var fs := int(r * 0.11)
 			var w := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x

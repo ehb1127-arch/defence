@@ -3,7 +3,8 @@ extends Node
 ##
 ## provider
 ##   "admob" : Godot AdMob 플러그인(poing-studios, addons/admob)이 들어 있고 안드로이드일 때
-##   "mock"  : 테스트용 가짜 광고 (5초 카운트다운 후 보상) - PC/에디터/플러그인 없음
+##   "mock"  : 테스트용 가짜 광고 (5초 카운트다운 후 보상) - 디버그 빌드(PC/에디터)에서만
+##   "none"  : 출시 빌드인데 광고 플러그인이 없음 → 광고를 못 불러왔다고 알리고 보상 없음
 ## 게임 코드는 Ads.show_rewarded(placement, on_reward) 만 호출한다.
 ## 광고 제거(Profile.no_ads)를 산 경우 광고 없이 바로 보상.
 ## 자세한 연결 방법: docs/ADS.md
@@ -25,7 +26,7 @@ const MOCK_SECONDS := 5
 
 var provider := "mock"
 var showing := false
-var auto_claim := false          # 자동 테스트용: 테스트 광고를 즉시 보상 처리
+var auto_claim := false          # 자동 테스트용: 테스트 광고를 즉시 보상 처리 (디버그 빌드에서만)
 var _classes := {}               # AdMob 플러그인 클래스 (이름 -> Script)
 var _rewarded: Object = null     # 미리 불러 둔 보상형 광고
 var _loading := false
@@ -38,6 +39,9 @@ func _ready() -> void:
 		provider = "admob"
 		_cls("MobileAds").initialize()
 		_preload.call_deferred()
+	elif not OS.is_debug_build():
+		# 출시 빌드에서 가짜 광고로 보상을 주면 안 된다
+		provider = "none"
 
 
 func rewarded_id() -> String:
@@ -54,8 +58,20 @@ func _process(delta: float) -> void:
 			_preload()
 
 
+func available() -> bool:
+	## 광고 버튼을 보여 줄지 (출시 빌드에서 광고 SDK 가 없으면 false)
+	return provider != "none" or Profile.no_ads
+
+
 func ready_to_show() -> bool:
-	return provider != "admob" or _rewarded != null or Profile.no_ads
+	if Profile.no_ads:
+		return true
+	match provider:
+		"admob":
+			return _rewarded != null
+		"mock":
+			return true
+	return false
 
 
 func show_rewarded(placement: String, on_reward: Callable) -> void:
@@ -71,12 +87,16 @@ func show_rewarded(placement: String, on_reward: Callable) -> void:
 		ad_closed.emit(placement, rewarded)
 		if rewarded:
 			on_reward.call()
-	if auto_claim or Profile.no_ads:
+	if Profile.no_ads or (auto_claim and OS.is_debug_build()):
 		finish.call(true)
 	elif provider == "admob":
 		_show_admob(placement, finish)
-	else:
+	elif provider == "mock" and OS.is_debug_build():
 		_show_mock(placement, finish)
+	else:
+		# 출시 빌드 + 광고 SDK 없음: 보상 없이 닫는다
+		finish.call(false)
+		Platform.show_toast("광고를 불러오지 못했어요")
 
 
 # ---- AdMob (poing-studios godot-admob-plugin). 클래스를 이름으로 찾아서 플러그인이 없어도 컴파일됨 ----
@@ -118,7 +138,7 @@ func _show_admob(_placement: String, finish: Callable) -> void:
 				break
 		if _rewarded == null:
 			finish.call(false)
-			Platform.show_toast("광고를 불러오지 못했어요. 잠시 후 다시 시도해 주세요")
+			Platform.show_toast("광고를 불러오지 못했어요")
 			return
 	var ad: Object = _rewarded
 	_rewarded = null
@@ -145,7 +165,7 @@ func _show_mock(_placement: String, finish: Callable) -> void:
 	layer.process_mode = Node.PROCESS_MODE_ALWAYS
 	get_tree().root.add_child(layer)
 	var root := Control.new()
-	root.theme = GameData.ui_theme()
+	root.theme = UIKit.theme()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.size = Vector2(1600, 900)
 	layer.add_child(root)
@@ -175,8 +195,8 @@ func _show_mock(_placement: String, finish: Callable) -> void:
 	claim.position = Vector2(690, 580)
 	claim.visible = false
 	root.add_child(claim)
-	var close := ActionButton.make("close", Color(0.8, 0.8, 0.85), "닫기 (보상 없음)", func(): pass, Vector2(56, 56))
-	close.position = Vector2(1520, 24)
+	var close := ActionButton.make("close", Color(0.8, 0.8, 0.85), "닫기 (보상 없음)", func(): pass, Vector2(88, 88))
+	close.position = Vector2(1496, 16)
 	root.add_child(close)
 	var done := [false]
 	var end := func(rewarded: bool):
@@ -188,11 +208,11 @@ func _show_mock(_placement: String, finish: Callable) -> void:
 	claim.pressed.connect(func(): end.call(true))
 	close.pressed.connect(func(): end.call(false))
 	for i in range(MOCK_SECONDS, 0, -1):
-		if done[0]:
+		if done[0] or not is_instance_valid(timer_lbl):
 			return
 		timer_lbl.text = str(i)
 		await get_tree().create_timer(1.0, true, false, true).timeout
-	if not done[0]:
+	if not done[0] and is_instance_valid(timer_lbl):
 		timer_lbl.text = ""
 		claim.visible = true
 		claim.badge = "받기"

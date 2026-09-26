@@ -17,8 +17,11 @@ var selected := false
 var tone := Color(0, 0, 0, 0)  # 설정하면 이 색의 입체 버튼으로 직접 그림 (강조 버튼)
 var radius := 14.0
 var font_px := 0
+var badge_px := 0              # 하단 값 글자 크기 (0 = 버튼 높이에 맞춰 자동)
 var wide := false
-var sub := ""                  # 가로형 버튼 오른쪽 위 작은 글 (예: "영웅 확정 7")              # 가로형 큰 버튼: 왼쪽 아이콘 + 오른쪽 큰 이름과 비용 (소환/합성)               # 가운데 글자 크기 강제 (0 = 버튼 크기에 맞춤)
+var sub := ""                  # 가로형 버튼 오른쪽 위 작은 글 (예: "영웅 확정 7")
+var locked := false            # 아직 열리지 않은 기능: 흐리게 + 자물쇠 (눌림은 그대로 → 누른 쪽에서 안내)
+var new_tag := false           # 새로 열린 기능: 왼쪽 위 NEW 표시
 var _t := 0.0
 var _hold := -1.0            # 누르고 있는 시간 (터치 길게 누르기 → 설명 말풍선)
 const LONG_PRESS := 0.45
@@ -77,7 +80,7 @@ func _on_up() -> void:
 
 
 func _process(delta: float) -> void:
-	if glow or progress >= 0.0:
+	if glow or progress >= 0.0 or new_tag:
 		_t += delta
 		queue_redraw()
 	if _hold >= 0.0:
@@ -123,13 +126,24 @@ static func show_bubble(target: Control, text: String) -> void:
 		sb.set_content_margin_all(12)
 		_bubble.add_theme_stylebox_override("normal", sb)
 		layer.add_child(_bubble)
+	if Platform.is_mobile():
+		# 휴대폰에는 키보드가 없으니 "(Q)" 같은 단축키 표시는 뺀다
+		var re := RegEx.create_from_string(" ?\\((?:[A-Z]|Esc|Space|Enter)\\)")
+		text = re.sub(text, "", true)
+	# 폭을 먼저 정해야 줄바꿈 높이가 맞게 계산된다 (폭 0 으로 재면 글자마다 줄이 바뀌어 아주 길어짐)
+	_bubble.custom_minimum_size = Vector2(360, 0)
+	_bubble.size = Vector2(360, _bubble.size.y)
 	_bubble.text = text
-	_bubble.size = Vector2(360, 0)
-	_bubble.custom_minimum_size = Vector2(0, 0)
-	_bubble.reset_size()
-	_bubble.size.x = 360
+	# 높이는 글꼴로 직접 잰다 (처음 만든 Label 은 첫 측정이 틀릴 수 있음). 여백 12x2 + 테두리
+	var font := _bubble.get_theme_font("font")
+	var fs := _bubble.get_theme_font_size("font_size")
+	var th := font.get_multiline_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, 360.0 - 24.0, fs, -1,
+		TextServer.BREAK_MANDATORY | TextServer.BREAK_WORD_BOUND | TextServer.BREAK_ADAPTIVE).y
+	var h := clampf(ceilf(th) + 28.0, 44.0, 400.0)
+	_bubble.custom_minimum_size = Vector2(360, h)
+	_bubble.size = Vector2(360, h)
 	var r := target.get_global_rect()
-	var h := _bubble.get_minimum_size().y
+	h = _bubble.size.y
 	var pos := Vector2(r.get_center().x - 180, r.position.y - h - 10)
 	if pos.y < 10:
 		pos.y = r.end.y + 10
@@ -140,6 +154,12 @@ static func show_bubble(target: Control, text: String) -> void:
 	var tw := _bubble.create_tween()
 	tw.tween_interval(2.2)
 	tw.tween_property(_bubble, "modulate:a", 0.0, 0.3)
+
+
+static func hide_bubble() -> void:
+	## 도움말 말풍선 바로 숨기기 (확인 팝업이 열릴 때)
+	if _bubble != null and is_instance_valid(_bubble):
+		_bubble.visible = false
 
 
 func set_state(p_badge: String, p_disabled: bool, p_glow := false, p_count := 0) -> void:
@@ -154,14 +174,14 @@ func set_state(p_badge: String, p_disabled: bool, p_glow := false, p_count := 0)
 func _draw() -> void:
 	var sz := size
 	var font := get_theme_font("font")
-	var a := 0.4 if disabled else 1.0
+	var a := 0.4 if disabled or locked else 1.0
 	var pressed_now := is_pressed() and not disabled and (button_mask & MOUSE_BUTTON_MASK_LEFT) != 0 and is_hovered()
 	if tone.a > 0.0:
-		var c := tone if not disabled else Color(0.32, 0.33, 0.38)
+		var c := tone if not disabled and not locked else Color(0.32, 0.33, 0.38)
 		if is_hovered() and not disabled:
 			c = c.lightened(0.08)
 		UIKit.draw_gloss(self, Rect2(Vector2.ZERO, sz), c, radius, 6.0, pressed_now)
-	if glow and not disabled:
+	if glow and not disabled and not locked:
 		var pulse := 0.5 + 0.5 * sin(_t * 6.0)
 		var g := StyleBoxFlat.new()
 		g.draw_center = false
@@ -187,10 +207,12 @@ func _draw() -> void:
 		_draw_wide(font, sz, a)
 		if count > 0:
 			UIKit.draw_badge_dot(self, font, Vector2(sz.x - 6, 6), count)
+		_draw_marks(font, sz)
 		return
 	if icon_name == "":
 		# 아이콘 없는 버튼: 뱃지를 크게 가운데
 		_draw_center_badge(font, sz)
+		_draw_marks(font, sz)
 		return
 	var has_bottom := badge != "" or (show_captions and caption != "")
 	var icon_c := Vector2(sz.x * 0.5, sz.y * (0.42 if has_bottom else 0.5))
@@ -199,7 +221,7 @@ func _draw() -> void:
 	col.a = a
 	var t := Art.icon(icon_name)
 	if t != null:
-		draw_texture_rect(t, Rect2(icon_c - Vector2(icon_r, icon_r), Vector2(icon_r, icon_r) * 2.0), false, Color(1, 1, 1, a))
+		draw_texture_rect(t, Rect2(icon_c - Vector2(icon_r, icon_r), Vector2(icon_r, icon_r) * 2.0), false, Glyphs.art_modulate(col))
 	else:
 		Glyphs.draw(self, icon_name, icon_c, icon_r, col)
 	if progress >= 0.0:
@@ -207,12 +229,14 @@ func _draw() -> void:
 	# 하단: 비용 뱃지 또는 캡션
 	var fs := int(clampf(sz.y * 0.22, 14, 24))
 	if badge != "":
+		if badge_px > 0:
+			fs = badge_px
 		var tw := font.get_string_size(badge, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		var iw := fs * 1.1 if badge_icon != "" else 0.0
 		var x0 := (sz.x - tw - iw) * 0.5
 		var y := sz.y - fs * 0.55
 		if badge_icon != "":
-			Glyphs.draw_icon(self, badge_icon, Vector2(x0 + fs * 0.45, y - fs * 0.35), fs * 0.45, Color.WHITE)
+			Glyphs.draw_icon(self, badge_icon, Vector2(x0 + fs * 0.45, y - fs * 0.35), fs * 0.45, Color(1, 1, 1, a))
 		UIKit.draw_text_outlined(self, font, Vector2(x0 + iw, y), badge, fs, Color(1, 1, 1, a), 4)
 	elif show_captions and caption != "":
 		var cs := fs
@@ -223,6 +247,26 @@ func _draw() -> void:
 		UIKit.draw_text_outlined(self, font, Vector2((sz.x - tw) * 0.5, sz.y - cs * 0.55), caption, cs, Color(1, 1, 1, a), 4)
 	if count > 0:
 		UIKit.draw_badge_dot(self, font, Vector2(sz.x - 6, 6), count)
+	_draw_marks(font, sz)
+
+
+func _draw_marks(font: Font, sz: Vector2) -> void:
+	## 자물쇠(잠김) / NEW(새로 열림) 표시
+	if locked:
+		var r := clampf(minf(sz.x, sz.y) * 0.2, 12, 22)
+		var p := Vector2(sz.x - r - 4, r + 4)
+		draw_circle(p, r + 3, Color(0.05, 0.06, 0.12, 0.9))
+		Glyphs.draw_icon(self, "lock", p, r, Color(1, 0.9, 0.6))
+	elif new_tag:
+		var fs := int(clampf(sz.y * 0.2, 14, 20))
+		var tw := font.get_string_size("NEW", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var pulse := 0.85 + 0.15 * sin(_t * 6.0)
+		var rect := Rect2(Vector2(-6, -8), Vector2(tw + 14, fs + 8))
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.95, 0.2, 0.25, pulse)
+		sb.set_corner_radius_all(int(rect.size.y * 0.5))
+		sb.draw(get_canvas_item(), rect)
+		UIKit.draw_text_outlined(self, font, rect.position + Vector2(7, fs + 1), "NEW", fs, Color.WHITE, 3)
 
 
 func _draw_center_badge(font: Font, sz: Vector2) -> void:
@@ -233,7 +277,7 @@ func _draw_center_badge(font: Font, sz: Vector2) -> void:
 	var x0 := (sz.x - tw - iw) * 0.5
 	var y := sz.y * 0.5 + fs * 0.36
 	if badge_icon != "":
-		Glyphs.draw_icon(self, badge_icon, Vector2(x0 + fs * 0.5, sz.y * 0.5), fs * 0.5, Color.WHITE)
+		Glyphs.draw_icon(self, badge_icon, Vector2(x0 + fs * 0.5, sz.y * 0.5), fs * 0.5, Color(1, 1, 1, a))
 	UIKit.draw_text_outlined(self, font, Vector2(x0 + iw, y), badge, fs, Color(1, 1, 1, a), maxi(4, fs / 6))
 
 
@@ -243,7 +287,7 @@ func _draw_wide(font: Font, sz: Vector2, a: float) -> void:
 	var ic := Vector2(h * 0.5 + 6, h * 0.5)
 	var t := Art.icon(icon_name)
 	if t != null:
-		draw_texture_rect(t, Rect2(ic - Vector2(r, r) * 1.15, Vector2(r, r) * 2.3), false, Color(1, 1, 1, a))
+		draw_texture_rect(t, Rect2(ic - Vector2(r, r) * 1.15, Vector2(r, r) * 2.3), false, Glyphs.art_modulate(Color(icon_color, a)))
 	else:
 		Glyphs.draw(self, icon_name, ic, r, Color(icon_color, a))
 	var x := h + 4
@@ -262,9 +306,9 @@ func _draw_wide(font: Font, sz: Vector2, a: float) -> void:
 		UIKit.draw_text_outlined(self, font, Vector2(x, h * 0.5 + fs * 0.36), title, fs, Color(1, 1, 1, a), 6)
 		return
 	UIKit.draw_text_outlined(self, font, Vector2(x, h * 0.44), title, fs, Color(1, 1, 1, a), 6)
-	var bs := int(h * 0.2)
+	var bs := badge_px if badge_px > 0 else int(h * 0.2)
 	var bx := x
 	if badge_icon != "":
-		Glyphs.draw_icon(self, badge_icon, Vector2(bx + bs * 0.5, h * 0.72 - bs * 0.32), bs * 0.5, Color.WHITE)
+		Glyphs.draw_icon(self, badge_icon, Vector2(bx + bs * 0.5, h * 0.72 - bs * 0.32), bs * 0.5, Color(1, 1, 1, a))
 		bx += bs * 1.2
 	UIKit.draw_text_outlined(self, font, Vector2(bx, h * 0.72 + bs * 0.05), badge, bs, Color(1, 0.95, 0.7, a), 5)

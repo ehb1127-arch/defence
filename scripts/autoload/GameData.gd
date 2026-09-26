@@ -59,16 +59,29 @@ const UNITS := {
 	"assassin": {"glyph": "dagger", "name": "암살자", "rarity": 3, "color": Color(0.35, 0.3, 0.45), "dmg": 220.0, "cd": 0.7, "range": 175.0, "fx": {"execute": 0.12, "crit": 0.3, "crit_mult": 2.5}, "desc": "체력 12% 이하 처형"},
 	"guardian": {"glyph": "halo", "name": "수호천사", "rarity": 3, "color": Color(1.0, 0.95, 0.7), "dmg": 120.0, "cd": 1.0, "range": 250.0, "fx": {"slow_aura": 0.3, "stun_chance": 0.2, "stun": 0.8, "knockback": 30.0}, "desc": "둔화 오라 + 넉백"},
 	# ---- 신화 ----
-	"phoenix": {"glyph": "phoenix", "name": "불사조", "rarity": 4, "color": Color(1.0, 0.35, 0.1), "dmg": 700.0, "cd": 1.0, "range": 310.0, "fx": {"splash": 110.0, "burn": 0.8, "burn_time": 4.0},
-		"skill": {"id": "firestorm", "name": "화염 폭풍", "cd": 12.0}, "desc": "스킬: 사거리 내 전체 5배 피해"},
+	"phoenix": {"glyph": "phoenix", "name": "불사조", "rarity": 4, "color": Color(1.0, 0.35, 0.1), "dmg": 640.0, "cd": 1.0, "range": 310.0, "fx": {"splash": 110.0, "burn": 0.8, "burn_time": 4.0},
+		"skill": {"id": "firestorm", "name": "화염 폭풍", "cd": 12.0}, "desc": "스킬: 사거리 내 전체 4배 피해"},
 	"thunder": {"glyph": "bolt2", "name": "뇌신", "rarity": 4, "color": Color(0.9, 0.9, 0.2), "dmg": 450.0, "cd": 0.6, "range": 330.0, "fx": {"chain": 8},
 		"skill": {"id": "judgement", "name": "천둥 심판", "cd": 10.0}, "desc": "스킬: 필드 전체 번개 + 기절"},
 	"chrono":  {"glyph": "clock", "name": "시간술사", "rarity": 4, "color": Color(0.4, 0.95, 0.95), "dmg": 300.0, "cd": 0.9, "range": 310.0, "fx": {"splash": 70.0, "slow": 0.5, "slow_time": 2.0},
 		"skill": {"id": "timestop", "name": "시간 정지", "cd": 15.0}, "desc": "스킬: 모든 적 2.5초 정지"},
-	"midas":   {"glyph": "crown", "name": "황금왕", "rarity": 4, "color": Color(1.0, 0.85, 0.2), "dmg": 380.0, "cd": 0.7, "range": 270.0, "fx": {"gold_chance": 0.5, "gold": 5},
-		"skill": {"id": "goldrain", "name": "황금비", "cd": 20.0}, "desc": "스킬: 보유 골드 10% 이자"},
-	"reaper":  {"glyph": "skull", "name": "그림자군주", "rarity": 4, "color": Color(0.55, 0.2, 0.7), "dmg": 900.0, "cd": 1.1, "range": 230.0, "fx": {"execute": 0.25, "crit": 0.4, "crit_mult": 3.0},
-		"skill": {"id": "reap", "name": "영혼 수확", "cd": 14.0}, "desc": "스킬: 체력 높은 적 3명 즉사"},
+	"midas":   {"glyph": "crown", "name": "황금왕", "rarity": 4, "color": Color(1.0, 0.85, 0.2), "dmg": 420.0, "cd": 0.7, "range": 270.0, "fx": {"gold_chance": 0.5, "gold": 5},
+		"skill": {"id": "goldrain", "name": "황금비", "cd": 16.0}, "desc": "스킬: 골드·보석 + 금화 폭격"},
+	"reaper":  {"glyph": "skull", "name": "그림자군주", "rarity": 4, "color": Color(0.55, 0.2, 0.7), "dmg": 600.0, "cd": 1.1, "range": 230.0, "fx": {"execute": 0.15, "crit": 0.3, "crit_mult": 2.5},
+		"skill": {"id": "reap", "name": "영혼 수확", "cd": 15.0}, "desc": "스킬: 체력 높은 적 2명 즉사"},
+	# ---- 신화 (2차): 그림(art/units/<id>.png)이 없으면 문양 토큰으로 그린다. atk = 공격 연출 (없으면 문양 기준) ----
+	"titan":   {"glyph": "rock", "atk": "bash", "name": "대지거신", "rarity": 4, "color": Color(0.8, 0.6, 0.4), "dmg": 820.0, "cd": 1.2, "range": 190.0, "fx": {"splash": 70.0, "stun_chance": 0.2, "stun": 0.6, "knockback": 18.0},
+		"skill": {"id": "quake", "name": "대지 강타", "cd": 13.0}, "desc": "스킬: 주변 적 기절 + 큰 피해"},
+	"paladin": {"glyph": "shield", "atk": "holy", "name": "성기사", "rarity": 4, "color": Color(1.0, 0.9, 0.55), "dmg": 520.0, "cd": 0.9, "range": 220.0, "fx": {"armor_break": 15.0, "stun_chance": 0.12, "stun": 0.5, "slow_aura": 0.2},
+		"skill": {"id": "bless", "name": "신성 축복", "cd": 16.0}, "desc": "스킬: 아군 공속 증가 + 적 방어 감소"},
+	"plague":  {"glyph": "flask", "atk": "flask", "name": "역병군주", "rarity": 4, "color": Color(0.55, 0.9, 0.25), "dmg": 380.0, "cd": 1.0, "range": 280.0, "fx": {"splash": 80.0, "poison": 1.0, "poison_time": 5.0, "armor_break": 12.0},
+		"skill": {"id": "plague", "name": "역병 확산", "cd": 12.0}, "desc": "스킬: 모든 적 맹독 + 방어 감소"},
+	"windgod": {"glyph": "arrows", "atk": "arrow", "name": "천궁", "rarity": 4, "color": Color(0.55, 1.0, 0.8), "dmg": 300.0, "cd": 0.5, "range": 360.0, "fx": {"multishot": 4, "crit": 0.2, "crit_mult": 2.5},
+		"skill": {"id": "arrowrain", "name": "화살비", "cd": 11.0}, "desc": "스킬: 하늘에서 화살 비"},
+	"frostwyrm": {"glyph": "snow", "atk": "ice", "name": "빙룡", "rarity": 4, "color": Color(0.45, 0.75, 1.0), "dmg": 560.0, "cd": 1.1, "range": 260.0, "fx": {"splash": 90.0, "slow": 0.45, "slow_time": 2.0, "freeze_chance": 0.1},
+		"skill": {"id": "breath", "name": "빙결 숨결", "cd": 14.0}, "desc": "스킬: 적이 많은 변 전체 빙결"},
+	"voidmage": {"glyph": "orb", "atk": "zap", "name": "공허술사", "rarity": 4, "color": Color(0.65, 0.4, 1.0), "dmg": 480.0, "cd": 1.0, "range": 300.0, "fx": {"chain": 3, "splash": 50.0, "slow": 0.3, "slow_time": 1.5},
+		"skill": {"id": "blackhole", "name": "블랙홀", "cd": 15.0}, "desc": "스킬: 적을 한곳에 모아 폭발"},
 }
 
 ## 스냅샷/네트워크 직렬화를 위한 고정 순서
@@ -78,6 +91,8 @@ const UNIT_ORDER := [
 	"storm", "berserk", "alch", "bard", "ranger",
 	"dragoon", "archmage", "assassin", "guardian",
 	"phoenix", "thunder", "chrono", "midas", "reaper",
+	# 뒤에만 추가 (스냅샷이 순서 번호를 쓴다)
+	"titan", "paladin", "plague", "windgod", "frostwyrm", "voidmage",
 ]
 
 ## 신화 조합식: 결과 -> 재료 목록 (중복 허용)
@@ -86,8 +101,15 @@ const RECIPES := {
 	"thunder": ["storm", "storm", "sniper", "archmage"],
 	"chrono":  ["frost", "frost", "bard", "guardian"],
 	"midas":   ["rogue", "rogue", "rogue", "alch", "assassin"],
-	"reaper":  ["knight", "knight", "ranger", "assassin"],
+	"reaper":  ["knight", "knight", "rogue", "ranger", "assassin"],
+	"titan":   ["sword", "sword", "sword", "berserk", "dragoon"],
+	"paladin": ["spear", "spear", "knight", "bard", "guardian"],
+	"plague":  ["mage", "mage", "alch", "alch", "archmage"],
+	"windgod": ["archer", "archer", "sniper", "ranger", "guardian"],
+	"frostwyrm": ["slinger", "slinger", "frost", "storm", "dragoon"],
+	"voidmage": ["mage", "pyro", "frost", "storm", "archmage"],
 }
+## 전설은 네 종뿐이라 신화끼리 전설을 두고 경쟁한다 (한 판에 신화 몇 개만 완성 가능)
 
 # ---------------------------------------------------------------------------
 # 적 정의 (hp 는 해당 라운드 기본 체력의 배수)
@@ -157,16 +179,27 @@ const BONUS_COUNT := 10
 const PREP_TIME := 8.0
 const BOSS_HP_MULT := 26.0
 const BOSS_HP_DECAY := 0.7
+## 무한 모드 10·20·30 라운드 보스 체력 배수 (초반 보스도 제한시간의 상당 부분을 버티게). 40 이후는 BOSS_HP_MULT x DECAY^n
+const EARLY_BOSS_MULTS := [60.0, 40.0, 11.0]
+## 스토리/탑/오늘의 결계 보스 체력 = 라운드 체력 x BOSS_HP_MULT x 이 값 (최종 보스는 x1.5)
+const STAGE_BOSS_HP := 0.47
 const FINAL_BOSS_TIME := 90.0
-const FINAL_BOSS_HP_SCALE := 0.64
+const FINAL_BOSS_HP_SCALE := 0.34
 const SPAWN_PER_WAVE := 20
 const SPAWN_INTERVAL := 0.6
 const ENEMY_LIMIT := 100
 const COOP_ENEMY_LIMIT := 180
+## 협동 보정: 두 전장이 필드 한도를 나눠 쓰고 각자 보스를 잡아야 해서 적을 조금 약하게
+const COOP_BOSS_HP := 0.6
+const COOP_MOB_HP := 0.8
 const BASE_HP := 22.0
 const HP_GROWTH := 1.218
 ## 일반 적은 라운드마다 조금 더 단단해져 중반부터 압박이 쌓인다 (보스 체력에는 적용 안 함)
 const MOB_EXTRA_GROWTH := 1.03
+## 무한·대전 일반 적 체력 보정 [라운드, 배수] (사이는 선형 보간). 중반(15~30)을 더 빡빡하게, 35~40은 느슨하게
+## → 중반에 필드가 차오르는 긴장감, 마지막은 최종 보스에 집중. 연장전(41~)은 44라운드까지 다시 1배로 급상승.
+## 스토리 스테이지에는 적용 안 함
+const MOB_CURVE := [[1, 1.0], [8, 1.3], [14, 1.95], [19, 2.45], [24, 2.45], [28, 1.75], [31, 1.5], [34, 1.0], [37, 0.55], [40, 0.45], [44, 1.0]]
 ## 무한 모드 난이도: 적 체력·보상 배수, 위기 이벤트 확률
 const DIFFICULTIES := [
 	{"id": "normal", "name": "보통", "hp": 1.0, "reward": 1.0, "crisis": 0.45, "color": Color(0.35, 0.6, 1.0)},
@@ -185,21 +218,35 @@ const MAX_UPGRADE := 20
 const MAX_LUCK := 5
 
 ## 소환 확률(일반, 희귀, 영웅, 전설) - 행운 레벨에 따라 이동
-const SUMMON_PROBS := [0.68, 0.265, 0.05, 0.005]
-const LUCK_SHIFT := [-0.045, 0.025, 0.016, 0.004]
+const SUMMON_PROBS := [0.69, 0.265, 0.04, 0.005]
+const LUCK_SHIFT := [-0.0385, 0.025, 0.012, 0.0015]
 
 ## 운명 소환: [보석 비용, 성공 확률, 결과 등급]
 const GAMBLES := [
 	{"name": "영웅 운명 소환", "gems": 1, "chance": 0.6, "rarity": 2},
-	{"name": "전설 운명 소환", "gems": 3, "chance": 0.2, "rarity": 3},
+	{"name": "전설 운명 소환", "gems": 5, "chance": 0.2, "rarity": 3, "pity": 3},
 ]
+## pity: 이만큼 연속 실패하면 다음 번은 확정 (운명의 천장)
 
 ## 대전 모드 공격: 적 보내기
+## 보내는 사람의 라운드가 높을수록 강해진다 (Board.receive_attack)
 const ATTACKS := [
-	{"id": "swarm", "name": "잡몹 떼", "gold": 40, "gems": 0, "desc": "빠른 적 6마리"},
-	{"id": "elite", "name": "정예 괴수", "gold": 150, "gems": 0, "desc": "정예 1마리(가중치 5)"},
-	{"id": "curse", "name": "저주", "gold": 0, "gems": 2, "desc": "상대 공속 -30% 10초"},
+	{"id": "swarm", "name": "잡몹 떼", "gold": 40, "gems": 0, "desc": "빠른 적 떼\n라운드마다 더 많이"},
+	{"id": "elite", "name": "정예 괴수", "gold": 150, "gems": 0, "desc": "정예 괴수 (지배 불가)\n12라운드부터 2마리"},
+	{"id": "curse", "name": "저주", "gold": 0, "gems": 2, "desc": "상대 공속 -30%\n라운드마다 길게"},
 ]
+
+# ---------------------------------------------------------------------------
+# 대전(pvp) 규칙: 6~9분 안에 승부 (짧은 라운드, 이른 연장 가속)
+# ---------------------------------------------------------------------------
+const PVP_WAVE_TIME := 14.0
+const PVP_BONUS_TIME := 18.0
+const PVP_BOSS_TIME := 45.0
+const PVP_SPAWN_INTERVAL := 0.5
+const PVP_RAMP_FROM := 10          # 이 라운드부터 적 체력이 매 라운드 추가로 늘어난다
+const PVP_RAMP := 1.12
+const PVP_EXTRA_SPAWN_FROM := 16   # 이 라운드부터 라운드마다 적 +1
+
 
 ## 강화 트랙
 const UPGRADES := [
@@ -296,6 +343,19 @@ func random_unit_of(rng: RandomNumberGenerator, rarity: int) -> String:
 	return pool[rng.randi() % pool.size()]
 
 
+func mob_curve(wave: int) -> float:
+	var last: Array = MOB_CURVE[MOB_CURVE.size() - 1]
+	if wave >= int(last[0]):
+		return float(last[1])
+	for k in range(1, MOB_CURVE.size()):
+		var a: Array = MOB_CURVE[k - 1]
+		var b: Array = MOB_CURVE[k]
+		if wave <= int(b[0]):
+			var t := float(wave - int(a[0])) / float(int(b[0]) - int(a[0]))
+			return lerpf(float(a[1]), float(b[1]), clampf(t, 0.0, 1.0))
+	return 1.0
+
+
 func wave_hp(wave: int) -> float:
 	var hp := BASE_HP * pow(HP_GROWTH, wave - 1)
 	# 최종 라운드 이후(대전 연장전)는 더 가파르게 증가
@@ -308,6 +368,8 @@ func wave_hp(wave: int) -> float:
 func boss_hp(wave: int) -> float:
 	var n := maxi(wave / 10, 1)
 	var hp := wave_hp(wave) * BOSS_HP_MULT * pow(BOSS_HP_DECAY, n - 1)
+	if n <= EARLY_BOSS_MULTS.size() and wave != FINAL_WAVE:
+		hp = wave_hp(wave) * EARLY_BOSS_MULTS[n - 1]
 	if wave == FINAL_WAVE:
 		hp *= FINAL_BOSS_HP_SCALE
 	return hp
@@ -315,6 +377,22 @@ func boss_hp(wave: int) -> float:
 
 func boss_time(wave: int) -> float:
 	return FINAL_BOSS_TIME if wave == FINAL_WAVE else BOSS_WAVE_TIME
+
+
+## 서버 검증용: 이 모드에서 wave 라운드가 시작될 때까지 걸리는 최소 게임 시간(초) = 준비 시간 + 앞 라운드 타이머 합.
+## (라운드 타이머는 보스를 일찍 잡아도 줄지 않는다. 배속 플레이는 벽시계 기준으로 더 짧을 수 있음)
+func min_match_time(mode: String, wave: int, stage_rounds := 0) -> float:
+	var t := PREP_TIME
+	for w in range(1, maxi(wave, 1)):
+		if stage_rounds > 0:
+			t += BONUS_WAVE_TIME if (w == 5 and stage_rounds >= 8) else WAVE_TIME
+		elif is_boss_wave(w):
+			t += PVP_BOSS_TIME if mode == "pvp" else boss_time(w)
+		elif is_bonus_wave(w):
+			t += PVP_BONUS_TIME if mode == "pvp" else BONUS_WAVE_TIME
+		else:
+			t += PVP_WAVE_TIME if mode == "pvp" else WAVE_TIME
+	return t
 
 
 func is_boss_wave(wave: int) -> bool:
@@ -331,7 +409,9 @@ func is_event_wave(wave: int) -> bool:
 
 
 ## 웨이브별 등장 적 구성 (가중치 목록)
-func wave_mix(wave: int) -> Array:
+## special_wave: 분열체·치유사 해금 기준 라운드 (스토리/탑/오늘의 결계는 장·층에 따라 앞당긴다)
+func wave_mix(wave: int, special_wave := -1) -> Array:
+	var sw := wave if special_wave < 0 else special_wave
 	var mix: Array = [["normal", 10]]
 	if wave >= 3:
 		mix.append(["fast", 4])
@@ -339,15 +419,29 @@ func wave_mix(wave: int) -> Array:
 		mix.append(["tank", 3])
 	if wave >= 12:
 		mix.append(["shield", 3])
-	if wave >= 16:
+	if sw >= 16:
 		mix.append(["splitter", 2])
-	if wave >= 22:
+	if sw >= 22:
 		mix.append(["healer", 2])
 	return mix
 
 
-func pick_enemy(rng: RandomNumberGenerator, wave: int) -> String:
-	var mix := wave_mix(wave)
+## 스테이지 모드의 분열체·치유사 해금 라운드 보정 (장이 깊을수록, 탑이 높을수록, 악몽일수록 일찍)
+func stage_special_offset(chapter: int, tower_floor: int, daily: bool, hard: bool) -> int:
+	var off := 0
+	if tower_floor > 0:
+		off = mini(tower_floor + 4, 24)
+	elif daily:
+		off = 14
+	else:
+		off = [0, 0, 3, 6, 10, 13, 16, 18, 20, 22, 24][clampi(chapter, 0, 10)]
+	if hard:
+		off += 6
+	return off
+
+
+func pick_enemy(rng: RandomNumberGenerator, wave: int, special_wave := -1) -> String:
+	var mix := wave_mix(wave, special_wave)
 	var total := 0
 	for m in mix:
 		total += m[1]
@@ -592,6 +686,8 @@ const UNIT_TAGS := {
 	"storm": ["mage", "lightning"], "berserk": ["warrior"], "alch": ["support"], "bard": ["support"], "ranger": ["archer"],
 	"dragoon": ["warrior", "fire"], "archmage": ["mage"], "assassin": ["assassin"], "guardian": ["support", "ice"],
 	"phoenix": ["mage", "fire"], "thunder": ["archer", "lightning"], "chrono": ["support", "ice"], "midas": ["assassin"], "reaper": ["assassin", "warrior"],
+	"titan": ["warrior"], "paladin": ["warrior", "support"], "plague": ["mage", "support"], "windgod": ["archer"],
+	"frostwyrm": ["ice", "fire"], "voidmage": ["mage", "lightning"],
 }
 
 ## tiers: [필요 종류 수, 수치]
@@ -620,8 +716,8 @@ const ENHANCE_TIME := 0.9
 const MERGE_GREAT_CHANCE := 0.05  # 합성 대성공 확률
 
 ## 소환 보완 (랜덤이지만 억울하지 않게)
-const PITY_EPIC := 20      # 영웅 이상이 이만큼 안 나오면 다음 소환 영웅 이상 확정
-const PITY_LEGEND := 100   # 전설 확정
+const PITY_EPIC := 28      # 영웅 이상이 이만큼 안 나오면 다음 소환 영웅 이상 확정
+const PITY_LEGEND := 130   # 전설 확정
 const PICK_EVERY := 10     # 10번째 소환마다 3장 중 골라 뽑기
 const MERGE_BIAS := 2.0    # 합성 결과: 가까운 신화 조합에 필요한 유닛이 나올 가중치 (+배)
 
@@ -633,13 +729,22 @@ func enhance_cost(rarity: int, star: int) -> int:
 # ---------------------------------------------------------------------------
 # 보스 스킬: [스킬 id, 쿨타임]. 시전 준비(cast) 동안 기절시키면 끊긴다.
 # ---------------------------------------------------------------------------
+## 순서 = Story.BOSS_CHARS (ogre, lich, golem, eye, lord, frost, sand, seraph, nox, void)
+## 무한 모드: 10·20·30 라운드 = 0·1·2, 40(최종) = 4, 연장전 50·60… = 5~9, 3 순환
 const BOSS_SKILLS := [
-	[["dash", 9.0], ["roar", 13.0]],          # 10: 오우거 대장
-	[["summon", 10.0], ["regen", 14.0]],      # 20: 해골 군주
-	[["shield", 12.0], ["blast", 11.0]],      # 30: 화염 골렘
-	[["blink", 10.0], ["roar", 12.0]],        # 40+: 심연의 눈 / 최종
+	[["dash", 9.0], ["roar", 13.0]],                                   # 0 오우거 대장
+	[["summon", 10.0], ["regen", 14.0]],                               # 1 해골 군주
+	[["shield", 12.0], ["blast", 11.0]],                               # 2 화염 골렘
+	[["blink", 10.0], ["roar", 12.0]],                                 # 3 심연의 눈
+	[["dash", 11.0], ["summon", 12.0], ["shield", 14.0], ["blink", 12.0], ["roar", 13.0]],   # 4 사각의 군주 (최종)
+	[["frostbite", 11.0], ["roar", 13.0], ["shield", 15.0]],           # 5 서리 여제: 한 줄 빙결
+	[["sandstorm", 15.0], ["dash", 10.0], ["summon", 12.0]],           # 6 모래 폭군: 사거리 감소
+	[["sanctuary", 13.0], ["regen", 15.0], ["blink", 11.0]],           # 7 세라프: 적 전체 보호막
+	[["shadow", 18.0], ["blink", 11.0], ["summon", 13.0], ["dash", 10.0]],   # 8 녹스: 그림자 분신
+	[["rift", 12.0], ["summon", 13.0], ["roar", 14.0], ["sanctuary", 15.0], ["frostbite", 16.0], ["blink", 12.0]],   # 9 공허의 왕 (최종)
 ]
-const BOSS_SKILL_NAMES := {"dash": "돌진", "roar": "포효", "summon": "부하 소환", "regen": "재생", "shield": "용암 방패", "blast": "화염 폭발", "blink": "순간이동"}
+const BOSS_SKILL_NAMES := {"dash": "돌진", "roar": "포효", "summon": "부하 소환", "regen": "재생", "shield": "용암 방패", "blast": "화염 폭발", "blink": "순간이동",
+	"frostbite": "서리 감옥", "sandstorm": "모래 폭풍", "sanctuary": "빛의 성역", "shadow": "그림자 분신", "rift": "공허 균열"}
 const BOSS_CAST_TIME := 1.0
 
 
@@ -669,7 +774,7 @@ const ACHIEVEMENTS := [
 	{"id": "a_jackpot", "name": "잭팟!", "icon": "slot", "stat": "jackpots", "goals": [1, 5, 20], "coins": [80, 200, 500], "desc": "슬롯 잭팟 %d회"},
 	{"id": "a_merge", "name": "합성 달인", "icon": "merge", "stat": "merges", "goals": [100, 1000, 5000], "coins": [40, 150, 500], "desc": "합성 %d회"},
 	{"id": "a_win", "name": "정복자", "icon": "star", "stat": "wins", "goals": [1, 10, 50], "coins": [100, 300, 1000], "desc": "승리 %d회"},
-	{"id": "a_dex", "name": "도감 완성", "icon": "book", "stat": "discovered", "goals": [8, 16, 24], "coins": [50, 150, 500], "desc": "유닛 %d종 수집"},
+	{"id": "a_dex", "name": "도감 완성", "icon": "book", "stat": "discovered", "goals": [8, 18, 30], "coins": [50, 150, 500], "desc": "유닛 %d종 수집"},
 	{"id": "a_story", "name": "결계 연대기", "icon": "book", "stat": "story_stars", "goals": [30, 90, 135], "coins": [150, 500, 1500], "desc": "스토리 ★ %d개"},
 	{"id": "a_hard", "name": "악몽을 걷는 자", "icon": "skull", "stat": "hard_stars", "goals": [15, 60, 135], "coins": [200, 700, 2000], "desc": "악몽 ★ %d개"},
 	{"id": "a_tower", "name": "탑의 정복자", "icon": "crown", "stat": "tower", "goals": [10, 30, 60, 100], "coins": [150, 500, 1200, 3000], "desc": "결계의 탑 %d층"},

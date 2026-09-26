@@ -48,6 +48,8 @@ var art := ""                   # 전용 그림 키: art/enemies/<art>.png (없�
 var lap := 0                    # 도적: 몇 바퀴 돌았나
 var skill_t := 0.0              # 주술사/장군: 능력 주기
 var dash_t := 5.0               # 적 영웅 돌진 주기
+var sent := false               # 대전: 상대가 보낸 적 (지배 불가, 처치 보석 없음)
+var no_mc := false              # 지배 불가 (보낸 적, 보스 분신 등)
 
 
 func setup(k: String, base_hp: float) -> void:

@@ -11,6 +11,10 @@ Environment=HOME=/opt/sqdefense
 # 인앱 결제 영수증 확인 (docs/IAP.md). 키 파일을 두고 주석을 푸세요
 #Environment=SQD_GOOGLE_SA=/opt/sqdefense/sa.json
 #Environment=SQD_PACKAGE=com.squaredefense.game
+# server_db.json 이 깨졌고 백업도 없을 때만 잠깐: 빈 DB 로 시작 허용
+#Environment=SQD_ALLOW_EMPTY_DB=1
+# Caddy 같은 리버스 프록시 뒤에서 공인 IP 로 접속을 받는다면 IP 별 제한 끄기 (사설·루프백 주소는 자동으로 끔)
+#Environment=SQD_BEHIND_PROXY=1
 WorkingDirectory=/opt/sqdefense
 ExecStart=/opt/sqdefense/godot --headless --path /opt/sqdefense/game -- --server --port @PORT@
 Restart=always

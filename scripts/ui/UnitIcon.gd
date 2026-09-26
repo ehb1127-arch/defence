@@ -5,6 +5,7 @@ extends Control
 var unit_id := ""
 var dim := false
 var check := false
+var tap_info := true     # 누르면 이름·설명 말풍선 (tooltip)
 
 
 static func make(id: String, sz: float) -> UnitIcon:
@@ -26,6 +27,12 @@ func set_unit(id: String, p_dim := false, p_check := false) -> void:
 			tooltip_text = "%s [%s]\n%s" % [GameData.UNITS[id]["name"], GameData.RARITY_NAMES[GameData.UNITS[id]["rarity"]], GameData.UNITS[id]["desc"]]
 		queue_redraw()
 
+
+
+func _gui_input(event: InputEvent) -> void:
+	## 터치 화면에는 마우스 오버가 없으니 눌렀을 때 설명(tooltip) 말풍선. 누름은 부모에게도 그대로 전달
+	if tap_info and tooltip_text != "" and event is InputEventMouseButton and event.pressed and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		ActionButton.show_bubble(self, tooltip_text)
 
 func _draw() -> void:
 	if unit_id == "":

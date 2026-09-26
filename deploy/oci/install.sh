@@ -67,6 +67,15 @@ systemctl daemon-reload
 systemctl enable "$SERVICE" >/dev/null
 systemctl restart "$SERVICE"
 
+echo "==> 매일 백업 등록 (/etc/cron.daily/sqdefense-backup → /opt/sqdefense-backups)"
+install -m 755 "$SRC_DIR/deploy/oci/backup.sh" /etc/cron.daily/sqdefense-backup
+if [ ! -f /etc/default/sqdefense-backup ]; then
+	cat > /etc/default/sqdefense-backup <<'CFG'
+# 서버 밖으로도 백업하려면 rclone 을 설정하고 아래 주석을 푸세요 (예: OCI Object Storage)
+#SQD_BACKUP_RCLONE="oci:sqdefense-backup/daily"
+CFG
+fi
+
 echo "==> OS 방화벽 열기 (TCP $PORT)"
 # OCI 기본 이미지는 OS 방화벽이 22번 외에는 막혀 있다. (클라우드 Security List 와 별개!)
 if command -v firewall-cmd >/dev/null && systemctl is-active --quiet firewalld; then
@@ -90,6 +99,7 @@ if systemctl is-active --quiet "$SERVICE"; then
 	echo "  로그 보기 : sudo journalctl -u $SERVICE -f"
 	echo "  재시작    : sudo systemctl restart $SERVICE"
 	echo "  업데이트  : git pull && sudo bash deploy/oci/install.sh $PORT"
+	echo "  공지/이벤트: $APP_DIR/.local/share/SquareGuardians/server_config.json (docs/OCI_DEPLOY.md)"
 	echo
 	echo "※ OCI 콘솔의 Security List(또는 NSG)에 TCP $PORT 인바운드 규칙도 추가해야 외부에서 접속됩니다."
 	echo "  게임 클라이언트에서 접속할 주소: <서버 공인 IP>:$PORT"

@@ -4,9 +4,14 @@ extends Node
 ## 뒤로 가기: 현재 장면에 on_back() -> bool 이 있으면 먼저 부른다 (true = 처리함).
 ##            처리 안 되면 메인 메뉴로, 메인 메뉴에서는 두 번 누르면 종료.
 ## 앱 전환  : 현재 장면에 on_app_paused() 가 있으면 부른다 (Match 는 자동 일시정지).
+## 화면 비율: project.godot 은 stretch aspect "expand". 모든 화면은 1600x900 기준으로 만들어져 있으므로
+##            화면이 더 넓으면(19.5:9 휴대폰 등) 그 기준 화면을 가운데로 옮기고, 남는 양옆은 배경색(기본 지우기 색)으로 채운다.
+##            (keep 의 검은 띠 대신 게임 배경색 여백)
 
 signal back_pressed
 
+const DESIGN := Vector2(1600, 900)
+var margin := Vector2.ZERO      # 1600x900 기준 화면이 실제 화면 안에서 밀려난 만큼 (양옆/위아래 여백)
 var _last_back := -10.0
 var _toast: Label
 
@@ -18,6 +23,38 @@ func _ready() -> void:
 	if is_mobile():
 		# 화면 꺼짐 방지는 게임 중에만 (Match 가 켬/끔)
 		DisplayServer.screen_set_keep_on(false)
+	get_tree().root.size_changed.connect(_fit_screen)
+	get_tree().node_added.connect(_on_node_added)
+	_fit_screen.call_deferred()
+
+
+# ---- 넓은 화면: 기준 화면(1600x900)을 가운데로 ----
+func _fit_screen() -> void:
+	var root := get_tree().root
+	var vis := root.get_visible_rect().size
+	margin = ((vis - DESIGN) * 0.5).max(Vector2.ZERO).floor()
+	root.canvas_transform = Transform2D(0.0, margin)
+	for n in root.find_children("*", "CanvasLayer", true, false):
+		_place_layer(n)
+
+
+func _on_node_added(n: Node) -> void:
+	if n is CanvasLayer:
+		_place_layer(n)
+
+
+func _place_layer(l: CanvasLayer) -> void:
+	## 코드로 만든 CanvasLayer(게임 UI · 알림 · 광고 창)도 같은 만큼 옮긴다 (원래 offset 은 meta 에 보관)
+	if l.get_viewport() != get_tree().root:
+		return
+	if not l.has_meta("base_offset"):
+		l.set_meta("base_offset", l.offset)
+	l.offset = Vector2(l.get_meta("base_offset")) + margin
+
+
+func design_pos(viewport_pos: Vector2) -> Vector2:
+	## 화면(뷰포트) 좌표 → 1600x900 기준 좌표 (마우스 위치로 연출을 띄울 때)
+	return viewport_pos - margin
 
 
 func is_mobile() -> bool:

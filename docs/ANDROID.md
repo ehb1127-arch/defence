@@ -2,7 +2,7 @@
 
 ## 바로 해 볼 수 있는 것: 디버그 APK (플러그인 없이)
 
-플러그인이 없으면 광고는 테스트 광고, 결제는 "사용 불가"로 표시되지만 게임·온라인·서버 계정은 모두 동작합니다.
+플러그인이 없으면 디버그 APK 는 테스트 광고, **출시 빌드는 광고 버튼이 숨겨지고 보상도 없음**, 결제는 "사용 불가"로 표시되지만 게임·온라인·서버 계정은 모두 동작합니다.
 
 1. Godot 4.3 에디터 + **내보내기 템플릿** 설치 (에디터 → 내보내기 템플릿 관리)
 2. Android SDK (Android Studio 설치 시 함께 설치됨) + JDK 17 이상
@@ -15,6 +15,9 @@
 ```bash
 godot --headless --path . --export-debug "Android" build/android/SquareDefense-debug.apk
 ```
+
+> 디버그 APK 는 **테스트 전용**입니다. `OS.is_debug_build()` 가 참이라 가짜(mock) 광고 보상과
+> 로비의 개발자 메뉴가 켜집니다. 플레이어에게는 아래의 `--export-release` 빌드(AAB)만 배포하세요.
 
 ## 출시용 (광고 + 결제 포함)
 
@@ -59,7 +62,11 @@ keytool -genkeypair -v -keystore upload.keystore -alias upload -keyalg RSA -keys
 - **길게 누르기**: 모든 아이콘 버튼을 길게 누르면 설명 말풍선 (터치에는 마우스 오버가 없으므로)
 - **대전 화면**: 휴대폰에서는 내 전장을 크게, 상대 전장은 위쪽 ⚔ 버튼(숫자 = 상대 필드 적 수)으로 바꿔 보기
   - PC 에서 확인: 설정 > "대전: 내 전장 크게", 또는 `-- --mobile` 로 실행 (Backspace = 뒤로 가기)
-- 화면 비율: 1600×900 기준 `keep` → 20:9 폰에서는 좌우에 여백(배경색). 노치 영역을 피함
+- 화면 비율: stretch aspect `expand`. 모든 화면은 1600×900 기준이고, 더 넓은 폰(19.5:9, 20:9)에서는
+  `Platform` 이 그 기준 화면을 가운데로 옮기고 양옆 여백을 배경색(기본 지우기 색 = 부트 화면 색)으로 채움 (검은 띠 없음).
+  코드로 만든 CanvasLayer 도 자동으로 같은 만큼 옮김. 마우스/터치 좌표를 직접 쓰는 곳은
+  `get_global_transform_with_canvas()` 또는 `Platform.design_pos()` 를 쓸 것.
+  확인: `xvfb-run -s "-screen 0 2400x1080x24" godot --resolution 2400x1080 res://tests/MatchSmoke.tscn -- wide 8 <폴더>`
 
 ## 확인한 것
 

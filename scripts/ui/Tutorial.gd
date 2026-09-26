@@ -17,7 +17,7 @@ var _on_enter: Callable
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	size = Vector2(1600, 900)
-	theme = GameData.ui_theme()
+	theme = UIKit.theme()
 	_panel = PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.08, 0.09, 0.14, 0.97)
@@ -28,22 +28,23 @@ func _ready() -> void:
 	sb.shadow_color = Color(0, 0, 0, 0.5)
 	sb.shadow_size = 10
 	_panel.add_theme_stylebox_override("panel", sb)
-	_panel.size = Vector2(430, 0)
+	_panel.size = Vector2(500, 0)
 	add_child(_panel)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 10)
 	_panel.add_child(v)
 	var head := HBoxContainer.new()
-	head.add_child(UIIcon.make("star", 26, Color(1, 0.85, 0.35)))
+	head.add_child(UIIcon.make("star", 32, Color(1, 0.85, 0.35)))
 	var tl := Label.new()
 	tl.text = "튜토리얼"
+	tl.add_theme_font_size_override("font_size", 24)
 	tl.add_theme_color_override("font_color", Color(1, 0.85, 0.35))
 	head.add_child(tl)
 	v.add_child(head)
 	_label = Label.new()
 	_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_label.custom_minimum_size = Vector2(398, 0)
-	_label.add_theme_font_size_override("font_size", 19)
+	_label.custom_minimum_size = Vector2(468, 0)
+	_label.add_theme_font_size_override("font_size", 27)
 	v.add_child(_label)
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 10)
@@ -51,6 +52,8 @@ func _ready() -> void:
 	var skip := Button.new()
 	skip.text = "건너뛰기"
 	skip.focus_mode = Control.FOCUS_NONE
+	skip.custom_minimum_size = Vector2(150, 72)
+	skip.add_theme_font_size_override("font_size", 22)
 	skip.pressed.connect(_finish)
 	h.add_child(skip)
 	var sp := Control.new()
@@ -59,7 +62,8 @@ func _ready() -> void:
 	_next = Button.new()
 	_next.text = "다음"
 	_next.focus_mode = Control.FOCUS_NONE
-	_next.custom_minimum_size = Vector2(120, 42)
+	_next.custom_minimum_size = Vector2(170, 72)
+	_next.add_theme_font_size_override("font_size", 26)
 	_next.pressed.connect(_advance)
 	h.add_child(_next)
 	_advance()
@@ -93,9 +97,9 @@ func _process(delta: float) -> void:
 		return
 	# 말풍선은 대상 반대쪽에
 	var r: Rect2 = st["target"].call()
-	var px := r.get_center().x + 60 if r.get_center().x < 800 else r.get_center().x - 490
+	var px := r.end.x + 40 if r.get_center().x < 800 else r.position.x - _panel.size.x - 40
 	var py := clampf(r.get_center().y - 60, 70, 900 - _panel.size.y - 20)
-	_panel.position = Vector2(clampf(px, 20, 1600 - 450), py)
+	_panel.position = Vector2(clampf(px, 20, 1600 - _panel.size.x - 20), py)
 	queue_redraw()
 
 

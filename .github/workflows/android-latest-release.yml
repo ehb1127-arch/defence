@@ -205,7 +205,7 @@ jobs:
             결계 수호대 자동 빌드 (Godot ${{ env.GODOT_VERSION }})
             버전: ${{ env.APP_VERSION }} · 소스 커밋: ${{ github.sha }}
 
-            - `SquareGuardians-debug.apk` : 테스트용. 폰에 바로 설치해서 확인하세요.
+            - `SquareGuardians-debug.apk` : 테스트용 (가짜 광고 보상·개발자 메뉴가 켜져 있음, 플레이어 배포 금지). 폰에 바로 설치해서 확인하세요.
             - `SquareGuardians.aab` : 출시용. Play Console 에 업로드합니다. (AAB 빌드 결과: ${{ steps.aab.outcome }})
               ${{ env.SIGN_NOTE }}
           make_latest: true

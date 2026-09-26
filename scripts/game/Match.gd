@@ -93,10 +93,24 @@ func _ready() -> void:
 	var st := Story.get_stage(Session.stage) if Session.stage != "" else {}
 	if not st.is_empty() and not st["data"].get("intro", []).is_empty() and not Profile.story_seen.has(Session.stage):
 		paused = true
+		for h in huds:
+			h.visible = false   # 대사 동안 HUD 숨김 (건너뛰기 버튼이 HUD 버튼과 겹치지 않게)
 		var dlg := Dialogue.new()
 		dlg.lines = st["data"]["intro"]
+		if Session.tutorial and dlg.lines.size() > 2:
+			dlg.lines = dlg.lines.slice(-2)   # 첫 판: 글은 짧게, 바로 해 보며 배우기
 		dlg.finished.connect(_after_intro)
 		ui.add_child(dlg)
+		if Session.tutorial and not Profile.linked:
+			# 다시 설치한 폰: 첫 판 대신 기존 계정을 되찾을 수 있게
+			var acc := ActionButton.make("gear", Color(0.7, 0.9, 1.0), "기존 계정 복구\n다른 폰에서 하던 진행 되찾기", _go_recovery, Vector2(220, 64))
+			acc.caption = ""
+			acc.icon_name = ""
+			acc.badge = "기존 계정 복구"
+			acc.font_px = 22
+			acc.tone = Color(0.2, 0.24, 0.42)
+			acc.position = Vector2(1320, 470)
+			dlg.add_child(acc)
 	elif Session.tutorial and mode == "solo":
 		_start_tutorial(ui)
 	if Session.online:
@@ -106,6 +120,11 @@ func _ready() -> void:
 
 
 const TOP_BAR := 66.0
+var _top_h := TOP_BAR          # 실제 상단 바 높이 (한 전장 화면은 버튼을 키우려고 더 높게)
+const PICK_SLOW_MAX := 10.0
+var _pick_slow := PICK_SLOW_MAX  # 골라 뽑기 느린 시간 남은 양 (실제 초)
+var _begun := false            # 판 표(Profile.begin_match)를 보냈는지
+var _exit_popup: Control
 ## 한 전장 화면: 전장이 화면 높이를 가득 채우는 배율 (상단 바를 오른쪽으로 옮김)
 const BIG_SCALE := (900.0 - 12.0) / (Board.SIZE + Board.HEADER)
 var _top_bar: PanelContainer
@@ -114,7 +133,7 @@ var _top_bar: PanelContainer
 func _dock_top_bar(x: float) -> void:
 	## 상단 바를 오른쪽 조작 패널 위로만 (전장이 위쪽까지 쓰도록)
 	_top_bar.position = Vector2(x, 0)
-	_top_bar.size = Vector2(1600 - x, TOP_BAR)
+	_top_bar.size = Vector2(1600 - x, _top_h)
 	_lbl_left.visible = false
 	_top_right.custom_minimum_size = Vector2.ZERO
 	var sb: StyleBoxFlat = _top_bar.get_theme_stylebox("panel").duplicate()
@@ -122,7 +141,7 @@ func _dock_top_bar(x: float) -> void:
 	sb.border_width_left = 3
 	_top_bar.add_theme_stylebox_override("panel", sb)
 	# 레이아웃 정리 뒤에 폭이 다시 늘어나는 것을 막기 위해 한 번 더 맞춘다
-	(func(): _top_bar.size = Vector2(1600 - x, TOP_BAR); _top_bar.position = Vector2(x, 0)).call_deferred()
+	(func(): _top_bar.size = Vector2(1600 - x, _top_h); _top_bar.position = Vector2(x, 0)).call_deferred()
 
 
 func _layout(ui: CanvasLayer) -> void:
@@ -132,8 +151,11 @@ func _layout(ui: CanvasLayer) -> void:
 	for p in Session.players:
 		if p["kind"] == "human":
 			human_count += 1
+	var focus: bool = n == 2 and human_count == 1 and (Platform.is_mobile() or Profile.settings.get("focus_layout", false))
+	if n == 1 or focus:
+		_top_h = 84.0
 	_build_top_bar(ui)
-	if n == 2 and human_count == 1 and (Platform.is_mobile() or Profile.settings.get("focus_layout", false)):
+	if focus:
 		_layout_focus(ui)
 	elif n == 1:
 		# 전장을 화면 높이 가득 (상단 바는 오른쪽 조작 패널 위로만)
@@ -142,11 +164,11 @@ func _layout(ui: CanvasLayer) -> void:
 		b.scale = Vector2(s, s)
 		b.position = Vector2(10, 6 + Board.HEADER * s)
 		var hud := _make_hud(0, human_count)
-		hud.sheet_rect = Rect2(b.position, Vector2(Board.SIZE, Board.SIZE) * s)
 		var x := 10 + Board.SIZE * s + 10
 		_dock_top_bar(x)
-		hud.position = Vector2(x, TOP_BAR + 8)
-		hud.size = Vector2(1600 - x - 10, 900 - TOP_BAR - 16)
+		hud.position = Vector2(x, _top_h + 8)
+		hud.size = Vector2(1600 - x - 10, 900 - _top_h - 16)
+		_dock_sheets(hud)
 		ui.add_child(hud)
 	else:
 		var s := 1.08
@@ -189,17 +211,24 @@ func _layout_focus(ui: CanvasLayer) -> void:
 		b.visible = i == me
 		var hud := _make_hud(i, 1, i == me)
 		if i == me:
-			hud.sheet_rect = Rect2(b.position, Vector2(Board.SIZE, Board.SIZE) * s)
-			hud.position = Vector2(x, TOP_BAR + 8)
-			hud.size = Vector2(1600 - x - 10, 900 - TOP_BAR - 16)
+			hud.position = Vector2(x, _top_h + 8)
+			hud.size = Vector2(1600 - x - 10, 900 - _top_h - 16)
+			_dock_sheets(hud)
 		else:
 			hud.visible = false
 		ui.add_child(hud)
-	_btn_peek = ActionButton.make("attack", Color(1, 0.55, 0.45), "상대 전장 보기 (필드 적 수)", _toggle_peek, Vector2(96, 58))
+	_btn_peek = ActionButton.make("attack", Color(1, 0.55, 0.45), "상대 전장 보기 (필드 적 수)", _toggle_peek, Vector2(100, _top_h - 8))
 	_btn_peek.tone = Color(0.7, 0.25, 0.22)
 	_btn_peek.radius = 10
 	_top_right.add_child(_btn_peek)
 	_top_right.move_child(_btn_peek, 0)
+
+
+func _dock_sheets(hud: BoardHUD) -> void:
+	## 시트(운명 소환·슬롯·조합 등)는 전장이 아니라 오른쪽 조작 패널 위에 띄운다 → 싸움이 가려지지 않게.
+	## 재화 줄은 보이도록 그 아래부터
+	hud.sheet_rect = Rect2(hud.position + Vector2(0, 76), hud.size - Vector2(0, 76))
+	hud.sheet_top = 0.0
 
 
 var _peek_me := -1
@@ -232,7 +261,7 @@ func _make_hud(i: int, human_count: int, tall := false) -> BoardHUD:
 	var hud := BoardHUD.new()
 	var interactive := not b.is_bot and not b.is_remote
 	var hint := ""
-	if interactive and key_sets[i] >= 0:
+	if interactive and key_sets[i] >= 0 and not Platform.is_mobile():
 		var special: String = {"pvp": "잡몹 보내기", "coop": "합동 폭격", "solo": ""}[mode]
 		hint = KEY_HINTS[key_sets[i]] % special
 		if special == "":
@@ -254,7 +283,7 @@ func ui_layer() -> CanvasLayer:
 
 
 func _ad_ok() -> bool:
-	return true
+	return Ads.available()
 
 
 func _on_ad_summon(hud: BoardHUD) -> void:
@@ -268,9 +297,17 @@ func _on_emote(hud: BoardHUD, emote: String) -> void:
 	Net.send_event("emote", emote)
 
 
+func _go_recovery() -> void:
+	Session.open_recovery = true
+	Session.tutorial = false
+	get_tree().change_scene_to_file("res://scenes/Main.tscn")
+
+
 func _after_intro() -> void:
 	Profile.mark_story_seen(Session.stage)
 	paused = false
+	for h in huds:
+		h.visible = true
 	if Session.tutorial and mode == "solo":
 		_start_tutorial(ui_layer())
 
@@ -279,8 +316,6 @@ func _start_tutorial(ui: CanvasLayer) -> void:
 	var b: Board = boards[0]
 	var hud: BoardHUD = huds[0]
 	paused = true
-	var board_rect := func() -> Rect2:
-		return Rect2(b.position + Board.GRID_ORIGIN * b.scale, Vector2(448, 448) * b.scale)
 	var btn_rect := func(key: String) -> Rect2:
 		return hud._btn[key].get_global_rect()
 	var units := func() -> int:
@@ -304,13 +339,10 @@ func _start_tutorial(ui: CanvasLayer) -> void:
 		Profile.mark_tutorial_done()
 	var tut := Tutorial.new()
 	tut.steps = [
-		{"text": "적은 사각형 테두리 길을 계속 돕니다.\n필드에 적이 100마리 쌓이면 패배!", "target": header_rect},
-		{"text": "소환 버튼을 눌러 유닛을 3번 뽑아보세요.\n(튜토리얼 동안 무료!)", "target": btn_rect.bind("summon"), "enter": give_free, "wait": three_units},
-		{"text": "유닛은 사각형 안 칸에서 사거리 안의 적을 자동 공격해요.\n칸을 눌러 선택 → 다른 칸을 눌러 이동!", "target": board_rect},
-		{"text": "같은 유닛 3마리가 한 칸에 모이면 반짝여요.\n합성 버튼으로 한 단계 높은 등급을 얻으세요!", "target": btn_rect.bind("merge"), "wait": merged},
-		{"text": "보석으로 운명 소환, 골드로 럭키 슬롯!\n잭팟이 터지면 대박 보상이 쏟아집니다.", "target": btn_rect.bind("slot")},
-		{"text": "강화로 공격력을 올리고,\n재료를 모아 신화 유닛을 조합하세요.", "target": btn_rect.bind("recipe")},
-		{"text": "10라운드마다 보스! 제한시간 안에 못 잡으면 바로 패배.\n남은 시간은 여기 상단에 표시됩니다.", "target": round_rect},
+		{"text": "소환을 3번 눌러 보세요!\n(지금은 무료)", "target": btn_rect.bind("summon"), "enter": give_free, "wait": three_units},
+		{"text": "같은 유닛 3마리가 모이면 반짝!\n합성을 눌러 더 센 유닛으로", "target": btn_rect.bind("merge"), "wait": merged},
+		{"text": "적이 %d마리 쌓이면 패배!\n유닛을 눌러 옮길 수도 있어요" % GameData.ENEMY_LIMIT, "target": header_rect},
+		{"text": "10라운드마다 보스!\n남은 시간 안에 잡으세요", "target": round_rect},
 	]
 	tut.finished.connect(done)
 	ui.add_child(tut)
@@ -320,14 +352,14 @@ func _toast_achievement(e: Dictionary) -> void:
 	## 화면 위쪽 업적 달성 알림 (차례로 쌓였다 사라짐)
 	if _toast_box == null:
 		_toast_box = VBoxContainer.new()
-		_toast_box.position = Vector2(560, TOP_BAR + 60)
-		_toast_box.size = Vector2(480, 0)
+		_toast_box.position = Vector2(520, _top_h + 60)
+		_toast_box.size = Vector2(560, 0)
 		_toast_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_toast_box.add_theme_constant_override("separation", 6)
 		ui_layer().add_child(_toast_box)
 	var a: Dictionary = e["a"]
 	var p := PanelContainer.new()
-	p.theme = GameData.ui_theme()
+	p.theme = UIKit.theme()
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.1, 0.08, 0.02, 0.95)
@@ -339,16 +371,16 @@ func _toast_achievement(e: Dictionary) -> void:
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 10)
 	p.add_child(h)
-	h.add_child(UIIcon.make("trophy", 40, Color(1, 0.8, 0.3)))
+	h.add_child(UIIcon.make("trophy", 52, Color(1, 0.8, 0.3)))
 	var v := VBoxContainer.new()
 	var t1 := Label.new()
 	t1.text = "업적 달성!  %s %s" % [a["name"], ["I", "II", "III", "IV"][e["tier"]]]
 	t1.add_theme_color_override("font_color", Color(1, 0.85, 0.35))
-	t1.add_theme_font_size_override("font_size", 18)
+	t1.add_theme_font_size_override("font_size", 24)
 	v.add_child(t1)
 	var t2 := Label.new()
 	t2.text = "%s  ·  코인 +%d" % [a["desc"] % a["goals"][e["tier"]], a["coins"][e["tier"]]]
-	t2.add_theme_font_size_override("font_size", 14)
+	t2.add_theme_font_size_override("font_size", 20)
 	v.add_child(t2)
 	h.add_child(v)
 	_toast_box.add_child(p)
@@ -398,7 +430,7 @@ func _build_top_bar(ui: CanvasLayer) -> void:
 	## 유즈맵 스타일 상단 바: [모드·경과시간] [ROUND · 남은 시간] [배속/일시정지/메뉴]
 	var bar := PanelContainer.new()
 	_top_bar = bar
-	bar.theme = GameData.ui_theme()
+	bar.theme = UIKit.theme()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.06, 0.08, 0.18, 0.97)
 	sb.border_color = Color(0.4, 0.52, 0.95, 0.7)
@@ -411,7 +443,7 @@ func _build_top_bar(ui: CanvasLayer) -> void:
 	sb.content_margin_bottom = 4
 	bar.add_theme_stylebox_override("panel", sb)
 	bar.position = Vector2.ZERO
-	bar.size = Vector2(1600, TOP_BAR)
+	bar.size = Vector2(1600, _top_h)
 	ui.add_child(bar)
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 8)
@@ -419,14 +451,14 @@ func _build_top_bar(ui: CanvasLayer) -> void:
 	_lbl_left = Label.new()
 	_lbl_left.custom_minimum_size = Vector2(380, 0)
 	_lbl_left.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_lbl_left.add_theme_font_size_override("font_size", 17)
+	_lbl_left.add_theme_font_size_override("font_size", 21)
 	_lbl_left.add_theme_color_override("font_color", Color(0.75, 0.8, 0.9))
 	h.add_child(_lbl_left)
 	_lbl_round = Label.new()
 	_lbl_round.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_lbl_round.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_lbl_round.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_lbl_round.add_theme_font_size_override("font_size", 28)
+	_lbl_round.add_theme_font_size_override("font_size", 32 if _top_h > TOP_BAR else 28)
 	_lbl_round.clip_text = true
 	_lbl_round.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_lbl_round.add_theme_color_override("font_outline_color", Color.BLACK)
@@ -437,16 +469,17 @@ func _build_top_bar(ui: CanvasLayer) -> void:
 	right.custom_minimum_size = Vector2(380, 0)
 	right.alignment = BoxContainer.ALIGNMENT_END
 	h.add_child(right)
-	right.add_theme_constant_override("separation", 6)
+	right.add_theme_constant_override("separation", 8)
+	var bh := _top_h - 8
 	if not Session.online:
-		_btn_speed = ActionButton.make("speed", Color(0.85, 0.9, 1.0), "배속", _cycle_speed, Vector2(84, 58))
+		_btn_speed = ActionButton.make("speed", Color(0.85, 0.9, 1.0), "배속", _cycle_speed, Vector2(96, bh))
 		_btn_speed.badge = "x1"
 		right.add_child(_btn_speed)
-		_btn_pause = ActionButton.make("pause", Color(0.85, 0.9, 1.0), "일시정지 (Esc)", _toggle_pause, Vector2(70, 58))
+		_btn_pause = ActionButton.make("pause", Color(0.85, 0.9, 1.0), "일시정지", _toggle_pause, Vector2(88, bh))
 		right.add_child(_btn_pause)
-	_btn_sound = ActionButton.make("sound" if Profile.settings["sound"] else "mute", Color(0.85, 0.9, 1.0), "소리 켜기/끄기", _toggle_sound, Vector2(70, 58))
+	_btn_sound = ActionButton.make("sound" if Profile.settings["sound"] else "mute", Color(0.85, 0.9, 1.0), "소리 켜기/끄기", _toggle_sound, Vector2(88, bh))
 	right.add_child(_btn_sound)
-	right.add_child(ActionButton.make("home", Color(0.85, 0.9, 1.0), "메인 메뉴", _to_menu, Vector2(70, 58)))
+	right.add_child(ActionButton.make("home", Color(0.85, 0.9, 1.0), "나가기", _confirm_exit, Vector2(88, bh)))
 	for c in right.get_children():
 		if c is ActionButton:
 			c.caption = ""
@@ -466,14 +499,14 @@ func _toggle_sound() -> void:
 func _build_center_column(ui: CanvasLayer, rect: Rect2) -> void:
 	## 두 전장 사이: VS / 협동 합산 게이지 + 규칙 요약
 	var v := VBoxContainer.new()
-	v.theme = GameData.ui_theme()
+	v.theme = UIKit.theme()
 	v.position = rect.position
 	v.size = rect.size
 	v.add_theme_constant_override("separation", 12)
 	ui.add_child(v)
 	_lbl_center = Label.new()
 	_lbl_center.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_lbl_center.add_theme_font_size_override("font_size", 40 if mode == "pvp" else 22)
+	_lbl_center.add_theme_font_size_override("font_size", 40 if mode == "pvp" else 26)
 	_lbl_center.add_theme_color_override("font_color", Color(1, 0.55, 0.45) if mode == "pvp" else Color(0.6, 0.9, 1.0))
 	v.add_child(_lbl_center)
 	if mode == "coop":
@@ -485,11 +518,12 @@ func _build_center_column(ui: CanvasLayer, rect: Rect2) -> void:
 	var help := Label.new()
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	help.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	help.add_theme_font_size_override("font_size", 13)
-	help.add_theme_color_override("font_color", Color(0.65, 0.7, 0.8))
+	help.add_theme_font_size_override("font_size", 19)
+	help.add_theme_color_override("font_color", Color(0.75, 0.8, 0.9))
+	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	help.text = {
-		"pvp": "대전 규칙\n\n필드 적 %d마리 또는 보스 시간 초과 시 패배\n\n[공격] 탭으로 적·저주 보내기\n\n40라운드 이후 적 급성장" % GameData.ENEMY_LIMIT,
-		"coop": "협동 규칙\n\n적 수 합계 %d 도달 또는 한 명이라도 보스 시간 초과 시 패배\n\n골드·유닛 선물, 합동 폭격!\n\n%d라운드 최종 보스를 둘 다 잡으면 승리" % [GameData.COOP_ENEMY_LIMIT, GameData.FINAL_WAVE],
+		"pvp": "적 %d마리면 패배\n\n[공격]으로\n적 보내기" % GameData.ENEMY_LIMIT,
+		"coop": "합쳐서 적 %d마리면 패배\n\n골드 선물\n합동 폭격!" % GameData.COOP_ENEMY_LIMIT,
 	}.get(mode, "")
 	v.add_child(help)
 
@@ -499,7 +533,22 @@ func _build_center_column(ui: CanvasLayer, rect: Rect2) -> void:
 # ===========================================================================
 func _process(delta: float) -> void:
 	var run := not paused and not over
+	if run and not _begun:
+		_begin()
 	var dt := delta * speed if run else 0.0
+	# 골라 뽑기 카드가 열려 있으면 (오프라인) 시간을 느리게 → 싸움 중에도 여유 있게 고르기.
+	# 느린 시간은 최대 PICK_SLOW_MAX 초까지만 (열어 둔 채로 판 전체를 느리게 하지 못하게), 평소엔 천천히 다시 찬다
+	if run and not Session.online:
+		var picking := false
+		for h in huds:
+			if h.sheet_kind() == "pick":
+				picking = true
+				break
+		if picking and _pick_slow > 0.0:
+			_pick_slow = maxf(0.0, _pick_slow - delta)
+			dt *= 0.3
+		elif not picking:
+			_pick_slow = minf(PICK_SLOW_MAX, _pick_slow + delta * 0.2)
 	# 보스 처치 순간 잠깐 슬로 모션 (온라인은 동기화 때문에 제외)
 	if run and not Session.online:
 		for b in boards:
@@ -591,7 +640,7 @@ func _update_center_label() -> void:
 			col = Color(1, 1, 0.4) if not b.is_boss_round(b.wave) else Color(1, 0.15, 0.15)
 	if not _lbl_left.visible:
 		# 좁은 상단 바(전장 옆): 짧게
-		for pair in [["ROUND ", "R"], ["보스 제한시간", "보스"], ["보너스 라운드", "보너스"], ["다음 라운드  ", ""], ["남은 시간  ", ""], ["게임 시작까지", "시작"], ["  ·  ", "  "]]:
+		for pair in [["ROUND ", "R"], ["보스 제한시간", "보스"], ["보너스 라운드", "보너스"], ["다음 라운드  ", ""], ["남은 시간  ", ""], ["게임 시작까지", "시작"], ["스테이지 클리어!", "클리어"], ["최종 보스 격파!", "격파"], ["  ·  ", "  "]]:
 			text = text.replace(pair[0], pair[1])
 	_lbl_round.text = text
 	_lbl_round.add_theme_color_override("font_color", col)
@@ -608,6 +657,10 @@ func _finish_stage_win() -> void:
 		_finish(0, "스테이지 클리어!  %s" % st["data"]["name"], false)
 		return
 	over = true
+	# 마무리 대사 동안 카드 창은 닫고 HUD 는 숨긴다 (건너뛰기 버튼이 HUD 버튼과 겹치지 않게)
+	for h in huds:
+		h.close_sheet()
+		h.visible = false
 	var dlg := Dialogue.new()
 	dlg.lines = outro
 	dlg.finished.connect(_after_outro.bind(key, st["data"]["name"]))
@@ -617,6 +670,8 @@ func _finish_stage_win() -> void:
 func _after_outro(key: String, stage_name: String) -> void:
 	Profile.mark_story_seen(key)
 	over = false
+	for h in huds:
+		h.visible = true
 	_finish(0, "스테이지 클리어!  %s" % stage_name, false)
 
 
@@ -733,6 +788,15 @@ func _on_blast(b: Board) -> void:
 		o.receive_blast()
 
 
+func _begin() -> void:
+	## 판이 실제로 시작될 때 한 번: 서버에 판 표를 받아 둔다 (정산 때 걸린 시간 확인용)
+	_begun = true
+	var me := _local_board()
+	if me.is_bot or me.is_remote:
+		return
+	Profile.begin_match(Session.mode, Session.stage)
+
+
 func _local_board() -> Board:
 	return boards[Session.local_index if Session.online else 0]
 
@@ -800,7 +864,7 @@ func _on_net_disconnected() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		for b in boards:
-			var local: Vector2 = b.get_global_transform().affine_inverse() * (event as InputEventMouseMotion).position
+			var local: Vector2 = b.get_global_transform_with_canvas().affine_inverse() * (event as InputEventMouseMotion).position
 			b.hover = Board.cell_at(local) if Rect2(0, 0, Board.SIZE, Board.SIZE).has_point(local) else -1
 		return
 	if event is InputEventMouseButton and event.pressed and not over:
@@ -810,7 +874,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		for b in boards:
 			if b.is_bot or b.is_remote or not b.visible:
 				continue
-			var local: Vector2 = b.get_global_transform().affine_inverse() * mb.position
+			var local: Vector2 = b.get_global_transform_with_canvas().affine_inverse() * mb.position
 			if b.handle_click(local, mb.button_index == MOUSE_BUTTON_RIGHT):
 				b.show_cursor = false
 				get_viewport().set_input_as_handled()
@@ -818,11 +882,18 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and not event.echo:
 		var key: int = (event as InputEventKey).keycode
 		if key == KEY_ESCAPE:
+			if is_instance_valid(_exit_popup):
+				_exit_popup.get_meta("cancel").call()
+				return
 			for h in huds:
 				if h._sheet != null:
 					h.close_sheet()
 					return
-			_toggle_pause()
+			# Esc: 한 번 = 일시정지, 멈춘 상태(또는 온라인)에서 한 번 더 = 나가기 확인
+			if paused or Session.online or over:
+				_confirm_exit()
+			else:
+				_toggle_pause()
 			return
 		if over or paused:
 			return
@@ -876,7 +947,8 @@ func _handle_key(b: Board, ks: Dictionary, key: int) -> bool:
 			else:
 				b.auto_merge()
 		"gamble":
-			b.gamble(0)
+			if UIKit.feature_unlocked("gamble"):
+				b.gamble(0)
 		"combine":
 			var m := b.first_combinable()
 			if m != "":
@@ -902,6 +974,9 @@ func _cycle_speed() -> void:
 
 # ---- 모바일: 뒤로 가기 / 앱 전환 (Platform 이 부름) ----
 func on_back() -> bool:
+	if is_instance_valid(_exit_popup):
+		_exit_popup.get_meta("cancel").call()
+		return true
 	for h in huds:
 		if h._sheet != null:
 			h.close_sheet()
@@ -909,19 +984,29 @@ func on_back() -> bool:
 	if over:
 		_to_menu()
 		return true
-	if Session.online:
-		Platform.show_toast("대전 중에는 위쪽 메뉴 버튼으로 나갈 수 있어요")
-		return true
-	if not paused:
-		_toggle_pause()
-		Platform.show_toast("한 번 더 누르면 메인 메뉴로")
-		return true
-	_to_menu()
+	_confirm_exit()
 	return true
 
 
+func _confirm_exit() -> void:
+	## 나가기 버튼: 바로 나가지 않고 확인 창 (오프라인은 그동안 멈춤)
+	if over:
+		_to_menu()
+		return
+	if is_instance_valid(_exit_popup):
+		return
+	var was_paused := paused
+	if not Session.online:
+		paused = true
+	var body := "지금 나가면 이 판은 패배로 끝나요" if Session.online else ("지도로 돌아가요. 이 판은 저장되지 않아요" if Session.stage != "" else "이 판은 저장되지 않아요")
+	var resume := func():
+		if not Session.online:
+			paused = was_paused
+	_exit_popup = UIKit.confirm(ui_layer(), "나갈까요?", body, "나가기", _to_menu, "계속하기", resume)
+
+
 func on_app_paused() -> void:
-	if not paused and not over and not Session.online:
+	if not paused and not over and not Session.online and not is_instance_valid(_exit_popup):
 		_toggle_pause()
 
 
@@ -1001,7 +1086,7 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 	dim.color = Color(0, 0, 0, 0.55)
 	dim.size = Vector2(1600, 900)
 	_over_panel = PanelContainer.new()
-	_over_panel.theme = GameData.ui_theme()
+	_over_panel.theme = UIKit.theme()
 	var sb: StyleBox = Art.stylebox("result_panel")
 	if sb == null:
 		var f := UIKit.panel_box(Color(0.08, 0.1, 0.2, 0.97), Color(1, 0.8, 0.25) if won else Color(0.9, 0.3, 0.3), 26)
@@ -1027,7 +1112,7 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 	rsb.content_margin_left = 60
 	rsb.content_margin_right = 60
 	ribbon.add_theme_stylebox_override("panel", rsb)
-	ribbon.theme = GameData.ui_theme()
+	ribbon.theme = UIKit.theme()
 	ribbon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ribbon.add_child(UIKit.label("승리!" if won else "패배", 46))
 	holder.add_child(ribbon)
@@ -1070,12 +1155,13 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 		nm.text = b.player_name
 		nm.custom_minimum_size = Vector2(150, 0)
 		nm.add_theme_color_override("font_color", b.accent.lightened(0.3))
-		nm.add_theme_font_size_override("font_size", 18)
+		nm.add_theme_font_size_override("font_size", 22)
+		nm.clip_text = true
 		row.add_child(nm)
 		var st := Label.new()
 		st.text = "ROUND %d   처치 %d" % [b.wave, b.kills]
-		st.custom_minimum_size = Vector2(190, 0)
-		st.add_theme_font_size_override("font_size", 18)
+		st.custom_minimum_size = Vector2(220, 0)
+		st.add_theme_font_size_override("font_size", 22)
 		row.add_child(st)
 		# MVP 유닛 초상화 3개
 		for id in _mvp_ids(b):
@@ -1123,7 +1209,7 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 		sk.text = "연승 x%d  코인 +%d%%" % [Profile.streak + 1, int(_streak_bonus * 100)]
 		sk.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		sk.add_theme_color_override("font_color", Color(1, 0.55, 0.3))
-		sk.add_theme_font_size_override("font_size", 18)
+		sk.add_theme_font_size_override("font_size", 22)
 		v.add_child(sk)
 	# 성취: 경험치 / 레벨 / 최고 기록 / 이번 판 업적
 	var gained := GameData.match_xp(me.wave, me.kills, won)
@@ -1218,7 +1304,7 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 			bf.badge = "x%d" % feathers
 			bf.glow = true
 			h.add_child(bf)
-		if not _ad_revive_used:
+		if not _ad_revive_used and Ads.available():
 			var ad_revive := func():
 				Ads.show_rewarded("match_revive", _on_ad_revive)
 			var ba := ActionButton.make("revive", Color(0.35, 0.6, 1.0), "광고 보고 부활 (판당 1회)", ad_revive, bsz)
@@ -1226,8 +1312,8 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 			ba.badge = "부활"
 			ba.glow = true
 			h.add_child(ba)
-	if not _ad_double_used and _pending_coins > 0:
-		var bd := ActionButton.make("coin", Color.WHITE, "광고 보고 코인 2배", func(): pass, bsz)
+	if not _ad_double_used and _pending_coins > 0 and Ads.available() and Profile.result_ads_left() > 0:
+		var bd := ActionButton.make("coin", Color.WHITE, "광고 보고 코인 2배 (오늘 %d번 남음)" % Profile.result_ads_left(), func(): pass, bsz)
 		bd.badge_icon = "ad"
 		bd.badge = "x2"
 		var on_double := func():
@@ -1271,7 +1357,7 @@ func _near_miss_label(me: Board) -> Label:
 	var l := Label.new()
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.add_theme_font_size_override("font_size", 19)
+	l.add_theme_font_size_override("font_size", 22)
 	l.add_theme_color_override("font_color", Color(1, 0.7, 0.4))
 	var boss_left := -1.0
 	for e in me.enemies:

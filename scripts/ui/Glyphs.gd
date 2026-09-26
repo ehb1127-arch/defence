@@ -5,12 +5,26 @@ extends RefCounted
 ## Art 에 같은 이름의 이미지가 있으면 draw_icon() 이 이미지를 우선 사용한다.
 
 
-static func draw_icon(ci: CanvasItem, name: String, c: Vector2, s: float, col: Color) -> void:
+static func draw_icon(ci: CanvasItem, name: String, c: Vector2, s: float, col: Color, tint := false) -> void:
+	## 이미지가 있으면 이미지. 색은 이렇게 반영한다:
+	##  - 투명도(col.a)는 항상 (비활성·사라지는 연출)
+	##  - 회색 계열 어두운 색 = 잠김/미획득 → 이미지를 어둡게
+	##  - tint = true 면 그 색으로 물들임 (등급 색 별 등)
 	var t := Art.icon(name)
 	if t != null:
-		ci.draw_texture_rect(t, Rect2(c - Vector2(s, s), Vector2(s, s) * 2.0), false)
+		ci.draw_texture_rect(t, Rect2(c - Vector2(s, s), Vector2(s, s) * 2.0), false, art_modulate(col, tint))
 		return
 	draw(ci, name, c, s, col)
+
+
+static func art_modulate(col: Color, tint := false) -> Color:
+	if tint:
+		var m := col.lerp(Color.WHITE, 0.2)
+		m.a = col.a
+		return m
+	if col.s < 0.3 and col.v < 0.62:
+		return Color(0.34, 0.36, 0.44, col.a)
+	return Color(1, 1, 1, col.a)
 
 
 static func draw(ci: CanvasItem, name: String, c: Vector2, s: float, col: Color) -> void:

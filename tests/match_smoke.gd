@@ -12,6 +12,12 @@ var _next_shot := 2.0
 var _done := false
 var _stage_mode := false
 var _stage_step := 0
+var _ftue := false               # 새 계정 첫 판 (잠긴 버튼 · 짧은 튜토리얼 · 골라 뽑기 배지 · 나가기 확인)
+var _ftue_step := 0
+var _profile_backup := PackedByteArray()
+var _iap_coins0 := 0
+var _wide := false
+var _wide_step := 0
 
 
 func _ready() -> void:
@@ -25,6 +31,28 @@ func _ready() -> void:
 		Profile.campaign = {"1-1": 3, "1-2": 2, "1-3": 1}
 		_match = load("res://scenes/Campaign.tscn").instantiate()
 		add_child(_match)
+		return
+	if mode == "wide":
+		# 넓은 화면(예: --resolution 2400x1080): 1600x900 기준 화면이 가운데로 가고, 누른 위치도 맞는지
+		_match = load("res://scenes/Main.tscn").instantiate()
+		add_child(_match)
+		_wide = true
+		return
+	if mode == "ftue":
+		# 프로필 파일을 잠시 백업해 두고 새 계정처럼 (끝나면 되돌림)
+		_profile_backup = FileAccess.get_file_as_bytes(Profile.PATH)
+		Profile.level = 1
+		Profile.xp = 0
+		Profile.campaign = {}
+		Profile.tutorial_done = false
+		Profile.story_seen.erase("1-1")
+		Session.setup_local("solo", [{"name": "플레이어", "kind": "human", "keys": 0}])
+		Session.stage = "1-1"
+		Session.tutorial = true
+		Session.seed_value = 7
+		_match = load("res://scenes/Match.tscn").instantiate()
+		add_child(_match)
+		_ftue = true
 		return
 	if mode.begins_with("stage"):
 		var sid := mode.substr(5)
@@ -48,6 +76,7 @@ func _ready() -> void:
 		add_child(_match)
 		return
 	if mode == "shop":
+		Profile.linked = false   # 개발용 결제(mock)를 서버 없이 확인
 		_match = load("res://scenes/Shop.tscn").instantiate()
 		add_child(_match)
 		return
@@ -73,6 +102,9 @@ func _process(delta: float) -> void:
 	if _done:
 		return
 	_t += delta / Engine.time_scale
+	if _wide:
+		_wide_capture()
+		return
 	if not "boards" in _match and _match.has_method("_launch"):
 		if _t > 1.0:
 			_done = true
@@ -116,34 +148,89 @@ func _process(delta: float) -> void:
 			_shot_i = 4
 			get_viewport().get_texture().get_image().save_png("%s/shop_ad_done.png" % _shots)
 			print("SMOKE shop coins=", Profile.coins)
+			# 첫 번째 테스트 광고 창 정리 (충전 탭 캡처가 가려지지 않게)
+			for n in get_tree().root.get_children():
+				if n is CanvasLayer and n.layer == 100:
+					n.queue_free()
+			Ads.showing = false
+			get_tree().paused = false
 			_match._show("charge")
-			Store.buy("starter_pack")
+			_iap_coins0 = Profile.coins
+			_match._confirm_iap("coins_s")   # 여러 번 살 수 있는 상품 (확인 창이 매번 떠야 함)
 		elif _t > 4.5 and _shot_i == 4:
+			_shot_i = 5
+			get_viewport().get_texture().get_image().save_png("%s/shop_confirm.png" % _shots)
+			# 확인 창의 [결제] 를 누른 것과 같게
+			var popups := 0
+			for c in _match.get_children():
+				if c.has_meta("cancel"):
+					popups += 1
+					c.queue_free()
+			print("SMOKE iap confirm popups=%d" % popups)
+			Store.buy("coins_s")
+		elif _t > 5.5 and _shot_i == 5:
 			_done = true
 			get_viewport().get_texture().get_image().save_png("%s/shop_charge.png" % _shots)
-			print("SMOKE iap store=%s starter=%s revive=%d" % [Store.provider, Profile.purchases.get("starter_pack", false), Profile.item_count("revive")])
+			print("SMOKE iap store=%s can_buy=%s coins +%d" % [Store.provider, Store.can_buy(), Profile.coins - _iap_coins0])
 			get_tree().quit()
 		return
 	if Session.mode == "menu" or not "boards" in _match:
-		# 메뉴: 1초 후 캡처 → 로컬 서버(24693)에 접속해 방 만들기 → 캡처 → 도움말 캡처
+		# 메뉴: 로비 → 온라인 창 → 빠른 매칭(찾는 중) → 랭킹 → 설정 → 계정 복구 → 도움말 캡처
+		var shot := func(name: String):
+			get_viewport().get_texture().get_image().save_png("%s/%s.png" % [_shots, name])
 		if _t > 1.0 and _shot_i == 0:
 			_shot_i = 1
-			get_viewport().get_texture().get_image().save_png("%s/menu.png" % _shots)
+			shot.call("menu")
 			Session.player_name = "테스터"
-			Net.connect_to("127.0.0.1:24693")
-			Net.connection_changed.connect(func(c): if c: Net.create_room("pvp", "같이 하실 분"))
-		elif _t > 4.0 and _shot_i == 1:
+			_match._show_panel(_match._online)
+		elif _t > 1.6 and _shot_i == 1:
 			_shot_i = 2
-			get_viewport().get_texture().get_image().save_png("%s/lobby.png" % _shots)
+			shot.call("online")
+			_match._quick("pvp")
+		elif _t > 2.6 and _shot_i == 2:
+			_shot_i = 3
+			shot.call("searching")
+			_match._cancel_search()
+			_match._online.visible = false
+			_match._open_rank()
+		elif _t > 3.2 and _shot_i == 3:
+			_shot_i = 4
+			shot.call("rank")
+			_match._rank_panel.visible = false
+			_match._show_panel(_match._settings)
+		elif _t > 3.8 and _shot_i == 4:
+			_shot_i = 5
+			shot.call("settings")
+			_match._open_recovery()
+		elif _t > 4.4 and _shot_i == 5:
+			_shot_i = 6
+			shot.call("recovery")
+			_match._recovery.visible = false
+			_match._on_notice("테스트 공지: 주말 코인 2배 이벤트!")
+		elif _t > 5.0 and _shot_i == 6:
+			_shot_i = 7
+			shot.call("notice")
+			for c in _match.get_children():
+				if c.has_meta("cancel"):
+					c.queue_free()
+			UIKit.ui_set("notice_seen", "")
 			_match._show_help()
-		elif _t > 4.5 and _shot_i == 2:
+		elif _t > 5.6 and _shot_i == 7:
+			_shot_i = 8
+			shot.call("help")
+			_match._help_tab("mythic")
+		elif _t > 6.2 and _shot_i == 8:
 			_done = true
-			get_viewport().get_texture().get_image().save_png("%s/help.png" % _shots)
+			shot.call("help_mythic")
 			get_tree().quit()
 		return
 	if _stage_mode:
 		_stage_capture()
 		return
+	if _ftue:
+		_ftue_capture()
+		return
+
 	if OS.get_cmdline_user_args().has("fx2"):
 		_fx2_capture()
 		return
@@ -158,7 +245,7 @@ func _process(delta: float) -> void:
 		if _match._btn_peek != null and _shot_i == 3:
 			_match._toggle_peek()   # 모바일 레이아웃: 상대 전장 보기 캡처
 		elif _match.huds.size() > 0 and _match.huds[0].interactive:
-			var kinds := ["slot", "recipe", "upgrade", "attack" if Session.mode == "pvp" else ("coop" if Session.mode == "coop" else "mission")]
+			var kinds := ["slot", "recipe", "gamble", "attack" if Session.mode == "pvp" else ("coop" if Session.mode == "coop" else "mission")]
 			_match.huds[0]._toggle_sheet(kinds[_shot_i % kinds.size()])
 			if kinds[_shot_i % kinds.size()] == "slot":
 				_match.boards[0].gold += 500
@@ -294,5 +381,78 @@ func _stage_capture() -> void:
 	elif _stage_step == 3 and _t > 2.0:
 		shot.call("stage_result")
 		print("SMOKE stage wave=%d peak=%d stars=%d" % [_match.boards[0].wave, _match.boards[0].peak_field, _match.boards[0].stage_stars()])
+		_done = true
+		get_tree().quit()
+
+
+func _ftue_capture() -> void:
+	## 새 계정 1-1: 짧은 대사 → 튜토리얼(소환 강조) → 잠긴 버튼 안내 → 골라 뽑기 시트/배지 → 나가기 확인 창
+	var shot := func(name: String):
+		get_viewport().get_texture().get_image().save_png("%s/%s.png" % [_shots, name])
+	var ui: Node = _match.get_node("UI")
+	var hud: BoardHUD = _match.huds[0]
+	var b0: Board = _match.boards[0]
+	if _ftue_step == 0 and _t > 1.2:
+		_ftue_step = 1
+		shot.call("ftue_dialogue")
+		for c in ui.get_children():
+			if c is Dialogue:
+				c._finish()
+	elif _ftue_step == 1 and _t > 2.0:
+		_ftue_step = 2
+		shot.call("ftue_tutorial")
+		print("SMOKE ftue locked gamble=%s slot=%s control=%s upgrade=%s" % [hud._btn["gamble"].locked, hud._btn["slot"].locked, hud._btn["control"].locked, hud._btn["upgrade"].locked])
+		for c in ui.get_children():
+			if c is Tutorial:
+				c._finish()
+	elif _ftue_step == 2 and _t > 2.6:
+		_ftue_step = 3
+		hud._btn["gamble"].pressed.emit()   # 잠긴 버튼 → 안내 말풍선
+	elif _ftue_step == 3 and _t > 3.0:
+		_ftue_step = 4
+		shot.call("ftue_locked")
+		b0.pending_pick = ["sword", "storm", "dragoon"]
+	elif _ftue_step == 4 and _t > 3.6:
+		_ftue_step = 5
+		shot.call("ftue_pick")
+		print("SMOKE ftue pick sheet=%s" % hud.sheet_kind())
+		hud.close_sheet()
+	elif _ftue_step == 5 and _t > 4.2:
+		_ftue_step = 6
+		shot.call("ftue_pick_badge")
+		print("SMOKE ftue after close sheet=%s badge=%s begun=%s" % [hud.sheet_kind(), hud._pick_badge.visible, _match._begun])
+		_match._confirm_exit()
+	elif _ftue_step == 6 and _t > 4.8:
+		_ftue_step = 7
+		shot.call("exit_confirm")
+		print("SMOKE ftue exit popup paused=%s" % _match.paused)
+		_done = true
+		if not _profile_backup.is_empty():
+			var f := FileAccess.open(Profile.PATH, FileAccess.WRITE)
+			f.store_buffer(_profile_backup)
+			f.close()
+			Profile.load_profile()   # 메모리도 원래대로 (종료 때 저장돼도 그대로)
+		get_tree().quit()
+
+
+func _wide_capture() -> void:
+	var scale := float(DisplayServer.window_get_size().y) / get_tree().root.get_visible_rect().size.y
+	if _wide_step == 0 and _t > 1.5:
+		_wide_step = 1
+		print("SMOKE wide margin=%s visible=%s" % [Platform.margin, get_tree().root.get_visible_rect().size])
+		DisplayServer.screen_get_image(0).save_png("%s/wide_menu.png" % _shots)
+		# 설정 톱니(기준 좌표)를 실제 화면 좌표로 눌러 본다
+		var p := (Vector2(1541, 55) + Platform.margin) * scale
+		for down in [true, false]:
+			var e := InputEventMouseButton.new()
+			e.button_index = MOUSE_BUTTON_LEFT
+			e.pressed = down
+			e.position = p
+			e.global_position = p
+			get_tree().root.push_input(e)
+	elif _wide_step == 1 and _t > 2.2:
+		_wide_step = 2
+		print("SMOKE wide settings_opened=%s" % _match._settings.visible)
+		DisplayServer.screen_get_image(0).save_png("%s/wide_settings.png" % _shots)
 		_done = true
 		get_tree().quit()

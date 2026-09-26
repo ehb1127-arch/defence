@@ -392,14 +392,32 @@ static func _random_mods(rng: RandomNumberGenerator, n: int) -> Array:
 	return out
 
 
+## 결계의 탑 체력 곡선: 20층까지 층마다 +10%, 그 뒤로는 +8.5% (영구 강화·이어하기로 20~60층을 노릴 수 있게).
+## 10층마다 수문장 층은 체력 +15%
+const TOWER_HP_BASE := 2.0
+const TOWER_GROWTH_EARLY := 1.10
+const TOWER_GROWTH_LATE := 1.085
+const TOWER_EARLY_FLOORS := 20
+const TOWER_GATE_HP := 1.15
+
+
+static func tower_hp(n: int) -> float:
+	var early := mini(n, TOWER_EARLY_FLOORS) - 1
+	var late := maxi(0, n - TOWER_EARLY_FLOORS)
+	var hp := TOWER_HP_BASE * pow(TOWER_GROWTH_EARLY, early) * pow(TOWER_GROWTH_LATE, late)
+	if n % 10 == 0:
+		hp *= TOWER_GATE_HP
+	return hp
+
+
 static func tower_stage(n: int) -> Dictionary:
-	## 결계의 탑 n층: 층마다 적이 약 13%씩 강해지고, 규칙이 무작위로 붙는다 (끝없음)
+	## 결계의 탑 n층: 층마다 적이 조금씩 강해지고(tower_hp), 규칙이 무작위로 붙는다 (끝없음)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = n * 7919 + 17
 	var mod_n := 0 if n < 3 else (1 if n < 10 else (2 if n < 25 else 3))
 	var boss_pool := [0, 1, 2, 3, 5, 6, 7, 8]
 	var boss: int = boss_pool[(n - 1) % boss_pool.size()]
-	var ch := {"id": 0, "name": "결계의 탑", "color": Color(0.7, 0.8, 1.0), "hp": 2.0 * pow(1.13, n - 1),
+	var ch := {"id": 0, "name": "결계의 탑", "color": Color(0.7, 0.8, 1.0), "hp": tower_hp(n),
 		"gold": mini(150 + n * 12, 900), "gems": mini(2 + n / 5, 9), "desc": "끝없이 이어지는 결계의 탑. 층마다 규칙이 바뀐다."}
 	var d := {"name": "결계의 탑 %d층" % n, "rounds": 10, "mods": _random_mods(rng, mod_n), "boss": boss}
 	if n % 10 == 0:
@@ -409,8 +427,25 @@ static func tower_stage(n: int) -> Dictionary:
 	return {"chapter": ch, "index": 0, "data": d, "id": "T%d" % n, "tower": n}
 
 
+## 서버 시계 - 기기 시계 (초). 서버에 접속하면 Net 이 맞춘다 (기기 시계를 바꿔도 하루 초기화가 흔들리지 않게)
+static var clock_offset := 0
+## 하루 초기화 기준: 한국 시간(UTC+9) 자정. 서버·클라이언트 모두 같은 계산
+const KST_OFFSET := 9 * 3600
+
+
+static func now() -> int:
+	## 유닉스 초 (서버 시각 기준으로 보정)
+	return int(Time.get_unix_time_from_system()) + clock_offset
+
+
+static func kst_date(unix := -1) -> String:
+	## 한국 시간 날짜 "YYYY-MM-DD" (기기/서버 시간대와 상관없이 같음)
+	var t := unix if unix >= 0 else now()
+	return Time.get_date_string_from_unix_time(t + KST_OFFSET)
+
+
 static func daily_id(date_str := "") -> String:
-	var d := date_str if date_str != "" else Time.get_date_string_from_system()
+	var d := date_str if date_str != "" else kst_date()
 	return "D" + d.replace("-", "")
 
 

@@ -11,6 +11,7 @@ var difficulty := 0               # 무한 모드 난이도 (GameData.DIFFICULTI
 var carry: Dictionary = {}        # 이어하기: {stage, state} - 다음 스테이지/층에 배치 유지
 var player_name := "플레이어"
 var tutorial := false             # 다음 솔로 판에서 튜토리얼 표시
+var open_recovery := false        # 로비에 돌아가면 계정 복구 창을 바로 연다 (첫 판 대사의 "계정 복구" 버튼)
 var stage := ""                   # 스토리 스테이지 id ("" = 무한 모드)
 
 

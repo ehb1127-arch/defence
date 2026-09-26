@@ -50,6 +50,7 @@ func icon(name: String) -> Texture2D:
 ## 아트 파일이 스프라이트 시트에서 잘라낸 것이라 여백/다른 패널 조각이 섞여 있어도 쓸 수 있게:
 ##  - 불투명한 영역 중 가장 큰 덩어리(패널 본체)만 찾아 region_rect 로 사용
 ##  - 본체가 이미지 가장자리에 닿아 잘려 있으면 깨진 이미지로 보고 쓰지 않음 (null → 코드 스타일)
+##  - 위(또는 아래) 테두리만 잘려 나간 그림(아래 반쪽만 있는 틀)은 반대쪽 테두리를 뒤집어 붙여 온전한 틀로 고쳐 씀
 ##  - 모서리 장식이 늘어나지 않도록 모서리 크기를 본체 크기에 맞춰 자동 계산
 func stylebox(key: String, content := -1.0) -> StyleBox:
 	var t := tex("ui/" + key)
@@ -61,6 +62,10 @@ func stylebox(key: String, content := -1.0) -> StyleBox:
 	var sb := StyleBoxTexture.new()
 	sb.texture = t
 	sb.region_rect = Rect2(r)
+	var fixed := _repaired(t, r)
+	if fixed != null:
+		sb.texture = fixed
+		sb.region_rect = Rect2(Vector2.ZERO, Vector2(r.size))
 	var m := clampi(int(mini(r.size.x, r.size.y) * 0.26), 10, 96)
 	sb.texture_margin_left = m
 	sb.texture_margin_right = m
@@ -120,3 +125,64 @@ func region(t: Texture2D) -> Rect2i:
 			out = Rect2i()
 	_regions[key] = out
 	return out
+
+
+var _fixed := {}
+
+
+func _repaired(t: Texture2D, r: Rect2i) -> Texture2D:
+	## 위/아래 테두리 중 한쪽이 잘린 틀이면 온전한 쪽을 뒤집어 붙인 새 텍스처, 아니면 null
+	var key := t.resource_path
+	if _fixed.has(key):
+		return _fixed[key]
+	var out: Texture2D = null
+	var img := t.get_image()
+	if img != null:
+		if img.is_compressed():
+			img.decompress()
+		img = img.get_region(r)
+		var side := cropped_side(img)
+		if side != 0:
+			var w := img.get_width()
+			var h := img.get_height()
+			var band := clampi(int(h * 0.3), 8, h / 2)
+			var src := img.get_region(Rect2i(0, h - band, w, band) if side < 0 else Rect2i(0, 0, w, band))
+			src.flip_y()
+			img.blit_rect(src, Rect2i(0, 0, w, band), Vector2i(0, 0 if side < 0 else h - band))
+			out = ImageTexture.create_from_image(img)
+	_fixed[key] = out
+	return out
+
+
+static func cropped_side(img: Image) -> int:
+	## 위쪽이 잘렸으면 -1, 아래쪽이 잘렸으면 1, 온전하면 0.
+	## 온전한 가장자리는 바깥 줄(테두리)과 조금 안쪽 줄(바탕)의 색이 크게 다르다.
+	## 잘린 가장자리는 바깥 줄부터 이미 바탕이라 거의 같다.
+	var h := img.get_height()
+	if img.get_width() < 16 or h < 16:
+		return 0
+	var top := edge_contrast(img, 1)
+	var bottom := edge_contrast(img, -1)
+	if top < 0.3 and bottom > top * 2.4:
+		return -1
+	if bottom < 0.3 and top > bottom * 2.4:
+		return 1
+	return 0
+
+
+static func edge_contrast(img: Image, dir: int) -> float:
+	var w := img.get_width()
+	var h := img.get_height()
+	var y0 := 1 if dir > 0 else h - 2
+	var d := int(h * 0.16) * dir
+	var sum := 0.0
+	var xs := [0.3, 0.36, 0.42, 0.58, 0.64, 0.7]
+	for fx in xs:
+		var x := int(w * fx)
+		var b := img.get_pixel(x, y0 + d)
+		var best := 0.0
+		for k in 12:
+			var a := img.get_pixel(x, y0 + dir * k)
+			best = maxf(best, (absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b)) / 3.0)
+		sum += best
+	return sum / xs.size()

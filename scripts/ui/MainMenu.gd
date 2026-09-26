@@ -34,6 +34,34 @@ var _btn_start: Button
 var _btn_leave: Button
 var _t := 0.0
 var _dim: ColorRect
+# 빠른 매칭 (상대가 없으면 AI 와 시작)
+const SEARCH_AI_AFTER := 20.0        # 이만큼 기다려도 상대가 없으면 AI 대전으로
+const SEARCH_OFFLINE_AFTER := 8.0    # 서버에 못 붙으면 이만큼 뒤 AI 대전으로
+var _search_mode := ""
+var _search_t := 0.0
+var _quick_box: VBoxContainer
+var _search_box: VBoxContainer
+var _search_lbl: Label
+var _search_sub: Label
+var _room_box: VBoxContainer
+var _dev_panel: PanelContainer
+var _dev_btn: ActionButton
+var _dev_taps := 0
+var _conn_lbl: Label
+# 랭킹
+var _rank_kind := "pvp"
+var _rank_tabs := {}
+var _rank_rows: VBoxContainer
+var _rank_mine: Label
+# 계정 복구
+var _recovery: PanelContainer
+var _rec_code: Label
+var _rec_edit: LineEdit
+var _rec_msg: Label
+# 서버 이벤트 배지 (server_config.event_name)
+var _event_badge: PanelContainer
+var _event_lbl: Label
+static var _ftue_redirected := false   # 첫 실행 때 로비 대신 1-1 로 바로 (앱 실행당 한 번)
 
 
 func _ready() -> void:
@@ -41,7 +69,14 @@ func _ready() -> void:
 		get_tree().change_scene_to_file.call_deferred("res://scenes/Server.tscn")
 		return
 	set_anchors_preset(Control.PRESET_FULL_RECT)
-	theme = GameData.ui_theme()
+	theme = UIKit.theme()
+	# 완전히 새 계정의 첫 실행: 버튼 많은 로비 대신 바로 첫 스테이지 대사로 (FTUE)
+	if _first_time() and not _ftue_redirected and not "--no-ftue" in OS.get_cmdline_user_args():
+		_ftue_redirected = true
+		var tree := get_tree()
+		(func(): Campaign.start_stage("1-1", tree)).call_deferred()
+		return
+	_ftue_redirected = true
 	Music.play("lobby")
 	_build_background()
 	_build_top()
@@ -56,118 +91,47 @@ func _ready() -> void:
 	_dim.visible = false
 	_dim.gui_input.connect(func(e): if e is InputEventMouseButton and e.pressed: on_back())
 	add_child(_dim)
-	# ---- 온라인 로비 (카드 누르면 열리는 창) ----
-	_online = _panel(Vector2(500, 100), Vector2(600, 720), "온라인")
-	_online.visible = false
-	var rv: VBoxContainer = _online.get_child(0)
-
-	rv.add_theme_constant_override("separation", 8)
-	var addr_row := HBoxContainer.new()
-	rv.add_child(addr_row)
-	addr_row.add_child(_label("서버"))
-	_addr_edit = LineEdit.new()
-	_addr_edit.text = Net.server_address
-	_addr_edit.placeholder_text = "OCI 서버 공인 IP 또는 도메인"
-	_addr_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	addr_row.add_child(_addr_edit)
-	_btn_connect = _small_btn("접속", _connect)
-	_btn_connect.size_flags_horizontal = Control.SIZE_SHRINK_END
-	_btn_connect.custom_minimum_size = Vector2(90, 40)
-	addr_row.add_child(_btn_connect)
-	var conn_row := HBoxContainer.new()
-	rv.add_child(conn_row)
-	_btn_lan = _small_btn("이 PC 에서 서버 열기 (LAN)", _host_lan)
-	conn_row.add_child(_btn_lan)
-	_btn_disconnect = _small_btn("연결 끊기", func(): Net.close(); _status.text = "연결을 끊었습니다.")
-	conn_row.add_child(_btn_disconnect)
-	_status = _label("서버 주소를 입력하고 [접속] 하세요.")
-	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status.custom_minimum_size = Vector2(0, 40)
-	_status.add_theme_color_override("font_color", Color(0.75, 0.85, 1.0))
-	rv.add_child(_status)
-	# 방 목록
-	_room_list = ItemList.new()
-	_room_list.custom_minimum_size = Vector2(0, 150)
-	_room_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_room_list.item_activated.connect(func(_i): _join_selected())
-	rv.add_child(_room_list)
-	var list_row := HBoxContainer.new()
-	rv.add_child(list_row)
-	_btn_refresh = _small_btn("새로고침", func(): Net.request_rooms())
-	list_row.add_child(_btn_refresh)
-	_btn_join = _small_btn("선택한 방 참가", _join_selected)
-	list_row.add_child(_btn_join)
-	var create_row := HBoxContainer.new()
-	rv.add_child(create_row)
-	_net_mode = OptionButton.new()
-	_net_mode.add_item("협동")
-	_net_mode.add_item("대전")
-	create_row.add_child(_net_mode)
-	_room_name = LineEdit.new()
-	_room_name.placeholder_text = "방 이름 (비우면 자동)"
-	_room_name.max_length = 20
-	_room_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	create_row.add_child(_room_name)
-	_btn_create = _small_btn("방 만들기", func(): _apply_name(); Net.create_room(_mode_sel(), _room_name.text))
-	_btn_create.size_flags_horizontal = Control.SIZE_SHRINK_END
-	_btn_create.custom_minimum_size = Vector2(110, 40)
-	create_row.add_child(_btn_create)
-	var quick_row := HBoxContainer.new()
-	rv.add_child(quick_row)
-	_btn_quick_coop = _small_btn("빠른 매칭 - 협동", func(): Net.quick_match("coop"))
-	quick_row.add_child(_btn_quick_coop)
-	_btn_quick_pvp = _small_btn("빠른 매칭 - 대전", func(): Net.quick_match("pvp"))
-	quick_row.add_child(_btn_quick_pvp)
-	rv.add_child(HSeparator.new())
-	_room_label = _label("")
-	_room_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_room_label.add_theme_color_override("font_color", Color(1, 0.85, 0.45))
-	rv.add_child(_room_label)
-	var room_row := HBoxContainer.new()
-	rv.add_child(room_row)
-	_btn_start = _small_btn("게임 시작!", func(): Net.start_match())
-	room_row.add_child(_btn_start)
-	_btn_leave = _small_btn("방 나가기", func(): Net.leave_room())
-	room_row.add_child(_btn_leave)
-	var rec_row := HBoxContainer.new()
-	rv.add_child(rec_row)
-	_record_lbl = _label("")
-	_record_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_record_lbl.add_theme_color_override("font_color", Color(1, 0.85, 0.45))
-	rec_row.add_child(_record_lbl)
-	var rank_btn := _small_btn("랭킹", func(): Net.request_leaderboard())
-	rank_btn.size_flags_horizontal = Control.SIZE_SHRINK_END
-	rank_btn.custom_minimum_size = Vector2(110, 40)
-	rec_row.add_child(rank_btn)
-	rv.add_child(_small_btn("닫기", func(): _online.visible = false))
+	_build_online()
 	_build_rank_panel()
 	Net.record_updated.connect(func(_r): _refresh_record())
 	Net.leaderboard_received.connect(_on_leaderboard)
+	Net.notice_received.connect(_on_notice)
+	Net.recovery_code.connect(_on_recovery_code)
+	Net.recovery_result.connect(_on_recovery_result)
+	Net.config_received.connect(func(_c): _refresh_event())
+	Net.account_synced.connect(_refresh_coins)
 	_refresh_record()
-
 	Net.status_changed.connect(_on_status)
 	Net.rooms_updated.connect(_on_rooms)
 	Net.room_updated.connect(func(_r): _refresh_online())
-	Net.connection_changed.connect(func(_c): _refresh_online())
+	Net.connection_changed.connect(_on_connection)
 	_on_rooms(Net.rooms)
 	_refresh_online()
 	_build_help()
 	_build_settings()
 	_build_achievements()
 	_build_two_player()
+	_build_event_badge()
 	_auto_account()
 	# 온라인 매치에서 돌아왔으면 로비를 바로 보여준다
 	if Net.connected:
 		_online.visible = true
+		_check_notice.call_deferred()
+	# 첫 판 대사에서 "계정 복구"를 눌러 왔으면 복구 창부터
+	if Session.open_recovery:
+		Session.open_recovery = false
+		_open_recovery.call_deferred()
 
 
 func _process(delta: float) -> void:
 	if _dim != null:
 		var any := false
-		for p in [_rank_panel, _achieve, _settings, _help, _two_p, _online]:
+		for p in _popups():
 			if p != null and p.visible:
 				any = true
 		_dim.visible = any
+	if _search_mode != "":
+		_update_search(delta)
 	_t -= delta
 	if _t <= 0.0:
 		_t = 0.25
@@ -182,6 +146,32 @@ func _mode_sel() -> String:
 func _on_status(t: String) -> void:
 	if is_instance_valid(_status):
 		_status.text = t
+	_refresh_conn()
+
+
+func _refresh_conn() -> void:
+	## 플레이어용 연결 상태 (자세한 서버 메시지는 개발자 메뉴에서만)
+	if not is_instance_valid(_conn_lbl):
+		return
+	if Net.connected:
+		_conn_lbl.text = "● 서버 연결됨"
+		_conn_lbl.add_theme_color_override("font_color", Color(0.5, 1, 0.6))
+	elif Net.peer != null:
+		_conn_lbl.text = "서버에 연결하는 중..."
+		_conn_lbl.add_theme_color_override("font_color", Color(1, 0.9, 0.5))
+	else:
+		_conn_lbl.text = "서버에 연결되지 않았어요 · AI 와는 바로 할 수 있어요"
+		_conn_lbl.add_theme_color_override("font_color", Color(1, 0.7, 0.55))
+
+
+func _on_connection(c: bool) -> void:
+	_refresh_online()
+	if c:
+		_check_notice()
+		if _search_mode != "" and Net.room.is_empty():
+			Net.quick_match(_search_mode)
+		if is_instance_valid(_rank_panel) and _rank_panel.visible:
+			Net.request_leaderboard(_rank_kind)
 
 
 func _on_rooms(list: Array) -> void:
@@ -206,28 +196,229 @@ func _on_rooms(list: Array) -> void:
 
 
 func _refresh_online() -> void:
+	if not is_instance_valid(_quick_box):
+		return
 	var c := Net.connected
 	var in_room := not Net.room.is_empty()
+	var quick_room: bool = in_room and Net.room.get("quick", false)
+	_refresh_conn()
 	_btn_connect.disabled = c
 	_btn_lan.disabled = c
 	_btn_disconnect.disabled = not c and Net.peer == null
 	_btn_refresh.disabled = not c or in_room
 	_btn_join.disabled = not c or in_room
 	_btn_create.disabled = not c or in_room
-	_btn_quick_coop.disabled = not c or in_room
-	_btn_quick_pvp.disabled = not c or in_room
-	_room_list.visible = true
+	_search_box.visible = _search_mode != ""
+	_quick_box.visible = _search_mode == "" and not (in_room and not quick_room)
+	_room_box.visible = in_room and not quick_room and _search_mode == ""
+	_dev_btn.visible = _dev_on()
 	_btn_start.disabled = not (c and in_room and Net.is_room_owner() and Net.room.get("members", []).size() >= 2 and not Net.room.get("playing", false))
 	_btn_leave.disabled = not (c and in_room)
 	if in_room:
 		var r := Net.room
 		var who := ", ".join(r.get("players", []))
-		var wait := "상대를 기다리는 중..." if r.get("members", []).size() < 2 else ("방장이 시작하면 게임이 시작됩니다." if not Net.is_room_owner() else "[게임 시작!] 을 누르세요.")
-		if r.get("quick", false):
-			wait = "상대를 찾는 중... (들어오면 자동 시작)" if r.get("members", []).size() < 2 else "곧 시작합니다!"
-		_room_label.text = "현재 방 #%d %s [%s]  -  %s\n%s" % [r.get("id", 0), r.get("name", ""), Session.mode_name(r.get("mode", "")), who, wait]
+		var wait := "상대를 기다리는 중..." if r.get("members", []).size() < 2 else ("방장이 시작하면 게임이 시작돼요" if not Net.is_room_owner() else "[게임 시작!] 을 누르세요")
+		_room_label.text = "방 #%d %s [%s]\n%s\n%s" % [r.get("id", 0), r.get("name", ""), Session.mode_name(r.get("mode", "")), who, wait]
 	else:
-		_room_label.text = "방에 들어가 있지 않습니다." if c else ""
+		_room_label.text = ""
+
+
+func _dev_on() -> bool:
+	## 서버 주소 · LAN · 방 목록 같은 개발자용 조작: 디버그 빌드이거나 숨은 스위치(연결 상태 7번 누르기)
+	if "--player-ui" in OS.get_cmdline_user_args():
+		return false   # 테스트: 출시 빌드 화면 확인용
+	return OS.is_debug_build() or bool(UIKit.ui_get("dev_online", false))
+
+
+func _dev_tap() -> void:
+	_dev_taps += 1
+	if _dev_taps >= 7:
+		_dev_taps = 0
+		UIKit.ui_set("dev_online", not bool(UIKit.ui_get("dev_online", false)))
+		Platform.show_toast("개발자 메뉴 %s" % ("켬" if _dev_on() else "끔"))
+		_refresh_online()
+
+
+# ---- 빠른 매칭: 상대가 없으면 AI 와 ----
+func _quick(mode: String) -> void:
+	_apply_name()
+	_search_mode = mode
+	_search_t = 0.0
+	Sfx.play("click")
+	if Net.connected:
+		if Net.room.is_empty():
+			Net.quick_match(mode)
+	elif Net.peer == null and not Net.is_server:
+		Net.connect_to(Net.server_address)
+	_refresh_online()
+	_update_search(0.0)
+
+
+func _update_search(delta: float) -> void:
+	if not Net.room.is_empty() and Net.room.get("playing", false):
+		return   # 곧 게임 화면으로 넘어감
+	_search_t += delta
+	var limit := SEARCH_AI_AFTER if Net.connected else SEARCH_OFFLINE_AFTER
+	var left := maxi(0, int(ceil(limit - _search_t)))
+	var dots := ".".repeat(1 + int(_search_t * 2.0) % 3)
+	var full: bool = Net.room.get("members", []).size() >= 2
+	_search_lbl.text = ("상대를 찾았어요!" if full else "상대를 찾는 중" + dots)
+	_search_sub.text = ("%s · %d초 뒤 AI 와 시작" % [Session.mode_name(_search_mode), left]) if Net.connected else ("서버 연결 중 · %d초 뒤 AI 와 시작" % left)
+	if _search_t >= limit and not full:
+		Platform.show_toast("상대가 없어 AI 와 시작해요")
+		_play_ai()
+
+
+func _cancel_search() -> void:
+	if _search_mode == "":
+		return
+	_search_mode = ""
+	if not Net.room.is_empty() and Net.room.get("quick", false):
+		Net.leave_room()
+	_refresh_online()
+
+
+func _play_ai() -> void:
+	## 빠른 매칭 대신 AI 와 같은 모드로 (로컬 판)
+	var mode := _search_mode if _search_mode != "" else "pvp"
+	_cancel_search()
+	_start_local(mode, false)
+
+
+func _build_online() -> void:
+	_online = _panel(Vector2(440, 150), Vector2(720, 540), "온라인")
+	_online.visible = false
+	var rv: VBoxContainer = _online.get_child(0)
+	rv.add_theme_constant_override("separation", 14)
+	# 연결 상태 (7번 누르면 개발자 메뉴)
+	_conn_lbl = UIKit.label("", 22, Color(1, 0.8, 0.6), 4)
+	_conn_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_conn_lbl.mouse_filter = Control.MOUSE_FILTER_STOP
+	_conn_lbl.gui_input.connect(func(e): if e is InputEventMouseButton and e.pressed: _dev_tap())
+	rv.add_child(_conn_lbl)
+	_record_lbl = UIKit.label("", 24, Color(1, 0.85, 0.45), 4)
+	_record_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rv.add_child(_record_lbl)
+	# 큰 빠른 매칭 버튼 두 개
+	_quick_box = VBoxContainer.new()
+	_quick_box.add_theme_constant_override("separation", 14)
+	rv.add_child(_quick_box)
+	for spec in [["pvp", "attack", Color(1, 0.6, 0.5), Color(0.8, 0.28, 0.22), "빠른 매칭 · 대전", "먼저 무너지면 패배"], ["coop", "heart", Color(0.5, 1, 0.85), Color(0.15, 0.55, 0.45), "빠른 매칭 · 협동", "둘이 함께 %d라운드" % GameData.FINAL_WAVE]]:
+		var m: String = spec[0]
+		var b := ActionButton.make(spec[1], spec[2], spec[4], func(): _quick(m), Vector2(0, 124))
+		b.wide = true
+		b.tone = spec[3]
+		b.radius = 22
+		b.sub = spec[5]
+		_quick_box.add_child(b)
+		if m == "pvp":
+			_btn_quick_pvp = b
+		else:
+			_btn_quick_coop = b
+	# 찾는 중
+	_search_box = VBoxContainer.new()
+	_search_box.add_theme_constant_override("separation", 12)
+	_search_box.visible = false
+	rv.add_child(_search_box)
+	_search_lbl = UIKit.label("상대를 찾는 중...", 36, Color(1, 0.9, 0.55))
+	_search_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_search_box.add_child(_search_lbl)
+	_search_sub = UIKit.label("", 22, Color(0.8, 0.87, 1.0), 4)
+	_search_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_search_box.add_child(_search_sub)
+	var sh := HBoxContainer.new()
+	sh.add_theme_constant_override("separation", 14)
+	_search_box.add_child(sh)
+	var ai := ActionButton.make("play", Color(0.6, 1, 0.7), "AI 와 바로 하기", _play_ai, Vector2(0, 96))
+	ai.wide = true
+	ai.tone = UIKit.GREEN
+	ai.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sh.add_child(ai)
+	var cancel := ActionButton.make("close", Color(0.9, 0.9, 0.95), "취소", _cancel_search, Vector2(0, 96))
+	cancel.wide = true
+	cancel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sh.add_child(cancel)
+	# 직접 만든 방 (개발자 메뉴로 만든 방)
+	_room_box = VBoxContainer.new()
+	_room_box.add_theme_constant_override("separation", 8)
+	rv.add_child(_room_box)
+	_room_label = UIKit.label("", 22, Color(1, 0.85, 0.45), 4)
+	_room_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_room_box.add_child(_room_label)
+	var room_row := HBoxContainer.new()
+	room_row.add_theme_constant_override("separation", 10)
+	_room_box.add_child(room_row)
+	_btn_start = _small_btn("게임 시작!", func(): Net.start_match())
+	room_row.add_child(_btn_start)
+	_btn_leave = _small_btn("방 나가기", func(): Net.leave_room())
+	room_row.add_child(_btn_leave)
+	# 랭킹 · 닫기
+	var bottom := HBoxContainer.new()
+	bottom.add_theme_constant_override("separation", 14)
+	rv.add_child(bottom)
+	var rank := ActionButton.make("crown", Color(1, 0.85, 0.35), "랭킹", _open_rank, Vector2(0, 88))
+	rank.wide = true
+	rank.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bottom.add_child(rank)
+	_dev_btn = ActionButton.make("gear", Color(0.8, 0.85, 0.95), "개발자 메뉴 (서버 주소 · LAN · 방 목록)", func(): _show_panel(_dev_panel), Vector2(96, 88))
+	_dev_btn.caption = "개발"
+	bottom.add_child(_dev_btn)
+	var close := ActionButton.make("close", Color(0.9, 0.9, 0.95), "닫기", func(): _cancel_search(); _online.visible = false, Vector2(0, 88))
+	close.wide = true
+	close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bottom.add_child(close)
+	# ---- 개발자 메뉴: 서버 주소 / LAN / 방 목록 (디버그 빌드 또는 숨은 스위치) ----
+	_dev_panel = _panel(Vector2(400, 70), Vector2(800, 740), "개발자 메뉴")
+	_dev_panel.visible = false
+	var _dev_box: VBoxContainer = _dev_panel.get_child(0)
+	var addr_row := HBoxContainer.new()
+	_dev_box.add_child(addr_row)
+	addr_row.add_child(_label("서버"))
+	_addr_edit = LineEdit.new()
+	_addr_edit.text = Net.server_address
+	_addr_edit.placeholder_text = "서버 주소 (wss://... 또는 IP)"
+	_addr_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	addr_row.add_child(_addr_edit)
+	_btn_connect = _small_btn("접속", _connect)
+	_btn_connect.size_flags_horizontal = Control.SIZE_SHRINK_END
+	_btn_connect.custom_minimum_size = Vector2(110, 64)
+	addr_row.add_child(_btn_connect)
+	var conn_row := HBoxContainer.new()
+	_dev_box.add_child(conn_row)
+	_btn_lan = _small_btn("이 PC 에서 서버 열기 (LAN)", _host_lan)
+	conn_row.add_child(_btn_lan)
+	_btn_disconnect = _small_btn("연결 끊기", func(): Net.close(); _status.text = "연결을 끊었습니다.")
+	conn_row.add_child(_btn_disconnect)
+	_status = _label("")
+	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status.add_theme_color_override("font_color", Color(0.75, 0.85, 1.0))
+	_dev_box.add_child(_status)
+	_room_list = ItemList.new()
+	_room_list.custom_minimum_size = Vector2(0, 200)
+	_room_list.item_activated.connect(func(_i): _join_selected())
+	_dev_box.add_child(_room_list)
+	var list_row := HBoxContainer.new()
+	_dev_box.add_child(list_row)
+	_btn_refresh = _small_btn("새로고침", func(): Net.request_rooms())
+	list_row.add_child(_btn_refresh)
+	_btn_join = _small_btn("선택한 방 참가", _join_selected)
+	list_row.add_child(_btn_join)
+	var create_row := HBoxContainer.new()
+	_dev_box.add_child(create_row)
+	_net_mode = OptionButton.new()
+	_net_mode.add_item("협동")
+	_net_mode.add_item("대전")
+	create_row.add_child(_net_mode)
+	_room_name = LineEdit.new()
+	_room_name.placeholder_text = "방 이름"
+	_room_name.max_length = 20
+	_room_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	create_row.add_child(_room_name)
+	_btn_create = _small_btn("방 만들기", func(): _apply_name(); Net.create_room(_mode_sel(), _room_name.text))
+	_btn_create.size_flags_horizontal = Control.SIZE_SHRINK_END
+	_btn_create.custom_minimum_size = Vector2(140, 64)
+	create_row.add_child(_btn_create)
+	_dev_box.add_child(_small_btn("닫기", func(): _dev_panel.visible = false))
 
 
 func _connect() -> void:
@@ -310,7 +501,8 @@ func _big_btn(t: String, desc: String, cb: Callable) -> Button:
 func _small_btn(t: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = t
-	b.custom_minimum_size = Vector2(0, 42)
+	b.custom_minimum_size = Vector2(0, 64)
+	b.add_theme_font_size_override("font_size", 24)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.pressed.connect(cb)
 	return b
@@ -475,7 +667,7 @@ func _build_top() -> void:
 	_name_edit.add_theme_constant_override("outline_size", 4)
 	_name_edit.tooltip_text = "눌러서 닉네임 바꾸기"
 	pv.add_child(_name_edit)
-	var sub := UIKit.label("대전 %d점  ·  최고 R%d" % [Profile.rating, int(Profile.stats.get("best_round", 0))], 17, Color(0.75, 0.85, 1.0), 4)
+	var sub := UIKit.label("대전 %d점  ·  최고 R%d" % [Profile.rating, int(Profile.stats.get("best_round", 0))], 20, Color(0.75, 0.85, 1.0), 4)
 	pv.add_child(sub)
 	# ---- 오른쪽 위: 재화 + 설정 ----
 	var right := HBoxContainer.new()
@@ -492,7 +684,7 @@ func _build_top() -> void:
 	_coin_lbl = UIKit.label("0", 28)
 	_coin_lbl.custom_minimum_size = Vector2(110, 0)
 	ch.add_child(_coin_lbl)
-	var plus := ActionButton.make("", Color.WHITE, "충전 (상점)", func(): _go_shop("charge"), Vector2(40, 40))
+	var plus := ActionButton.make("", Color.WHITE, "충전 (상점)", func(): _go_shop("charge"), Vector2(56, 56))
 	plus.tone = UIKit.GREEN
 	plus.radius = 10
 	plus.badge = "+"
@@ -501,7 +693,7 @@ func _build_top() -> void:
 	ch.add_child(plus)
 	chip.add_child(ch)
 	right.add_child(chip)
-	var gear := ActionButton.make("gear", Color(0.9, 0.93, 1.0), "설정", func(): _show_panel(_settings), Vector2(64, 60))
+	var gear := ActionButton.make("gear", Color(0.9, 0.93, 1.0), "설정", func(): _show_panel(_settings), Vector2(84, 76))
 	gear.tone = UIKit.NAVY
 	right.add_child(gear)
 	Profile.changed.connect(_refresh_coins)
@@ -550,7 +742,7 @@ var _hero: Control
 
 func _modes() -> Array:
 	return [
-		{"id": "story", "icon": "book", "col": Color(1, 0.8, 0.4), "name": "스토리", "sub": _story_sub(), "go": "스토리 계속"},
+		{"id": "story", "icon": "book", "col": Color(1, 0.8, 0.4), "name": "스토리", "sub": _story_sub(), "go": "모험 시작!" if _first_time() else "스토리 계속"},
 		{"id": "daily", "icon": "clock", "col": Color(1, 0.75, 0.35), "name": "오늘의 결계",
 			"sub": ("오늘 완료! 내일 새 규칙" if Profile.daily_done() else "매일 바뀌는 규칙 · 보상 300코인") if Profile.stage_unlocked(Story.daily_id()) or Profile.daily_done() else "스토리 1장을 깨면 열려요",
 			"go": "다시 도전" if Profile.daily_done() else "도전!"},
@@ -607,7 +799,7 @@ func _build_mode_cards() -> void:
 	sh.add_child(mv)
 	_mode_name = UIKit.label("", 32)
 	mv.add_child(_mode_name)
-	_mode_sub = UIKit.label("", 19, Color(0.8, 0.87, 1.0), 4)
+	_mode_sub = UIKit.label("", 22, Color(0.8, 0.87, 1.0), 4)
 	mv.add_child(_mode_sub)
 	var nxt := ActionButton.make("", Color.WHITE, "다음 모드", func(): _cycle_mode(1), Vector2(64, 80))
 	nxt.badge = "▶"
@@ -627,13 +819,13 @@ func _build_mode_cards() -> void:
 	_diff_row.position = Vector2(1020, 660)
 	_diff_row.add_theme_constant_override("separation", 6)
 	add_child(_diff_row)
-	var dl := UIKit.label("AI", 18, Color(1, 0.7, 0.6))
+	var dl := UIKit.label("AI", 22, Color(1, 0.7, 0.6))
 	dl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_diff_row.add_child(dl)
 	for lvl in 3:
 		var lv := lvl
 		var b := ActionButton.make("star", [Color(0.6, 0.9, 0.6), Color(1, 0.85, 0.35), Color(1, 0.4, 0.4)][lvl],
-			"AI 난이도: " + ["쉬움", "보통", "어려움"][lvl], func(): _set_diff(lv), Vector2(58, 58))
+			"AI 난이도: " + ["쉬움", "보통", "어려움"][lvl], func(): _set_diff(lv), Vector2(88, 88))
 		b.badge = ["쉬움", "보통", "고수"][lvl]
 		b.tone = UIKit.NAVY
 		_diff_row.add_child(b)
@@ -691,9 +883,18 @@ func _cycle_mode(d: int) -> void:
 		UIKit.pop_in(_mode_name, 0.9)
 
 
+func _first_time() -> bool:
+	## 아직 한 판도 안 한 새 계정: 지도 대신 바로 1-1 로
+	return not Profile.tutorial_done and Profile.campaign.is_empty()
+
+
 func _start_selected() -> void:
 	var id: String = _modes()[_mode_i]["id"]
 	if id == "story":
+		if _first_time():
+			_apply_name()
+			Campaign.start_stage("1-1", get_tree())
+			return
 		_open_story()
 	elif id == "daily" or id == "tower":
 		var sid := Story.daily_id() if id == "daily" else "T%d" % (Profile.tower_best() + 1)
@@ -723,14 +924,15 @@ func _build_sides() -> void:
 	right.add_theme_constant_override("separation", 14)
 	add_child(right)
 	right.add_child(_side_button("attack", Color(1, 0.9, 0.9), "온라인", "온라인: 빠른 매칭 · 방 · 랭킹", func(): _show_panel(_online), Color(0.3, 0.5, 0.95)))
-	right.add_child(_side_button("heart", Color(0.6, 1, 0.85), "2인", "로컬 2인 (한 화면에서 친구와)", func(): _show_panel(_two_p)))
+	if not Platform.is_mobile():
+		# 로컬 2인은 키보드 두 벌이 필요 → 휴대폰에서는 숨김
+		right.add_child(_side_button("heart", Color(0.6, 1, 0.85), "2인", "로컬 2인 (한 화면에서 친구와)", func(): _show_panel(_two_p)))
 	_refresh_coins()
 
 
 func _open_rank() -> void:
-	if Net.connected:
-		Net.request_leaderboard()
 	_show_panel(_rank_panel)
+	_rank_tab(_rank_kind)
 
 
 func _open_story() -> void:
@@ -789,7 +991,10 @@ func _refresh_idle() -> void:
 	_idle_btn.badge = str(n)
 	_idle_btn.disabled = n <= 0
 	_idle_btn.glow = n > 0
-	_idle_ad.disabled = n <= 0
+	var ads_left := Profile.idle_ads_left()
+	_idle_ad.visible = Ads.available()
+	_idle_ad.disabled = n <= 0 or ads_left <= 0
+	_idle_ad.badge = "x2" if ads_left > 0 else "내일"
 	_idle_btn.queue_redraw()
 	_idle_ad.queue_redraw()
 
@@ -797,11 +1002,14 @@ func _refresh_idle() -> void:
 func _claim_idle() -> void:
 	if Profile.claim_idle() > 0:
 		Sfx.play("win")
-		UIKit.coin_fly(get_viewport().get_mouse_position(), _coin_lbl, 10)
+		UIKit.coin_fly(Platform.design_pos(get_viewport().get_mouse_position()), _coin_lbl, 10)
 	_refresh_idle()
 
 
 func _claim_idle_ad() -> void:
+	if Profile.idle_ads_left() <= 0:
+		Platform.show_toast("오늘 광고 2배는 다 썼어요")
+		return
 	Ads.show_rewarded("idle_double", _grant_idle_double)
 
 
@@ -828,7 +1036,7 @@ func _build_bottom() -> void:
 	var tabs := [
 		["shop", Color(1, 0.8, 0.35), "상점", func(): _go_shop()],
 		["book", Color(0.6, 0.8, 1.0), "도감", func(): get_tree().change_scene_to_file("res://scenes/Collection.tscn")],
-		["attack", Color(1, 0.95, 0.9), "전투", func(): pass],
+		["attack", Color(1, 0.95, 0.9), "전투", _start_selected],
 		["star", Color(1, 0.85, 0.4), "스토리", _open_story],
 		["crown", Color(1, 0.85, 0.35), "랭킹", _open_rank],
 	]
@@ -860,30 +1068,112 @@ func _refresh_record() -> void:
 		_record_lbl.text = "대전 레이팅 %d  ·  %d승 %d패  ·  협동 최고 R%d" % [int(r.get("rating", 1000)), int(r.get("wins", 0)), int(r.get("losses", 0)), int(r.get("coop_best", 0))]
 
 
+const RANK_TABS := [["pvp", "attack", "대전"], ["endless", "star", "무한"], ["tower", "crown", "탑"], ["daily", "clock", "오늘의 결계"]]
+
+
 func _build_rank_panel() -> void:
-	_rank_panel = _panel(Vector2(520, 120), Vector2(560, 660), "랭킹 (대전 레이팅)")
+	_rank_panel = _panel(Vector2(360, 60), Vector2(880, 770), "랭킹")
 	_rank_panel.visible = false
 	var v: VBoxContainer = _rank_panel.get_child(0)
-	_rank_list = ItemList.new()
-	_rank_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_rank_list.add_theme_font_size_override("font_size", 18)
-	v.add_child(_rank_list)
+	v.add_theme_constant_override("separation", 12)
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 10)
+	v.add_child(tabs)
+	for t in RANK_TABS:
+		var kind: String = t[0]
+		var b := ActionButton.make(t[1], Color(1, 0.88, 0.5), t[2], func(): _rank_tab(kind), Vector2(0, 80))
+		b.wide = true
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tabs.add_child(b)
+		_rank_tabs[kind] = b
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.custom_minimum_size = Vector2(0, 440)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(scroll)
+	_rank_rows = VBoxContainer.new()
+	_rank_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_rank_rows.add_theme_constant_override("separation", 6)
+	scroll.add_child(_rank_rows)
+	_rank_mine = UIKit.label("", 26, Color(0.6, 0.95, 1.0))
+	_rank_mine.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_rank_mine)
 	v.add_child(_small_btn("닫기", func(): _rank_panel.visible = false))
 
 
-func _on_leaderboard(list: Array, my_rank: int) -> void:
-	_rank_list.clear()
+func _rank_tab(kind: String) -> void:
+	_rank_kind = kind
+	for k in _rank_tabs:
+		_rank_tabs[k].selected = k == kind
+		_rank_tabs[k].tone = Color(0.95, 0.62, 0.12) if k == kind else UIKit.NAVY
+		_rank_tabs[k].queue_redraw()
+	for c in _rank_rows.get_children():
+		c.queue_free()
+	_rank_mine.text = ""
+	if Net.connected:
+		_rank_rows.add_child(_rank_note("불러오는 중..."))
+		Net.request_leaderboard(kind)
+	else:
+		_rank_rows.add_child(_rank_note("서버에 연결되면 랭킹을 볼 수 있어요"))
+		if Net.peer == null and not Net.is_server:
+			Net.connect_to(Net.server_address)
+
+
+func _rank_note(t: String) -> Label:
+	var l := UIKit.label(t, 24, Color(0.75, 0.8, 0.95), 4)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.custom_minimum_size = Vector2(0, 80)
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	return l
+
+
+func _rank_value(kind: String, v: int) -> String:
+	match kind:
+		"pvp":
+			return "%d점" % v
+		"tower":
+			return "%d층" % v
+	return "R%d" % v
+
+
+func _on_leaderboard(kind: String, list: Array, my_rank: int) -> void:
+	if not is_instance_valid(_rank_rows) or kind != _rank_kind:
+		return
+	for c in _rank_rows.get_children():
+		c.queue_free()
 	for i in list.size():
 		var e: Dictionary = list[i]
-		var idx := _rank_list.add_item("%2d위   %s   %d점   (%d승 %d패)" % [i + 1, e["name"], int(e["rating"]), int(e["wins"]), int(e["losses"])])
-		if i < 3:
-			_rank_list.set_item_custom_fg_color(idx, [Color(1, 0.85, 0.3), Color(0.85, 0.85, 0.95), Color(0.9, 0.6, 0.35)][i])
+		var row := PanelContainer.new()
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.05, 0.07, 0.15, 0.75) if i % 2 == 0 else Color(0.08, 0.1, 0.2, 0.75)
+		sb.set_corner_radius_all(10)
+		sb.content_margin_left = 16
+		sb.content_margin_right = 16
+		sb.content_margin_top = 6
+		sb.content_margin_bottom = 6
+		row.add_theme_stylebox_override("panel", sb)
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 14)
+		row.add_child(h)
+		var medal: Color = [Color(1, 0.85, 0.3), Color(0.85, 0.87, 0.95), Color(0.9, 0.6, 0.35)][i] if i < 3 else Color(0.8, 0.84, 0.95)
+		var rk := UIKit.label("%d" % (i + 1), 28, medal)
+		rk.custom_minimum_size = Vector2(56, 0)
+		h.add_child(rk)
+		var nm := UIKit.label(str(e.get("name", "?")), 26, medal if i < 3 else Color.WHITE)
+		nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nm.clip_text = true
+		h.add_child(nm)
+		var sub := UIKit.label(str(e.get("sub", "")), 20, Color(0.7, 0.76, 0.9), 4)
+		sub.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		h.add_child(sub)
+		var val := UIKit.label(_rank_value(kind, int(e.get("value", 0))), 28, Color(1, 0.9, 0.55))
+		val.custom_minimum_size = Vector2(120, 0)
+		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		h.add_child(val)
+		_rank_rows.add_child(row)
 	if list.is_empty():
-		_rank_list.add_item("아직 기록이 없습니다. 첫 대전의 주인공이 되세요!")
-	if my_rank > 0:
-		_rank_list.add_item("")
-		_rank_list.add_item("내 순위: %d위" % my_rank)
-	_rank_panel.visible = true
+		_rank_rows.add_child(_rank_note("아직 기록이 없어요. 첫 주인공이 되어 보세요!"))
+	_rank_mine.text = ("내 순위  %d위" % my_rank) if my_rank > 0 else "아직 순위가 없어요"
 
 
 func _build_achievements() -> void:
@@ -903,24 +1193,24 @@ func _build_achievements() -> void:
 		var goals: Array = a["goals"]
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 12)
-		row.add_child(UIIcon.make(a["icon"], 44, Color(1, 0.8, 0.3) if tier > 0 else Color(0.45, 0.47, 0.55)))
+		row.add_child(UIIcon.make(a["icon"], 56, Color(1, 0.8, 0.3) if tier > 0 else Color(0.45, 0.47, 0.55)))
 		var col := VBoxContainer.new()
 		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var t := Label.new()
 		var next_i := mini(tier, goals.size() - 1)
 		t.text = "%s  %s" % [a["name"], "★".repeat(tier) + "☆".repeat(goals.size() - tier)]
-		t.add_theme_font_size_override("font_size", 18)
+		t.add_theme_font_size_override("font_size", 24)
 		col.add_child(t)
 		var d := Label.new()
 		d.text = ("완료!" if tier >= goals.size() else a["desc"] % goals[next_i]) + ("" if tier >= goals.size() else "   보상 코인 %d" % a["coins"][next_i])
-		d.add_theme_font_size_override("font_size", 14)
-		d.add_theme_color_override("font_color", Color(0.65, 0.7, 0.8))
+		d.add_theme_font_size_override("font_size", 20)
+		d.add_theme_color_override("font_color", Color(0.75, 0.8, 0.9))
 		col.add_child(d)
 		var bar := ProgressBar.new()
 		bar.max_value = goals[next_i]
 		bar.value = mini(Profile.ach_value(a["stat"]), goals[next_i])
 		bar.show_percentage = false
-		bar.custom_minimum_size = Vector2(0, 10)
+		bar.custom_minimum_size = Vector2(0, 14)
 		col.add_child(bar)
 		row.add_child(col)
 		var num := Label.new()
@@ -940,29 +1230,251 @@ func _set_diff(lvl: int) -> void:
 
 
 func _build_settings() -> void:
-	_settings = _panel(Vector2(500, 120), Vector2(600, 620), "설정")
+	_settings = _panel(Vector2(260, 90), Vector2(1080, 700), "설정")
 	_settings.visible = false
 	var v: VBoxContainer = _settings.get_child(0)
-	for spec in [["music", "배경음악"], ["sound", "효과음"], ["labels", "버튼 이름 표시"], ["vibrate", "진동"], ["focus_layout", "대전: 내 전장 크게 (휴대폰은 항상)"], ["account_sync", "시작할 때 서버 계정과 동기화"]]:
+	var cols := HBoxContainer.new()
+	cols.add_theme_constant_override("separation", 28)
+	v.add_child(cols)
+	# 왼쪽: 켜고 끄기
+	var left := VBoxContainer.new()
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.add_theme_constant_override("separation", 4)
+	cols.add_child(left)
+	var toggles := [["music", "배경음악"], ["sound", "효과음"], ["vibrate", "진동"], ["labels", "버튼 이름 표시"], ["account_sync", "온라인 계정 자동 연결"]]
+	if not Platform.is_mobile():
+		toggles.append(["focus_layout", "대전: 내 전장 크게 보기"])
+	for spec in toggles:
 		var cb := CheckButton.new()
 		cb.text = spec[1]
-		cb.add_theme_font_size_override("font_size", 22)
-		cb.custom_minimum_size.y = 54
+		cb.add_theme_font_size_override("font_size", 26)
+		cb.custom_minimum_size.y = 72
 		cb.button_pressed = Profile.settings.get(spec[0], true)
 		var key: String = spec[0]
 		cb.toggled.connect(func(on): Profile.set_setting(key, on))
-		v.add_child(cb)
+		left.add_child(cb)
 	var lab := CheckButton.new()
 	lab.text = "전장 유닛 이름 항상 표시"
-	lab.add_theme_font_size_override("font_size", 22)
-	lab.custom_minimum_size.y = 54
+	lab.add_theme_font_size_override("font_size", 26)
+	lab.custom_minimum_size.y = 72
 	lab.button_pressed = Art.show_unit_labels
 	lab.toggled.connect(func(on): Art.show_unit_labels = on)
-	v.add_child(lab)
+	left.add_child(lab)
+	# 오른쪽: 계정 · 약관
+	var right := VBoxContainer.new()
+	right.custom_minimum_size = Vector2(400, 0)
+	right.add_theme_constant_override("separation", 14)
+	cols.add_child(right)
+	right.add_child(UIKit.label("계정", 26, Color(1, 0.88, 0.5)))
+	var rec := ActionButton.make("gear", Color(0.7, 0.9, 1.0), "계정 복구 코드\n새 폰·재설치 때 진행과 구매를 되찾아요", _open_recovery, Vector2(0, 96))
+	rec.wide = true
+	rec.tone = UIKit.BLUE
+	right.add_child(rec)
+	right.add_child(UIKit.label("약관", 26, Color(1, 0.88, 0.5)))
+	for spec in [["book", "이용약관", "terms_url", LEGAL_TERMS], ["help", "개인정보처리방침", "privacy_url", LEGAL_PRIVACY]]:
+		var key: String = spec[2]
+		var fallback: String = spec[3]
+		var b := ActionButton.make(spec[0], Color(0.85, 0.9, 1.0), spec[1], func(): _open_legal(key, fallback), Vector2(0, 88))
+		b.wide = true
+		right.add_child(b)
+	var vs := str(ProjectSettings.get_setting("application/config/version", ""))
+	if vs != "":
+		right.add_child(UIKit.label("버전 %s" % vs, 20, Color(0.6, 0.66, 0.8), 4))
 	var close := _small_btn("닫기", func(): _settings.visible = false)
-	close.add_theme_font_size_override("font_size", 24)
-	close.custom_minimum_size.y = 58
+	close.add_theme_font_size_override("font_size", 28)
+	close.custom_minimum_size.y = 80
 	v.add_child(close)
+	_build_recovery()
+
+
+## 약관 주소: project.godot 의 application/legal/terms_url, privacy_url (출시 전 실제 주소로)
+const LEGAL_TERMS := "https://example.com/terms"
+const LEGAL_PRIVACY := "https://example.com/privacy"
+
+
+func _open_legal(key: String, fallback: String) -> void:
+	var url := str(ProjectSettings.get_setting("application/legal/" + key, fallback))
+	if OS.shell_open(url) != OK:
+		Platform.show_toast("주소를 열 수 없어요: " + url)
+
+
+# ---- 계정 복구 코드 ----
+func _build_recovery() -> void:
+	_recovery = _panel(Vector2(360, 150), Vector2(880, 560), "계정 복구")
+	_recovery.visible = false
+	var v: VBoxContainer = _recovery.get_child(0)
+	v.add_theme_constant_override("separation", 14)
+	var d := UIKit.label(UIKit.keep_words("내 코드를 적어 두면, 새 폰이나 다시 설치했을 때 그 코드로 진행과 구매를 되찾을 수 있어요."), 22, Color(0.85, 0.9, 1.0), 4)
+	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(d)
+	var mine := HBoxContainer.new()
+	mine.add_theme_constant_override("separation", 14)
+	v.add_child(mine)
+	_rec_code = UIKit.label("- - -", 40, Color(1, 0.9, 0.5))
+	_rec_code.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_rec_code.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	mine.add_child(_rec_code)
+	var get_b := ActionButton.make("", Color.WHITE, "내 코드 보기", _request_code, Vector2(200, 84))
+	get_b.badge = "내 코드 보기"
+	get_b.font_px = 24
+	get_b.tone = UIKit.BLUE
+	mine.add_child(get_b)
+	var copy := ActionButton.make("", Color.WHITE, "복사", _copy_code, Vector2(120, 84))
+	copy.badge = "복사"
+	copy.font_px = 24
+	mine.add_child(copy)
+	v.add_child(HSeparator.new())
+	v.add_child(UIKit.label("다른 기기의 코드 입력", 24, Color(1, 0.88, 0.5)))
+	var enter := HBoxContainer.new()
+	enter.add_theme_constant_override("separation", 14)
+	v.add_child(enter)
+	_rec_edit = LineEdit.new()
+	_rec_edit.placeholder_text = "예: ABCD-EFGH-JKLM"
+	_rec_edit.max_length = 20
+	_rec_edit.add_theme_font_size_override("font_size", 30)
+	_rec_edit.custom_minimum_size = Vector2(0, 84)
+	_rec_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	enter.add_child(_rec_edit)
+	var go := ActionButton.make("", Color.WHITE, "복구하기", _redeem_code, Vector2(200, 84))
+	go.badge = "복구하기"
+	go.font_px = 26
+	go.tone = Color(0.95, 0.62, 0.12)
+	enter.add_child(go)
+	var warn := UIKit.label(UIKit.keep_words("복구하면 이 기기의 지금 진행은 그 계정으로 바뀌어요."), 20, Color(1, 0.7, 0.55), 4)
+	warn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(warn)
+	_rec_msg = UIKit.label("", 24, Color(0.6, 1, 0.7))
+	_rec_msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(_rec_msg)
+	v.add_child(_small_btn("닫기", func(): _recovery.visible = false))
+
+
+func _copy_code() -> void:
+	if _rec_code.text.length() > 6 and not _rec_code.text.begins_with("-") and _rec_code.text != "...":
+		DisplayServer.clipboard_set(_rec_code.text)
+		Platform.show_toast("복사했어요")
+
+
+func _open_recovery() -> void:
+	_settings.visible = false
+	_rec_msg.text = ""
+	_show_panel(_recovery)
+	_request_code()
+
+
+func _ensure_online() -> bool:
+	## 서버에 붙어 있으면 true. 아니면 접속을 시작하고 false
+	if Net.connected:
+		return true
+	if Net.peer == null and not Net.is_server:
+		Net.connect_to(Net.server_address)
+	return false
+
+
+func _request_code() -> void:
+	if _ensure_online():
+		_rec_code.text = "..."
+		Net.request_recovery_code()
+	else:
+		_rec_msg.text = "서버에 연결하는 중이에요. 잠시 후 다시 눌러 주세요"
+		_rec_msg.add_theme_color_override("font_color", Color(1, 0.8, 0.5))
+
+
+func _on_recovery_code(code: String) -> void:
+	if not is_instance_valid(_rec_code):
+		return
+	_rec_code.text = code if code != "" else "- - -"
+	if code == "":
+		_rec_msg.text = "지금은 코드를 받을 수 없어요"
+		_rec_msg.add_theme_color_override("font_color", Color(1, 0.6, 0.5))
+
+
+func _redeem_code() -> void:
+	var code := _rec_edit.text.strip_edges().to_upper()
+	if code.length() < 6:
+		_rec_msg.text = "코드를 정확히 입력해 주세요"
+		_rec_msg.add_theme_color_override("font_color", Color(1, 0.6, 0.5))
+		return
+	if not _ensure_online():
+		_rec_msg.text = "서버에 연결하는 중이에요. 잠시 후 다시 눌러 주세요"
+		_rec_msg.add_theme_color_override("font_color", Color(1, 0.8, 0.5))
+		return
+	var run := func():
+		_rec_msg.text = "확인 중..."
+		_rec_msg.add_theme_color_override("font_color", Color(0.8, 0.85, 1.0))
+		Net.redeem_recovery_code(code)
+	UIKit.confirm(self, "계정 복구", "이 기기의 진행이 코드의 계정으로 바뀌어요.\n계속할까요?", "복구하기", run)
+
+
+func _on_recovery_result(ok: bool, msg: String) -> void:
+	if not is_instance_valid(_rec_msg):
+		return
+	_rec_msg.text = msg if msg != "" else ("계정을 되찾았어요!" if ok else "복구하지 못했어요")
+	_rec_msg.add_theme_color_override("font_color", Color(0.6, 1, 0.7) if ok else Color(1, 0.6, 0.5))
+	if ok:
+		Sfx.play("reward")
+		_rec_edit.text = ""
+		_refresh_coins()
+		# 서버 계정을 받으면 로비 전체(레벨·이름·기록·스토리)를 새로 그린다
+		Net.account_synced.connect(_reload_after_recovery, CONNECT_ONE_SHOT)
+
+
+func _reload_after_recovery() -> void:
+	if is_inside_tree():
+		get_tree().reload_current_scene()
+
+
+# ---- 서버 공지 (같은 글은 한 번만) ----
+func _check_notice() -> void:
+	var n := str(Net.server_config.get("notice", "")).strip_edges()
+	if n != "":
+		_on_notice(n)
+
+
+func _on_notice(text: String) -> void:
+	if text == "" or str(UIKit.ui_get("notice_seen", "")) == text:
+		return
+	UIKit.ui_set("notice_seen", text)
+	var ev := str(Net.server_config.get("event_name", ""))
+	UIKit.confirm(self, "공지" if ev == "" else "공지 · " + ev, UIKit.keep_words(text), "확인", func(): pass, "")
+
+
+func _build_event_badge() -> void:
+	## 서버 이벤트 이름 (예: "주말 코인 2배") - 로비 위쪽 가운데. 이벤트가 없으면 숨김
+	_event_badge = PanelContainer.new()
+	var sb := UIKit.pill(Color(0.55, 0.12, 0.2, 0.92))
+	sb.border_color = Color(1, 0.8, 0.35)
+	sb.set_border_width_all(2)
+	_event_badge.add_theme_stylebox_override("panel", sb)
+	_event_badge.mouse_filter = Control.MOUSE_FILTER_STOP
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 8)
+	_event_badge.add_child(h)
+	h.add_child(UIIcon.make("gift", 36))
+	_event_lbl = UIKit.label("", 24, Color(1, 0.92, 0.6), 4)
+	h.add_child(_event_lbl)
+	_event_badge.gui_input.connect(func(e):
+		if e is InputEventMouseButton and e.pressed:
+			var n := str(Net.server_config.get("notice", ""))
+			if n != "":
+				UIKit.confirm(self, "공지 · " + _event_lbl.text, UIKit.keep_words(n), "확인", func(): pass, ""))
+	add_child(_event_badge)
+	_refresh_event()
+
+
+func _refresh_event() -> void:
+	if not is_instance_valid(_event_badge):
+		return
+	var ev := str(Net.server_config.get("event_name", "")).strip_edges()
+	_event_badge.visible = ev != ""
+	if ev == "":
+		return
+	var mult := float(Net.server_config.get("coin_event_mult", 1.0))
+	_event_lbl.text = ev + ("  코인 x%s" % String.num(mult, 1).trim_suffix(".0") if mult > 1.0 else "")
+	var place := func():
+		_event_badge.size = _event_badge.get_combined_minimum_size()
+		_event_badge.position = Vector2(800 - _event_badge.size.x * 0.5, 100)
+	place.call_deferred()
 
 
 func _auto_account() -> void:
@@ -974,10 +1486,16 @@ func _auto_account() -> void:
 	Net.connect_to(Net.server_address)
 
 
+func _popups() -> Array:
+	return [_recovery, _dev_panel, _rank_panel, _achieve, _settings, _help, _two_p, _online]
+
+
 func on_back() -> bool:
 	## 안드로이드 뒤로 가기: 열린 창부터 닫는다
-	for p in [_rank_panel, _achieve, _settings, _help, _two_p, _online]:
+	for p in _popups():
 		if p != null and p.visible:
+			if p == _online and _search_mode != "":
+				_cancel_search()
 			p.visible = false
 			return true
 	return false
@@ -1058,35 +1576,43 @@ func _help_tab(key: String) -> void:
 				["synergy", Color(0.5, 0.85, 1), "시너지", "다른 종류를 모으면 발동"],
 			])
 		"mythic":
+			# 신화 11종: 두 줄로 (아이콘을 누르면 이름·설명 말풍선)
+			var grid := GridContainer.new()
+			grid.columns = 2
+			grid.add_theme_constant_override("h_separation", 26)
+			grid.add_theme_constant_override("v_separation", 4)
+			_help_body.add_child(grid)
 			for m in GameData.RECIPES:
 				var row := HBoxContainer.new()
-				row.alignment = BoxContainer.ALIGNMENT_CENTER
-				row.add_theme_constant_override("separation", 8)
+				row.add_theme_constant_override("separation", 0)
+				row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 				for ing in GameData.RECIPES[m]:
-					row.add_child(UnitIcon.make(ing, 78))
-				var arrow := UIIcon.make("play", 34, Color(1, 0.85, 0.4))
+					row.add_child(UnitIcon.make(ing, 58))
+				var arrow := UIIcon.make("play", 24, Color(1, 0.85, 0.4))
 				arrow.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 				row.add_child(arrow)
-				row.add_child(UnitIcon.make(m, 96))
-				var nm := UIKit.label(GameData.UNITS[m]["name"], 28, GameData.RARITY_COLORS[4].lightened(0.3))
-				nm.custom_minimum_size = Vector2(170, 0)
+				row.add_child(UnitIcon.make(m, 70))
+				var nm := UIKit.label(GameData.UNITS[m]["name"], 24, GameData.RARITY_COLORS[4].lightened(0.35))
+				nm.custom_minimum_size = Vector2(120, 0)
 				nm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 				row.add_child(nm)
-				_help_body.add_child(row)
+				grid.add_child(row)
 		"modes":
 			_help_cards([
-				["book", Color(1, 0.8, 0.45), "스토리", "5장 20스테이지 · ★ 모으기"],
+				["book", Color(1, 0.8, 0.45), "스토리", "%d장 %d스테이지 · ★ 모으기" % [Story.CHAPTERS.size(), Story.all_ids().size()]],
 				["star", Color(1, 0.85, 0.35), "무한 모드", "%d라운드 버티기" % GameData.FINAL_WAVE],
 				["heart", Color(0.5, 0.95, 0.8), "협동", "둘이 합쳐 적 %d마리 전에!" % GameData.COOP_ENEMY_LIMIT],
 				["attack", Color(1, 0.5, 0.4), "대전", "적을 보내 먼저 무너뜨리기"],
 			])
 		"keys":
-			_help_cards([
+			var cards := [
 				["play", Color(0.7, 0.85, 1), "터치", "유닛 누르기 → 빈 칸 누르면 이동"],
-				["help", Color(0.7, 0.85, 1), "길게 누르기", "버튼을 길게 누르면 설명"],
-				["gear", Color(0.7, 0.85, 1), "키보드 1P", "WASD · Space · Q 소환 · E 합성"],
-				["gear", Color(0.7, 0.85, 1), "키보드 2P", "방향키 · Enter · U 소환 · I 합성"],
-			])
+				["help", Color(0.7, 0.85, 1), "길게 누르기", "버튼·아이콘을 길게 누르면 설명"],
+			]
+			if not Platform.is_mobile():
+				cards.append(["gear", Color(0.7, 0.85, 1), "키보드 1P", "WASD · Space · Q 소환 · E 합성"])
+				cards.append(["gear", Color(0.7, 0.85, 1), "키보드 2P", "방향키 · Enter · U 소환 · I 합성"])
+			_help_cards(cards)
 
 
 func _help_cards(cards: Array) -> void:
