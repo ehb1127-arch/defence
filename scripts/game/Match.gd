@@ -370,6 +370,7 @@ func _grant_ad_summon(hud: BoardHUD) -> void:
 var _prev_best := 0
 var _best_told := false
 var _overtime := false
+var _music_t := 0.0
 
 
 func _apply_loadout(consume_items := true) -> void:
@@ -454,7 +455,10 @@ func _build_top_bar(ui: CanvasLayer) -> void:
 
 
 func _toggle_sound() -> void:
-	Profile.set_setting("sound", not Profile.settings["sound"])
+	# 전투 중 소리 버튼은 효과음과 배경음악을 함께 켜고 끈다
+	var on: bool = not Profile.settings["sound"]
+	Profile.settings["music"] = on
+	Profile.set_setting("sound", on)
 	_btn_sound.icon_name = "sound" if Profile.settings["sound"] else "mute"
 	_btn_sound.queue_redraw()
 
@@ -528,6 +532,7 @@ func _process(delta: float) -> void:
 	_update_center_label()
 	_update_peek()
 	_check_best_record()
+	_update_music(delta)
 	if not over and not paused:
 		_ach_t -= delta
 		if _ach_t <= 0.0:
@@ -730,6 +735,27 @@ func _on_blast(b: Board) -> void:
 
 func _local_board() -> Board:
 	return boards[Session.local_index if Session.online else 0]
+
+
+func _update_music(delta: float) -> void:
+	## 보스·중간보스가 살아 있으면 보스 곡, 아니면 전투 곡
+	if over:
+		return
+	_music_t -= delta
+	if _music_t > 0.0:
+		return
+	_music_t = 0.5
+	var boss := false
+	for e in _local_board().enemies:
+		if e.alive and (e.is_boss or e.kind == "midboss"):
+			boss = true
+			break
+	Music.play("boss" if boss else "battle")
+
+
+func _after_result_jingle() -> void:
+	if over:
+		Music.play("map")
 
 
 func _on_net_event(kind: String, data: Variant) -> void:
@@ -948,6 +974,9 @@ func _finish(winner: int, text: String, broadcast: bool) -> void:
 		won = winner == 0 or _overtime   # 연장전은 40라운드를 이미 넘었으므로 승리로 정산
 	_last_won = won
 	Sfx.play("win" if won else "lose")
+	# 승리·패배 음악이 잘 들리게 배경음악을 멈췄다가 잔잔한 곡으로
+	Music.stop()
+	get_tree().create_timer(3.4).timeout.connect(_after_result_jingle)
 	var me := _local_board()
 	var mc := Profile.match_coins_preview(_match_summary())
 	_pending_coins = mc["coins"]

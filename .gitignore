@@ -1,3 +1,6 @@
 .godot/
 *.import
 build/
+
+# 음원 import 설정(반복·압축)은 저장소에 포함
+!audio/**/*.import

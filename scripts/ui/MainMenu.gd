@@ -42,6 +42,7 @@ func _ready() -> void:
 		return
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	theme = GameData.ui_theme()
+	Music.play("lobby")
 	_build_background()
 	_build_top()
 	_build_mode_cards()
@@ -939,22 +940,28 @@ func _set_diff(lvl: int) -> void:
 
 
 func _build_settings() -> void:
-	_settings = _panel(Vector2(540, 190), Vector2(520, 480), "설정")
+	_settings = _panel(Vector2(500, 120), Vector2(600, 620), "설정")
 	_settings.visible = false
 	var v: VBoxContainer = _settings.get_child(0)
-	for spec in [["sound", "효과음"], ["labels", "버튼 이름 표시"], ["vibrate", "진동"], ["focus_layout", "대전: 내 전장 크게 (휴대폰은 항상)"], ["account_sync", "시작할 때 서버 계정과 동기화"]]:
+	for spec in [["music", "배경음악"], ["sound", "효과음"], ["labels", "버튼 이름 표시"], ["vibrate", "진동"], ["focus_layout", "대전: 내 전장 크게 (휴대폰은 항상)"], ["account_sync", "시작할 때 서버 계정과 동기화"]]:
 		var cb := CheckButton.new()
 		cb.text = spec[1]
+		cb.add_theme_font_size_override("font_size", 22)
+		cb.custom_minimum_size.y = 54
 		cb.button_pressed = Profile.settings.get(spec[0], true)
 		var key: String = spec[0]
 		cb.toggled.connect(func(on): Profile.set_setting(key, on))
 		v.add_child(cb)
 	var lab := CheckButton.new()
 	lab.text = "전장 유닛 이름 항상 표시"
+	lab.add_theme_font_size_override("font_size", 22)
+	lab.custom_minimum_size.y = 54
 	lab.button_pressed = Art.show_unit_labels
 	lab.toggled.connect(func(on): Art.show_unit_labels = on)
 	v.add_child(lab)
 	var close := _small_btn("닫기", func(): _settings.visible = false)
+	close.add_theme_font_size_override("font_size", 24)
+	close.custom_minimum_size.y = 58
 	v.add_child(close)
 
 

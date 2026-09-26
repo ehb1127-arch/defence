@@ -33,6 +33,7 @@ func _chapter_stars(ch: int) -> int:
 
 func _ready() -> void:
 	theme = GameData.ui_theme()
+	Music.play("map")
 	var base := ColorRect.new()
 	base.color = Color(0.05, 0.06, 0.09)
 	base.size = Vector2(1600, 900)

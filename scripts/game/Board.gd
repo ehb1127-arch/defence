@@ -578,7 +578,7 @@ func merge_cell(i: int) -> bool:
 			great_star = 1
 		show_banner("합성 대성공!", "", Color(1, 0.85, 0.3))
 		_coin_burst(cell_center(i), 16)
-		_sfx("win")
+		_sfx("legend")
 	var id := _biased_unit_of(new_r)
 	# 합성 연출: 세 마리가 가운데로 빨려 들어감
 	_add_effect({"type": "merge", "pos": cell_center(i), "t": 0.0, "dur": 0.35, "color": GameData.RARITY_COLORS[new_r]})
@@ -972,7 +972,7 @@ func _end_wave() -> void:
 	if crisis != "" and alive:
 		gems += GameData.CRISIS_REWARD_GEMS
 		show_banner("위기 극복!", "보석 +%d" % GameData.CRISIS_REWARD_GEMS, Color(0.5, 1, 0.6))
-		_sfx("win")
+		_sfx("reward")
 	crisis = ""
 	if wave <= 0:
 		return
@@ -1504,6 +1504,7 @@ const ATK_STYLE := {
 	"flask": "flask", "note": "note", "halo": "holy", "wing": "lance",
 	"phoenix": "fireball", "clock": "clockwork", "crown": "coin", "skull": "scythe",
 }
+const ATK_SFX := {"ice": "ice", "zap": "zap", "clockwork": "zap"}
 const ATK_DUR := {
 	"slash": 0.18, "spin": 0.22, "stab": 0.12, "thrust": 0.16, "bash": 0.2, "arrow": 0.16, "tracer": 0.14,
 	"lob": 0.3, "coin": 0.26, "orb": 0.2, "fireball": 0.22, "ice": 0.18, "zap": 0.12, "flask": 0.3,
@@ -1534,6 +1535,7 @@ func _attack(i: int, c: Dictionary, u: Dictionary, target: EnemyState, fx: Dicti
 			dmg *= fx["crit_mult"]
 			crit = true
 		var style: String = ATK_STYLE.get(u["glyph"], "orb")
+		_sfx(ATK_SFX.get(style, "hit"))
 		_add_effect({"type": "atk", "style": style, "from": center, "to": t.pos, "t": 0.0, "dur": ATK_DUR.get(style, 0.16),
 			"color": col.lightened(0.3) if awake else col, "big": u["rarity"] >= 3 or awake, "seed": rng.randf() * TAU})
 		_hit(t, dmg, id, fx, crit)
@@ -1678,7 +1680,7 @@ func _kill(e: EnemyState) -> void:
 		show_banner("JACKPOT!", "+%d 골드" % jg, Color(1, 0.85, 0.2))
 		_coin_burst(e.pos, 14)
 		_flash(Color(1, 0.85, 0.3), 0.35)
-		_sfx("win")
+		_sfx("reward")
 	gauge = mini(gauge + 1, GameData.COOP_BLAST_NEED)
 	var g := 1 + wave / 10
 	match e.kind:
@@ -1694,7 +1696,8 @@ func _kill(e: EnemyState) -> void:
 				float_text(e.pos + Vector2(0, -80), "간발의 차!! +%d 보석" % GameData.CLUTCH_GEMS, Color(1, 0.95, 0.4), 26)
 			gems += gm
 			show_banner("보스 처치!", "+%d 골드  +%d 보석" % [g, gm], Color(1, 0.85, 0.3))
-			_sfx("win")
+			_sfx("boom")
+			_sfx("legend")
 			_flash(Color(1, 0.9, 0.5), 0.5)
 			shake = 14.0
 			if wave >= final_wave and mode != "pvp" and not final_cleared_flag:
@@ -1708,7 +1711,8 @@ func _kill(e: EnemyState) -> void:
 			gems += 2
 			_coin_burst(e.pos, 16)
 			show_banner("중간보스 처치!", "+%d 골드  +2 보석" % g, Color(0.85, 0.55, 1.0))
-			_sfx("win")
+			_sfx("boom")
+			_sfx("reward")
 			shake = 8.0
 		"hero":
 			g = 30 + wave * 2
@@ -1750,6 +1754,7 @@ func _cast_skill(i: int, c: Dictionary, u: Dictionary) -> void:
 	var base: float = u["dmg"] * unit_power(c["id"])
 	var sid: String = u["skill"]["id"]
 	float_text(center + Vector2(0, -30), u["skill"]["name"] + "!", u["color"], 18)
+	_sfx({"judgement": "zap", "timestop": "ice", "goldrain": "reward"}.get(sid, "boom"))
 	match sid:
 		"firestorm":
 			_add_effect({"type": "boom", "pos": center, "r": u["range"], "t": 0.0, "dur": 0.7, "color": Color(1, 0.4, 0.1)})
@@ -2042,7 +2047,7 @@ func _update_enhance(dt: float) -> void:
 		if star + 1 == GameData.AWAKEN_STAR:
 			show_banner("각성!", "%s 특성 강화" % GameData.UNITS[c["id"]]["name"], Color(1, 0.7, 0.3))
 			_flash(Color(1, 0.8, 0.4), 0.4)
-		_sfx("win" if star + 1 >= 3 else "rare")
+		_sfx("legend" if star + 1 >= 3 else "reward")
 	else:
 		if rng.randf() < GameData.STAR_DOWN_CHANCE[star]:
 			c["star"] = star - 1
@@ -2116,6 +2121,7 @@ func _update_boss(e: EnemyState, dt: float) -> void:
 
 
 func _boss_skill(e: EnemyState, sid: String) -> void:
+	_sfx("boom")
 	match sid:
 		"dash":
 			e.buff_t = 2.0
@@ -2266,7 +2272,7 @@ func _update_slot(dt: float) -> void:
 			slot_jackpots += 1
 		if reels[0] != "skull":
 			_flash(Color(1, 0.9, 0.4), 0.4)
-		_sfx("win" if reels[0] != "skull" else "fail")
+		_sfx("legend" if reels[0] != "skull" else "fail")
 	elif (reels[0] == reels[1] or reels[1] == reels[2] or reels[0] == reels[2]):
 		var pair: String = reels[1] if (reels[1] == reels[0] or reels[1] == reels[2]) else reels[0]
 		if pair != "skull":
@@ -2348,7 +2354,7 @@ func _rare_pull_fx(idx: int, rarity: int) -> void:
 	if idx < 0:
 		return
 	var col: Color = GameData.RARITY_COLORS[rarity]
-	_sfx("rare")
+	_sfx("legend" if rarity >= GameData.Rarity.LEGEND else "rare")
 	# 가챠 연출: 등급이 높을수록 길고 화려하게
 	if rarity >= GameData.Rarity.EPIC and sfx:
 		effects = effects.filter(func(f): return f["type"] != "reveal")
