@@ -23,6 +23,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Configure Godot Android export
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TEMPLATE_FILE="$(find /root -type f -path "*/4.3.stable/android_debug.apk" -print -quit)"
+          test -n "$TEMPLATE_FILE"
+          TEMPLATE_DIR="$(dirname "$TEMPLATE_FILE")"
+          TARGET_TEMPLATE_DIR="$HOME/.local/share/godot/export_templates/4.3.stable"
+          mkdir -p "$TARGET_TEMPLATE_DIR"
+          cp "$TEMPLATE_DIR/android_debug.apk" "$TARGET_TEMPLATE_DIR/"
+          cp "$TEMPLATE_DIR/android_release.apk" "$TARGET_TEMPLATE_DIR/"
+
+          JAVA_HOME_DIR="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+          mkdir -p "$HOME/.android" "$HOME/.config/godot"
+          keytool -genkeypair             -keystore "$HOME/.android/debug.keystore"             -storepass android             -alias androiddebugkey             -keypass android             -keyalg RSA             -keysize 2048             -validity 10000             -dname "CN=Android Debug,O=Android,C=US"
+
+          cat > "$HOME/.config/godot/editor_settings-4.tres" <<SETTINGS
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME_DIR"
+          export/android/debug_keystore = "$HOME/.android/debug.keystore"
+          SETTINGS
+
       - name: Build Android debug APK
         shell: bash
         run: |
@@ -31,6 +57,7 @@ jobs:
           godot --version
           godot --headless --verbose --path . --export-debug "Android" build/android/SquareDefense.apk
           test -s build/android/SquareDefense.apk
+          sha256sum build/android/SquareDefense.apk
 
       - name: Remove previous releases
         uses: actions/github-script@v7
