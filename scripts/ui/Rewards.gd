@@ -190,17 +190,20 @@ func _refresh() -> void:
 func _claim_bonus() -> void:
 	if Profile.claim_daily_bonus():
 		Sfx.play("win")
+		UIKit.coin_fly(get_viewport().get_mouse_position(), _coin_lbl, 12)
 
 
 func _attend() -> void:
 	var r := Profile.attend()
 	if not r.is_empty():
 		Sfx.play("win")
+		UIKit.coin_fly(get_viewport().get_mouse_position(), _coin_lbl, 10)
 
 
 func _claim(m: Dictionary) -> void:
 	if Profile.claim_daily(m):
 		Sfx.play("merge")
+		UIKit.coin_fly(get_viewport().get_mouse_position(), _coin_lbl, 6)
 
 
 func _spin(by_ad: bool) -> void:
@@ -234,6 +237,8 @@ func _start_spin(by_ad: bool) -> void:
 
 func _on_wheel_stopped(_idx: int) -> void:
 	var r := _pending
+	if r.has("coins"):
+		UIKit.coin_fly(_wheel.get_global_rect().get_center(), _coin_lbl, 12)
 	var txt := ""
 	if r.has("coins"):
 		txt = "코인 +%d" % r["coins"]

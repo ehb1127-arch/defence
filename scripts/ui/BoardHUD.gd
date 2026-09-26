@@ -2,9 +2,9 @@ class_name BoardHUD
 extends PanelContainer
 ## 전장 하나의 조작 패널. 아이콘 중심(이미지로 교체 가능), 글자는 숫자와 이름 정도만.
 ##  - 자원 칩 (골드 / 보석)
-##  - 행동 버튼 줄: 소환 · 합성 · 도박 · 강화 · 조합 · 공격(대전)/협동 · 과제 · 광고
+##  - 행동 버튼 줄: 소환 · 합성 · 운명 소환 · 강화 · 조합 · 공격(대전)/협동 · 과제 · 광고
 ##  - 선택 유닛 카드: 초상화, 능력치 아이콘, 합성/판매/선물
-##  - 도박/강화/조합/공격/협동/과제는 전장 위에 카드형 시트로 열림
+##  - 운명 소환/강화/조합/공격/협동/과제는 전장 위에 카드형 시트로 열림
 
 signal ad_summon_requested(hud)
 signal emote_requested(hud, emote)
@@ -152,7 +152,7 @@ func _action_buttons(sz: Vector2) -> Array:
 	add.call("summon", "summon", Color(0.45, 0.9, 0.5), "소환 (Q)\n골드로 무작위 유닛 소환", func(): board.summon())
 	_btn["summon"].badge_icon = "gold"
 	add.call("merge", "merge", Color(1, 0.85, 0.4), "합성 (E)\n같은 유닛 3마리 → 상위 등급", func(): board.auto_merge())
-	add.call("gamble", "gamble", Color(0.75, 0.45, 1.0), "도박\n보석으로 영웅/전설 뽑기", func(): _toggle_sheet("gamble"))
+	add.call("gamble", "gamble", Color(0.75, 0.45, 1.0), "운명 소환\n보석으로 영웅·전설에 도전! 실패해도 3연속이면 위로 보상", func(): _toggle_sheet("gamble"))
 	add.call("slot", "slot", Color(1, 0.35, 0.45), "럭키 슬롯\n골드를 걸고 한 판!", func(): _toggle_sheet("slot"))
 	add.call("upgrade", "upgrade", Color(0.45, 0.95, 0.6), "강화\n등급별 공격력 / 소환 행운", func(): _toggle_sheet("upgrade"))
 	add.call("recipe", "recipe", Color(1, 0.35, 0.4), "조합\n신화 조합표", func(): _toggle_sheet("recipe"))
@@ -471,7 +471,7 @@ func _toggle_sheet(kind: String) -> void:
 		"pick": ["summon", "골라 뽑기 - 하나를 고르세요", Color(0.6, 0.9, 1.0)],
 		"slot": ["slot", "럭키 슬롯", Color(1, 0.35, 0.45)],
 		"emote": ["emote", "이모티콘", Color(1, 0.8, 0.2)],
-		"gamble": ["gamble", "도박", Color(0.75, 0.45, 1.0)], "upgrade": ["upgrade", "강화", Color(0.45, 0.95, 0.6)],
+		"gamble": ["gamble", "운명 소환", Color(0.75, 0.45, 1.0)], "upgrade": ["upgrade", "강화", Color(0.45, 0.95, 0.6)],
 		"recipe": ["recipe", "신화 조합", Color(1, 0.35, 0.4)], "attack": ["attack", "공격", Color(1, 0.5, 0.4)],
 		"coop": ["gift", "협동", Color(0.5, 0.95, 0.8)], "mission": ["mission", "도전 과제", Color(0.5, 1.0, 0.6)],
 	}[kind]

@@ -44,7 +44,7 @@ const UNITS := {
 	# ---- 희귀 ----
 	"knight":  {"glyph": "shield", "name": "기사", "rarity": 1, "color": Color(0.5, 0.7, 1.0), "dmg": 34.0, "cd": 0.9, "range": 160.0, "fx": {"stun_chance": 0.15, "stun": 0.6, "knockback": 22.0}, "desc": "기절 15% + 넉백"},
 	"sniper":  {"glyph": "scope", "name": "저격수", "rarity": 1, "color": Color(0.3, 0.8, 0.6), "dmg": 45.0, "cd": 1.4, "range": 380.0, "fx": {"crit": 0.25, "crit_mult": 3.0, "pierce": 1}, "desc": "초장거리 관통 치명타"},
-	"frost":   {"glyph": "snow", "name": "얼음술사", "rarity": 1, "color": Color(0.55, 0.9, 1.0), "dmg": 18.0, "cd": 1.0, "range": 230.0, "fx": {"splash": 50.0, "slow": 0.35, "slow_time": 1.5, "freeze_chance": 0.08}, "desc": "범위 둔화 + 빙결"},
+	"frost":   {"glyph": "snow", "name": "얼음술사", "rarity": 1, "color": Color(0.55, 0.9, 1.0), "dmg": 18.0, "cd": 1.0, "range": 230.0, "fx": {"splash": 50.0, "slow": 0.4, "slow_time": 1.8, "freeze_chance": 0.15}, "desc": "범위 둔화 40% + 15% 확률 빙결"},
 	"pyro":    {"glyph": "flame", "name": "화염술사", "rarity": 1, "color": Color(1.0, 0.45, 0.2), "dmg": 22.0, "cd": 1.1, "range": 215.0, "fx": {"splash": 60.0, "burn": 0.5, "burn_time": 3.0}, "desc": "범위 화상"},
 	"rogue":   {"glyph": "coin", "name": "도적", "rarity": 1, "color": Color(0.6, 0.6, 0.6), "dmg": 19.0, "cd": 0.45, "range": 160.0, "fx": {"gold_chance": 0.12, "gold": 2}, "desc": "공격 시 골드 강탈"},
 	# ---- 영웅 ----
@@ -112,22 +112,25 @@ const ENEMY_ORDER := ["normal", "fast", "tank", "shield", "splitter", "mini", "h
 
 ## 중간보스: 7·17·27·37 라운드 (제한시간 없음, 대신 무게 10 - 오래 두면 한도가 빨리 참)
 const MIDBOSS_NAMES := ["늑대 두목", "독거미 여왕", "얼음 거인", "그림자 기사"]
+const MIDBOSS_ART := ["midboss_wolf", "midboss_spider", "midboss_giant", "midboss_knight"]
+## 무한 모드 10·20·30·40 라운드 보스 그림 (스토리는 Story.BOSS_CHARS)
+const BOSS_ART := ["boss_ogre", "boss_lich", "boss_golem", "boss_eye"]
 
 ## 적 영웅: 4라운드부터 일반 라운드에 가끔 등장. 각자 특수 능력으로 긴장감을 준다
 const ENEMY_HEROES := [
-	{"id": "thief", "name": "그림자 도적", "hp": 7.0, "speed": 118.0, "armor": 0.0, "color": Color(0.55, 0.45, 0.95), "desc": "한 바퀴 돌 때마다 골드를 훔쳐요"},
-	{"id": "shaman", "name": "역병 주술사", "hp": 9.0, "speed": 58.0, "armor": 5.0, "color": Color(0.45, 0.9, 0.35), "desc": "주변 적의 체력을 회복시켜요"},
-	{"id": "berserker", "name": "피의 광전사", "hp": 11.0, "speed": 62.0, "armor": 10.0, "color": Color(1.0, 0.3, 0.25), "desc": "체력이 줄수록 빨라져요"},
-	{"id": "warlord", "name": "철갑 장군", "hp": 13.0, "speed": 50.0, "armor": 35.0, "color": Color(0.75, 0.75, 0.85), "desc": "주변 적에게 방어막을 씌워요"},
+	{"id": "thief", "name": "그림자 도적", "hp": 7.0, "speed": 130.0, "armor": 0.0, "color": Color(0.55, 0.45, 0.95), "desc": "한 바퀴 돌 때마다 골드를 훔쳐요"},
+	{"id": "shaman", "name": "역병 주술사", "hp": 9.0, "speed": 76.0, "armor": 5.0, "color": Color(0.45, 0.9, 0.35), "desc": "주변 적의 체력을 회복시켜요"},
+	{"id": "berserker", "name": "피의 광전사", "hp": 11.0, "speed": 80.0, "armor": 10.0, "color": Color(1.0, 0.3, 0.25), "desc": "체력이 줄수록 빨라져요"},
+	{"id": "warlord", "name": "철갑 장군", "hp": 13.0, "speed": 64.0, "armor": 35.0, "color": Color(0.75, 0.75, 0.85), "desc": "주변 적에게 방어막을 씌워요"},
 ]
 const HERO_CHANCE := 0.3        # 일반 라운드마다 적 영웅 등장 확률
 const HERO_FROM_WAVE := 4
 
 ## 지배(마인드 컨트롤): 보석으로 트랙 위의 강한 적 하나를 내 유닛으로 빼앗기
-const MC_GEMS := 3
+const MC_GEMS := 4
 const MC_COOLDOWN := 35.0
 ## 빼앗은 적 → 얻는 유닛 등급
-const MC_RARITY := {"normal": 1, "fast": 1, "mini": 1, "tank": 2, "shield": 2, "splitter": 2, "healer": 2, "elite": 3, "hero": 3, "midboss": 3}
+const MC_RARITY := {"normal": 1, "fast": 1, "mini": 1, "tank": 1, "shield": 1, "splitter": 1, "healer": 2, "elite": 2, "hero": 2, "midboss": 3}
 const MC_PRIORITY := ["midboss", "hero", "elite", "tank", "healer", "shield", "splitter", "normal", "fast", "mini"]
 
 
@@ -155,13 +158,21 @@ const PREP_TIME := 8.0
 const BOSS_HP_MULT := 26.0
 const BOSS_HP_DECAY := 0.7
 const FINAL_BOSS_TIME := 90.0
-const FINAL_BOSS_HP_SCALE := 0.8
+const FINAL_BOSS_HP_SCALE := 0.64
 const SPAWN_PER_WAVE := 20
 const SPAWN_INTERVAL := 0.6
 const ENEMY_LIMIT := 100
 const COOP_ENEMY_LIMIT := 180
 const BASE_HP := 22.0
 const HP_GROWTH := 1.218
+## 일반 적은 라운드마다 조금 더 단단해져 중반부터 압박이 쌓인다 (보스 체력에는 적용 안 함)
+const MOB_EXTRA_GROWTH := 1.03
+## 무한 모드 난이도: 적 체력·보상 배수, 위기 이벤트 확률
+const DIFFICULTIES := [
+	{"id": "normal", "name": "보통", "hp": 1.0, "reward": 1.0, "crisis": 0.45, "color": Color(0.35, 0.6, 1.0)},
+	{"id": "hard", "name": "어려움", "hp": 1.5, "reward": 1.5, "crisis": 0.6, "color": Color(1.0, 0.6, 0.15)},
+	{"id": "hell", "name": "지옥", "hp": 2.2, "reward": 2.2, "crisis": 0.8, "color": Color(0.9, 0.15, 0.2)},
+]
 const START_GOLD := 100
 const START_GEMS := 2
 const SUMMON_BASE_COST := 20
@@ -177,10 +188,10 @@ const MAX_LUCK := 5
 const SUMMON_PROBS := [0.68, 0.265, 0.05, 0.005]
 const LUCK_SHIFT := [-0.045, 0.025, 0.016, 0.004]
 
-## 도박: [보석 비용, 성공 확률, 결과 등급]
+## 운명 소환: [보석 비용, 성공 확률, 결과 등급]
 const GAMBLES := [
-	{"name": "영웅 도박", "gems": 1, "chance": 0.6, "rarity": 2},
-	{"name": "전설 도박", "gems": 2, "chance": 0.25, "rarity": 3},
+	{"name": "영웅 운명 소환", "gems": 1, "chance": 0.6, "rarity": 2},
+	{"name": "전설 운명 소환", "gems": 3, "chance": 0.2, "rarity": 3},
 ]
 
 ## 대전 모드 공격: 적 보내기
@@ -208,6 +219,24 @@ const EVENTS := [
 	{"id": "storm", "name": "번개 폭풍!", "desc": "필드 모든 적에게 체력 25% 피해"},
 	{"id": "gemrain", "name": "보석비!", "desc": "보석 +2"},
 ]
+## 위기 이벤트: 8라운드부터 이벤트 라운드의 약 45%. 버텨내면 라운드 끝에 보석 +2
+const CRISES := [
+	{"id": "horde", "name": "대침공!!", "desc": "이번 라운드 적이 3배로 몰려옵니다 (대신 약함)"},
+	{"id": "rush", "name": "폭주!!", "desc": "10초 동안 모든 적 이동속도 +60%"},
+	{"id": "eclipse", "name": "일식!!", "desc": "15초 동안 수호병 사거리 -25%"},
+	{"id": "quake", "name": "지진!!", "desc": "수호병 3칸이 3초 동안 기절"},
+]
+const CRISIS_FROM_WAVE := 8
+const CRISIS_CHANCE := 0.45
+const CRISIS_REWARD_GEMS := 2
+
+## 피버: 콤보 50·100·150… 달성 시 8초 동안 공속 +30%, 처치 골드 +50%
+const FEVER_EVERY := 50
+const FEVER_TIME := 8.0
+const FEVER_SPEED := 0.3
+## 보스를 제한시간 이만큼 남기고 잡으면 "간발의 차" 보너스
+const CLUTCH_TIME := 5.0
+const CLUTCH_GEMS := 2
 
 ## 도전 과제
 const MISSIONS := [
@@ -216,8 +245,8 @@ const MISSIONS := [
 	{"id": "first_mythic", "name": "신화 강림", "desc": "신화 유닛 조합", "gold": 300, "gems": 3},
 	{"id": "kill_500", "name": "학살자", "desc": "적 500마리 처치", "gold": 200, "gems": 1},
 	{"id": "full_board", "name": "만원 사례", "desc": "24칸 이상 채우기", "gold": 150, "gems": 0},
-	{"id": "gamble_win3", "name": "타짜", "desc": "도박 3회 성공", "gold": 0, "gems": 2},
-	{"id": "gamble_lose3", "name": "눈물의 도박", "desc": "도박 3회 연속 실패", "gold": 0, "gems": 3},
+	{"id": "gamble_win3", "name": "운명의 손", "desc": "운명 소환 3회 성공", "gold": 0, "gems": 2},
+	{"id": "gamble_lose3", "name": "눈물의 소환", "desc": "운명 소환 3회 연속 실패", "gold": 0, "gems": 3},
 	{"id": "chest_5", "name": "보물 사냥꾼", "desc": "보물상자 5개 열기", "gold": 150, "gems": 1},
 ]
 
@@ -445,7 +474,7 @@ const SHOP_ITEMS := [
 const PERKS := [
 	{"id": "p_gold", "name": "넉넉한 시작", "desc": "시작 골드 +15", "max": 5, "base": 60, "step": 60, "icon": "gold"},
 	{"id": "p_chest", "name": "보물 감각", "desc": "보물상자 확률 +20%", "max": 5, "base": 80, "step": 80, "icon": "chest"},
-	{"id": "p_gamble", "name": "타짜의 손", "desc": "도박 성공률 +2%p", "max": 5, "base": 100, "step": 100, "icon": "gamble"},
+	{"id": "p_gamble", "name": "운명의 별", "desc": "운명 소환 성공률 +2%p", "max": 5, "base": 100, "step": 100, "icon": "gamble"},
 	{"id": "p_boss", "name": "보스 사냥꾼", "desc": "보스 제한시간 +3초", "max": 5, "base": 120, "step": 120, "icon": "attack"},
 ]
 
@@ -525,7 +554,7 @@ func unit_level_cost(id: String, level: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# 럭키 슬롯 (게임 중 골드 도박)
+# 럭키 슬롯 (게임 중 골드 걸기)
 # ---------------------------------------------------------------------------
 const SLOT_SYMBOLS := ["gold", "gem", "summon", "star", "skull"]
 const SLOT_WEIGHTS := [30, 14, 20, 8, 28]
@@ -588,11 +617,11 @@ const STAR_DMG := 0.25            # ★당 공격력 +25%
 const STAR_SPEED := 0.10          # ★당 공속 +10%
 const AWAKEN_STAR := 3            # ★3 각성: 특성 수치 x1.35, 연쇄/다중 +1
 const ENHANCE_TIME := 0.9
-const MERGE_GREAT_CHANCE := 0.08  # 합성 대성공 확률
+const MERGE_GREAT_CHANCE := 0.05  # 합성 대성공 확률
 
 ## 소환 보완 (랜덤이지만 억울하지 않게)
 const PITY_EPIC := 20      # 영웅 이상이 이만큼 안 나오면 다음 소환 영웅 이상 확정
-const PITY_LEGEND := 60    # 전설 확정
+const PITY_LEGEND := 100   # 전설 확정
 const PICK_EVERY := 10     # 10번째 소환마다 3장 중 골라 뽑기
 const MERGE_BIAS := 2.0    # 합성 결과: 가까운 신화 조합에 필요한 유닛이 나올 가중치 (+배)
 

@@ -214,3 +214,32 @@ class Shade:
 		draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(170, 0), Vector2(170, 900), Vector2(0, 900)]), PackedColorArray([side, n, n, side]))
 		draw_polygon(PackedVector2Array([Vector2(1430, 0), Vector2(1600, 0), Vector2(1600, 900), Vector2(1430, 900)]), PackedColorArray([n, side, side, n]))
 		draw_rect(Rect2(0, 0, 1600, 900), Color(0.02, 0.03, 0.08, 0.12))
+
+
+static func coin_fly(from_pos: Vector2, target: Control, n := 8, icon := "coin") -> void:
+	## 보상 연출: 동전이 흩어졌다가 재화 표시로 빨려 들어가고, 표시가 톡 튄다
+	if target == null or not is_instance_valid(target) or not target.is_inside_tree():
+		return
+	var tree := target.get_tree()
+	var layer := CanvasLayer.new()
+	layer.layer = 115
+	tree.root.add_child(layer)
+	var to := target.get_global_rect().get_center()
+	for i in n:
+		var c := UIIcon.make(icon, 34)
+		c.position = from_pos - Vector2(17, 17)
+		layer.add_child(c)
+		var spread := from_pos + Vector2.from_angle(i * TAU / n + randf() * 0.5) * randf_range(40, 90) - Vector2(17, 17)
+		var tw := c.create_tween()
+		tw.tween_property(c, "position", spread, 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tw.tween_interval(0.05 + i * 0.035)
+		tw.tween_property(c, "position", to - Vector2(17, 17), 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+		tw.tween_callback(func():
+			Sfx.play("coin")
+			c.queue_free())
+	var pop := target.create_tween()
+	pop.tween_interval(0.62)
+	target.pivot_offset = target.size * 0.5
+	pop.tween_property(target, "scale", Vector2(1.25, 1.25), 0.08)
+	pop.tween_property(target, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK)
+	tree.create_timer(2.0).timeout.connect(layer.queue_free)

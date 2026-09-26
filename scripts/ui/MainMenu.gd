@@ -556,7 +556,7 @@ func _modes() -> Array:
 		{"id": "tower", "icon": "crown", "col": Color(0.7, 0.85, 1.0), "name": "결계의 탑",
 			"sub": ("최고 %d층 · 끝없는 도전" % Profile.tower_best()) if Profile.stage_unlocked("T1") else "스토리 4장을 깨면 열려요",
 			"go": "%d층 도전" % (Profile.tower_best() + 1)},
-		{"id": "solo", "icon": "star", "col": Color(1, 0.85, 0.35), "name": "무한 모드", "sub": "40라운드 생존 · 최고 R%d" % int(Profile.stats.get("best_round", 0)), "go": "전투 시작"},
+		{"id": "solo", "icon": "star", "col": Color(1, 0.85, 0.35), "name": "무한 모드", "sub": "%s · 보상 x%.1f · 최고 R%d" % [GameData.DIFFICULTIES[Session.difficulty]["name"], GameData.DIFFICULTIES[Session.difficulty]["reward"], int(Profile.stats.get("best_round", 0))], "go": "전투 시작"},
 		{"id": "coop", "icon": "heart", "col": Color(0.5, 0.95, 0.8), "name": "협동 · AI", "sub": "AI 동료와 함께 40라운드", "go": "전투 시작"},
 		{"id": "pvp", "icon": "attack", "col": Color(1, 0.5, 0.4), "name": "대전 · AI", "sub": "먼저 무너지면 패배", "go": "전투 시작"},
 	]
@@ -638,7 +638,38 @@ func _build_mode_cards() -> void:
 		_diff_row.add_child(b)
 		_diff_btns.append(b)
 	_set_diff(Session.bot_level)
+	# 무한 모드 난이도 (보통/어려움/지옥)
+	_endless_row = HBoxContainer.new()
+	_endless_row.position = Vector2(1020, 652)
+	_endless_row.add_theme_constant_override("separation", 8)
+	add_child(_endless_row)
+	Session.difficulty = int(Profile.settings.get("endless_diff", 0))
+	for di in GameData.DIFFICULTIES.size():
+		var dd: Dictionary = GameData.DIFFICULTIES[di]
+		var dix := di
+		var db := ActionButton.make("", Color.WHITE, "%s\n적 체력 x%.1f · 보상 x%.1f" % [dd["name"], dd["hp"], dd["reward"]], func(): _set_endless_diff(dix), Vector2(92, 72))
+		db.badge = dd["name"]
+		db.font_px = 22
+		db.tone = dd["color"].darkened(0.2)
+		_endless_row.add_child(db)
+		_endless_btns.append(db)
+	_set_endless_diff(Session.difficulty)
 	_cycle_mode(0)
+
+
+var _endless_row: HBoxContainer
+var _endless_btns: Array = []
+
+
+func _set_endless_diff(i: int) -> void:
+	Session.difficulty = i
+	if int(Profile.settings.get("endless_diff", 0)) != i:
+		Profile.set_setting("endless_diff", i)
+	for k in _endless_btns.size():
+		_endless_btns[k].selected = k == i
+		_endless_btns[k].queue_redraw()
+	if _mode_sub != null and _modes()[_mode_i]["id"] == "solo":
+		_mode_sub.text = _modes()[_mode_i]["sub"]
 
 
 func _cycle_mode(d: int) -> void:
@@ -652,6 +683,8 @@ func _cycle_mode(d: int) -> void:
 	_battle.badge = m["go"]
 	_battle.queue_redraw()
 	_diff_row.visible = m["id"] in ["coop", "pvp"]
+	if _endless_row != null:
+		_endless_row.visible = m["id"] == "solo"
 	if d != 0:
 		Sfx.play("tick")
 		UIKit.pop_in(_mode_name, 0.9)
@@ -763,6 +796,7 @@ func _refresh_idle() -> void:
 func _claim_idle() -> void:
 	if Profile.claim_idle() > 0:
 		Sfx.play("win")
+		UIKit.coin_fly(get_viewport().get_mouse_position(), _coin_lbl, 10)
 	_refresh_idle()
 
 
@@ -773,6 +807,7 @@ func _claim_idle_ad() -> void:
 func _grant_idle_double() -> void:
 	Profile.claim_idle(2)
 	Sfx.play("win")
+	UIKit.coin_fly(_idle_btn.get_global_rect().get_center(), _coin_lbl, 14)
 	_refresh_idle()
 
 
@@ -804,7 +839,6 @@ func _build_bottom() -> void:
 		b.tone = Color(0.95, 0.65, 0.12) if home else Color(0.16, 0.2, 0.38)
 		b.radius = 18
 		b.caption = tb[2]
-		b.badge = tb[2]
 		b.position = Vector2(i * w + 12, 766 if home else 786)
 		add_child(b)
 		if i == 1:
@@ -1013,7 +1047,7 @@ func _help_tab(key: String) -> void:
 			_help_cards([
 				["hammer", Color(1, 0.8, 0.4), "★ 강화", "★3 각성 · ★5 초월"],
 				["upgrade", Color(0.5, 1, 0.65), "등급 강화", "등급별 공격력 올리기"],
-				["gamble", Color(0.8, 0.55, 1), "도박", "보석으로 영웅·전설 도전"],
+				["gamble", Color(0.8, 0.55, 1), "운명 소환", "보석으로 영웅·전설에 도전"],
 				["synergy", Color(0.5, 0.85, 1), "시너지", "다른 종류를 모으면 발동"],
 			])
 		"mythic":

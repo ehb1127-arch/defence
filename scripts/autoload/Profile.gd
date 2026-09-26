@@ -650,6 +650,9 @@ func match_coins_preview(s: Dictionary) -> Dictionary:
 	if won and not s.get("online", false):
 		bonus = 0.1 * mini(streak + 1, 5)
 	c = int(c * (1.0 + bonus))
+	var diff := clampi(int(s.get("diff", 0)), 0, GameData.DIFFICULTIES.size() - 1)
+	if s.get("stage", "") == "" and s.get("mode", "solo") != "pvp" and not s.get("online", false):
+		c = int(c * float(GameData.DIFFICULTIES[diff]["reward"]))
 	if s.get("ad_double", false):
 		c *= 2
 	return {"coins": c, "streak_bonus": bonus}
@@ -691,7 +694,7 @@ func validate_summary(s: Dictionary) -> Dictionary:
 	var mode := str(s.get("mode", "solo"))
 	v["mode"] = mode if mode in ["solo", "coop", "pvp"] else "solo"
 	v["online"] = bool(s.get("online", false))
-	var wave := clampi(int(s.get("wave", 0)), 0, GameData.FINAL_WAVE + 5)
+	var wave := clampi(int(s.get("wave", 0)), 0, GameData.FINAL_WAVE + 40)   # 무한 모드 연장전 포함
 	var stage := str(s.get("stage", ""))
 	var won := bool(s.get("won", false))
 	if stage != "":
@@ -719,6 +722,7 @@ func validate_summary(s: Dictionary) -> Dictionary:
 	v["best_combo"] = clampi(int(s.get("best_combo", 0)), 0, kills)
 	v["max_star"] = clampi(int(s.get("max_star", 0)), 0, GameData.STAR_MAX)
 	v["mind_controls"] = clampi(int(s.get("mind_controls", 0)), 0, wave / 2 + 2)
+	v["diff"] = clampi(int(s.get("diff", 0)), 0, GameData.DIFFICULTIES.size() - 1) if stage == "" and v["mode"] != "pvp" and not v["online"] else 0
 	var ob: Array = []
 	for id in s.get("obtained", []):
 		if GameData.UNITS.has(str(id)) and not str(id) in ob:

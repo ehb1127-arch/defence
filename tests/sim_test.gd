@@ -7,9 +7,15 @@ func _ready() -> void:
 	var mode := args[0] if args.size() > 0 else "solo"
 	var level := int(args[1]) if args.size() > 1 else 1
 	var runs := int(args[2]) if args.size() > 2 else 3
+	_diff = int(args[3]) if args.size() > 3 else 0
+	_growth = float(args[4]) if args.size() > 4 else GameData.MOB_EXTRA_GROWTH
 	for r in runs:
 		_run(mode, level, 1000 + r)
 	get_tree().quit()
+
+
+var _diff := 0
+var _growth := 1.0
 
 
 func _run(mode: String, level: int, seed_v: int) -> void:
@@ -21,6 +27,9 @@ func _run(mode: String, level: int, seed_v: int) -> void:
 		b.setup(i, "Bot%d" % i, "solo" if mode.contains("-") else mode, seed_v, false, true)
 		if mode.contains("-"):
 			b.apply_stage(mode)
+		else:
+			b.difficulty = _diff
+			b.mob_growth = _growth
 		add_child(b)
 		boards.append(b)
 	for i in n:

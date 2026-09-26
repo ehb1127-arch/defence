@@ -254,6 +254,7 @@ func _iap_card(p: Dictionary) -> Control:
 func _on_purchase(id: String, ok: bool, msg: String) -> void:
 	if ok:
 		toast("%s 지급 완료!" % GameData.iap_product(id).get("name", id))
+		UIKit.coin_fly(Vector2(800, 450), _coin_lbl, 16)
 	elif msg != "":
 		toast(msg, false)
 
@@ -290,6 +291,7 @@ func _watch_ad_item() -> void:
 func _reward_coins() -> void:
 	if await Profile.request("ad_reward", ["shop_coins"]):
 		toast("코인 +%d" % GameData.AD_COINS)
+		UIKit.coin_fly(Vector2(800, 450), _coin_lbl, 10)
 
 
 func _reward_item() -> void:

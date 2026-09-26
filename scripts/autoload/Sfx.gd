@@ -27,6 +27,10 @@ func _ready() -> void:
 	_streams["alarm"] = _tone([600.0, 450.0], 0.09, 0.2, "square")
 	_streams["win"] = _tone([523.0, 659.0, 784.0, 1047.0], 0.12, 0.3, "square")
 	_streams["lose"] = _tone([392.0, 330.0, 262.0, 196.0], 0.18, 0.3, "saw")
+	_streams["click"] = _tone([1200.0], 0.025, 0.12, "sine")
+	_streams["heart"] = _tone([70.0, 58.0], 0.09, 0.55, "sine")
+	_streams["fever"] = _tone([523.0, 784.0, 1047.0, 1568.0, 2093.0], 0.05, 0.28, "square")
+	_streams["coin"] = _tone([1568.0, 2093.0], 0.03, 0.14, "sine")
 	for i in 8:
 		var p := AudioStreamPlayer.new()
 		p.volume_db = volume_db

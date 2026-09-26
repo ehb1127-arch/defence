@@ -14,8 +14,8 @@ const KEYS := [
 	},
 ]
 const KEY_HINTS := [
-	"키보드: WASD 이동 / Space 선택 / Q 소환 / E 합성 / R 영웅도박 / T 신화조합 / F %s / X 판매",
-	"키보드: 방향키 이동 / Enter 선택 / U 소환 / I 합성 / O 영웅도박 / P 신화조합 / L %s / K 판매",
+	"키보드: WASD 이동 / Space 선택 / Q 소환 / E 합성 / R 운명소환 / T 신화조합 / F %s / X 판매",
+	"키보드: 방향키 이동 / Enter 선택 / U 소환 / I 합성 / O 운명소환 / P 신화조합 / L %s / K 판매",
 ]
 
 var mode := "solo"
@@ -73,10 +73,23 @@ func _ready() -> void:
 	for i in n:
 		var other: Board = boards[1 - i] if n > 1 else null
 		bots.append(BotBrain.new(boards[i], other, Session.bot_level) if boards[i].is_bot else null)
+	# 이어하기: 같은 장의 다음 스테이지 / 탑 다음 층은 배치를 그대로 가져온다
+	var carry: Dictionary = Session.carry if Session.carry.get("stage", "") == Session.stage and Session.stage != "" else {}
+	Session.carry = {}
 	if Session.stage != "":
 		boards[0].apply_stage(Session.stage)
+	elif not Session.online and mode != "pvp":
+		for b in boards:
+			b.difficulty = clampi(Session.difficulty, 0, GameData.DIFFICULTIES.size() - 1)
 	_layout(ui)
-	_apply_loadout()
+	_apply_loadout(carry.is_empty())
+	if not carry.is_empty():
+		var st := Story.get_stage(Session.stage)
+		var gb := int(int(st["chapter"]["gold"]) * 0.4)
+		var gm := int(st["chapter"]["gems"]) / 2
+		boards[0].import_state(carry["state"], gb, gm)
+		boards[0].show_banner("이어하기!", "배치 유지 · 보급 +%dG +%d보석" % [gb, gm], Color(0.5, 1, 0.7))
+	_prev_best = int(Profile.stats.get("best_round", 0))
 	var st := Story.get_stage(Session.stage) if Session.stage != "" else {}
 	if not st.is_empty() and not st["data"].get("intro", []).is_empty() and not Profile.story_seen.has(Session.stage):
 		paused = true
@@ -295,7 +308,7 @@ func _start_tutorial(ui: CanvasLayer) -> void:
 		{"text": "소환 버튼을 눌러 유닛을 3번 뽑아보세요.\n(튜토리얼 동안 무료!)", "target": btn_rect.bind("summon"), "enter": give_free, "wait": three_units},
 		{"text": "유닛은 사각형 안 칸에서 사거리 안의 적을 자동 공격해요.\n칸을 눌러 선택 → 다른 칸을 눌러 이동!", "target": board_rect},
 		{"text": "같은 유닛 3마리가 한 칸에 모이면 반짝여요.\n합성 버튼으로 한 단계 높은 등급을 얻으세요!", "target": btn_rect.bind("merge"), "wait": merged},
-		{"text": "보석으로 도박, 골드로 럭키 슬롯!\n잭팟이 터지면 대박 보상이 쏟아집니다.", "target": btn_rect.bind("slot")},
+		{"text": "보석으로 운명 소환, 골드로 럭키 슬롯!\n잭팟이 터지면 대박 보상이 쏟아집니다.", "target": btn_rect.bind("slot")},
 		{"text": "강화로 공격력을 올리고,\n재료를 모아 신화 유닛을 조합하세요.", "target": btn_rect.bind("recipe")},
 		{"text": "10라운드마다 보스! 제한시간 안에 못 잡으면 바로 패배.\n남은 시간은 여기 상단에 표시됩니다.", "target": round_rect},
 	]
@@ -354,8 +367,14 @@ func _grant_ad_summon(hud: BoardHUD) -> void:
 	hud.board.show_banner("광고 보상!", "무료 소환 3회", Color(0.5, 0.8, 1.0))
 
 
-func _apply_loadout() -> void:
+var _prev_best := 0
+var _best_told := false
+var _overtime := false
+
+
+func _apply_loadout(consume_items := true) -> void:
 	## 상점 아이템/영구 강화 (대전·온라인 대전 제외, 로컬 첫 번째 사람 전장에만)
+	## 이어하기 판은 아이템을 다시 쓰지 않는다 (영구 강화·유닛 레벨만)
 	if mode == "pvp":
 		return
 	var target: Board = null
@@ -365,7 +384,7 @@ func _apply_loadout() -> void:
 			break
 	if target == null:
 		return
-	var items := Profile.take_loadout(mode)
+	var items: Array = Profile.take_loadout(mode) if consume_items else []
 	var notes := target.apply_loadout(items, Profile.perks, Profile.unit_levels)
 	if not notes.is_empty():
 		var names: Array = []
@@ -477,6 +496,12 @@ func _build_center_column(ui: CanvasLayer, rect: Rect2) -> void:
 func _process(delta: float) -> void:
 	var run := not paused and not over
 	var dt := delta * speed if run else 0.0
+	# 보스 처치 순간 잠깐 슬로 모션 (온라인은 동기화 때문에 제외)
+	if run and not Session.online:
+		for b in boards:
+			if b.slowmo_t > 0.0 and not b.is_remote:
+				dt *= 0.35
+				break
 	if run:
 		_time += dt
 	# 고정 간격으로 쪼개서 시뮬레이션 (배속에서도 안정적)
@@ -502,6 +527,7 @@ func _process(delta: float) -> void:
 			Net.send_snapshot(boards[Session.local_index].snapshot())
 	_update_center_label()
 	_update_peek()
+	_check_best_record()
 	if not over and not paused:
 		_ach_t -= delta
 		if _ach_t <= 0.0:
@@ -634,7 +660,10 @@ func _check_rules() -> void:
 					_finish(-1, "무승부!", true)
 		_:
 			var b: Board = boards[0]
-			if b.boss_failed:
+			if _overtime and (b.boss_failed or b.field_count() >= b.enemy_limit):
+				b.alive = false
+				_finish(0, "연장전 종료! ROUND %d 까지 버텼습니다" % b.wave, false)
+			elif b.boss_failed:
 				b.alive = false
 				_finish(-1, "패배... ROUND %d 보스를 제한시간 안에 잡지 못했습니다" % b.wave, false)
 			elif b.field_count() >= b.enemy_limit:
@@ -916,7 +945,7 @@ func _finish(winner: int, text: String, broadcast: bool) -> void:
 		Net.end_match()
 	var won := winner == -2 or (winner >= 0 and (not Session.online or winner == Session.local_index))
 	if mode == "solo":
-		won = winner == 0
+		won = winner == 0 or _overtime   # 연장전은 40라운드를 이미 넘었으므로 승리로 정산
 	_last_won = won
 	Sfx.play("win" if won else "lose")
 	var me := _local_board()
@@ -1182,10 +1211,18 @@ func _build_over_panel(text: String, won: bool, can_revive: bool) -> void:
 	if Session.stage != "" and won:
 		var nxt := Story.next_stage(Session.stage)
 		if nxt != "":
-			var nb := ActionButton.make("play", Color(1, 0.85, 0.35), "다음 스테이지 %s" % nxt, _go_stage.bind(nxt), Vector2(170, 96))
+			var carry_ok := _can_carry(nxt)
+			var nb := ActionButton.make("play", Color(1, 0.85, 0.35), ("이어서 다음 스테이지 %s\n배치·강화를 그대로 가져갑니다" if carry_ok else "다음 스테이지 %s") % nxt, _go_stage.bind(nxt), Vector2(190, 96))
 			nb.badge = ("%s층" % nxt.substr(1)) if nxt.begins_with("T") else ("악몽 " + nxt.substr(1) if nxt.begins_with("H") else nxt)
+			if carry_ok:
+				nb.badge = "이어서 " + nb.badge
 			nb.glow = true
 			h.add_child(nb)
+	if won and Session.stage == "" and mode == "solo" and not Session.online and not _overtime:
+		var cb := ActionButton.make("attack", Color(1, 0.7, 0.4), "계속 도전 (연장전)\n41라운드부터 끝없이! 최고 기록에 도전", _continue_endless, Vector2(190, 96))
+		cb.badge = "연장전"
+		cb.glow = true
+		h.add_child(cb)
 	if not Session.online:
 		h.add_child(ActionButton.make("back" if Session.stage != "" else "play", Color(0.5, 1.0, 0.6), "다시 하기", _restart, bsz))
 	h.add_child(ActionButton.make("home", Color(0.85, 0.9, 1.0), "방으로 (재대결)" if Session.online and Net.connected else "메인 메뉴", _to_menu, bsz))
@@ -1225,7 +1262,45 @@ func _near_miss_label(me: Board) -> Label:
 
 func _go_stage(id: String) -> void:
 	_give_coins(1)
+	if _can_carry(id):
+		Session.carry = {"stage": id, "state": _local_board().export_state()}
 	Campaign.start_stage(id, get_tree())
+
+
+func _check_best_record() -> void:
+	## 무한 모드: 개인 최고 기록을 넘는 순간 크게 알림 (승부욕)
+	if _best_told or Session.stage != "" or Session.online or mode == "pvp" or _prev_best <= 0:
+		return
+	var me := _local_board()
+	if me.wave > _prev_best:
+		_best_told = true
+		me.show_banner("최고 기록 갱신!!", "이전 최고 R%d → 지금 R%d" % [_prev_best, me.wave], Color(1, 0.85, 0.3))
+		Sfx.play("fever")
+
+
+func _continue_endless() -> void:
+	## 무한 모드 40라운드 승리 후 연장전: 끝까지 버티며 최고 기록 도전 (41라운드부터 적이 급격히 강해짐)
+	var holder: Node = _over_panel.get_meta("holder")
+	holder.queue_free()
+	_over_panel = null
+	_overtime = true
+	over = false
+	_coins_given = false
+	var me := _local_board()
+	me.final_wave = 9999
+	me.final_cleared_flag = false
+	me.show_banner("연장전 돌입!", "어디까지 버틸 수 있을까? (보상은 끝날 때 한 번에)", Color(1, 0.5, 0.3))
+
+
+func _can_carry(next_id: String) -> bool:
+	## 이긴 뒤 같은 장의 다음 스테이지(보통/악몽)나 탑 다음 층이면 배치 유지
+	if not _last_won or Session.stage == "" or next_id == "":
+		return false
+	if Session.stage.begins_with("T"):
+		return next_id.begins_with("T")
+	if Session.stage.begins_with("D"):
+		return false
+	return Story.chapter_of(Session.stage) == Story.chapter_of(next_id) and Session.stage.begins_with("H") == next_id.begins_with("H")
 
 
 func _restart() -> void:
@@ -1279,7 +1354,7 @@ func _match_summary() -> Dictionary:
 		"wave": me.wave, "kills": me.kills, "stars": me.stage_stars() if _last_won else 0,
 		"merges_done": me.merges_done, "mythics_done": me.mythics_done, "bosses_killed": me.bosses_killed,
 		"interrupts": me.interrupts, "slot_jackpots": me.slot_jackpots, "best_combo": me.best_combo,
-		"max_star": me.max_star, "obtained": ob, "ad_double": _ad_double_used, "mind_controls": me.mind_controls,
+		"max_star": me.max_star, "obtained": ob, "ad_double": _ad_double_used, "mind_controls": me.mind_controls, "diff": me.difficulty,
 	}
 
 

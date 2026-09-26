@@ -70,7 +70,7 @@ func _think() -> void:
 		if tgt != null and tgt.kind in ["midboss", "hero"]:
 			b.mind_control()
 			return
-	# 도박
+	# 운명 소환
 	if level >= 1:
 		if b.gems >= 4 and b.wave >= 6:
 			if b.gamble(1):

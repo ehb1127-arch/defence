@@ -65,7 +65,7 @@
 | `icons/coin.png` | 코인(상점 재화) |
 | `icons/summon.png` | 소환 |
 | `icons/merge.png` | 합성 |
-| `icons/gamble.png` | 도박 |
+| `icons/gamble.png` | 운명 소환 |
 | `icons/upgrade.png` | 강화 |
 | `icons/luck.png` | 소환 행운 |
 | `icons/recipe.png` | 신화 조합 / 게임 방법 |
@@ -126,7 +126,7 @@
 | `ui/button_disabled.png` | 버튼 비활성 |
 | `ui/hud_panel.png` | 조작 패널 배경 |
 | `ui/hud_inner.png` | 조작 패널 안쪽 칸(선택 카드, 조합표) |
-| `ui/sheet_panel.png` | 도박/강화/조합 팝업 |
+| `ui/sheet_panel.png` | 운명 소환/강화/조합 팝업 |
 | `ui/result_panel.png` | 결과 화면 |
 | `ui/popup_panel.png` | 메인 메뉴 팝업 창 (온라인·설정·업적·랭킹 등) |
 | `ui/card.png` | 상점 카드 |

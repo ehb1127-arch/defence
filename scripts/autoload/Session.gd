@@ -7,6 +7,8 @@ var online := false
 var local_index := 0
 var seed_value := 0
 var bot_level := 1                # 0 쉬움 / 1 보통 / 2 어려움
+var difficulty := 0               # 무한 모드 난이도 (GameData.DIFFICULTIES)
+var carry: Dictionary = {}        # 이어하기: {stage, state} - 다음 스테이지/층에 배치 유지
 var player_name := "플레이어"
 var tutorial := false             # 다음 솔로 판에서 튜토리얼 표시
 var stage := ""                   # 스토리 스테이지 id ("" = 무한 모드)

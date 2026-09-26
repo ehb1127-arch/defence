@@ -44,8 +44,10 @@ var phase2 := false
 var freeze_t := 0.0             # 빙결 (표시용)
 # 적 영웅
 var hero := ""                  # 적 영웅 종류 id (thief/shaman/berserker/warlord)
+var art := ""                   # 전용 그림 키: art/enemies/<art>.png (없으면 종류 그림)
 var lap := 0                    # 도적: 몇 바퀴 돌았나
 var skill_t := 0.0              # 주술사/장군: 능력 주기
+var dash_t := 5.0               # 적 영웅 돌진 주기
 
 
 func setup(k: String, base_hp: float) -> void:

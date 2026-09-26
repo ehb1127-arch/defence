@@ -64,6 +64,9 @@ func set_tone(c: Color) -> void:
 
 
 func _on_down() -> void:
+	if not disabled:
+		Sfx.play("click")
+		Platform.vibrate(8)
 	var tw := create_tween()
 	tw.tween_property(self, "scale", Vector2(0.94, 0.94), 0.06)
 
